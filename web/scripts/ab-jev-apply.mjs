@@ -145,6 +145,33 @@ function answersFromProfile(profile) {
     push("Will you now or in the future require visa sponsorship?", answer);
     push("Do you require sponsorship?", answer);
   }
+  // PT-BR label aliases (Brazilian ATS forms carry Portuguese labels for the
+  // same values English forms use). The substring matcher is two-directional,
+  // so one alias per field is enough to bind.
+  push("Cidade", c.location);
+  push("Cidade atual", c.location);
+  push("Localizacao", c.location);
+  push("Localização", c.location);
+  push("Celular", c.phone);
+  push("Celular com DDD", c.phone);
+  push("Telefone", c.phone);
+  // Country-code dropdown: a DISTINCT value so the substring rule can't misbind
+  // "phone country" to the full phone number.
+  push("Phone Country", c.phone_country);
+  push("Country Code", c.phone_country);
+  push("Codigo do pais", c.phone_country);
+  push("Código do país", c.phone_country);
+  // Privacy-consent checkbox: value from profile.application_answers.consent.
+  const consent = profile?.application_answers?.consent || {};
+  if (consent.required) {
+    const v = String(consent.required).toLowerCase() === "accept" ? "accept" : String(consent.required);
+    push("Consent", v);
+    push("Concordo", v);
+    push("Aceitar", v);
+    push("Politica de Privacidade", v);
+    push("Política de Privacidade", v);
+    push("Privacy Policy", v);
+  }
   return out;
 }
 
