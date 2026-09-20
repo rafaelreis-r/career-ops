@@ -73,7 +73,7 @@ Three files conflict on almost every rebase; resolve them as follows.
 
 | File | Fork side to keep |
 |---|---|
-| `update-system.mjs` | `CANONICAL_SLUG` block (replaces the three hardcoded URLs and the ref URL); the `Fork-owned` entries in `SYSTEM_PATHS` (`jev-ag-eval.mjs`, `jev-pregate.mjs`, `lib/jev-client.mjs`, `web/`). |
+| `update-system.mjs` | `CANONICAL_SLUG` block (replaces the three hardcoded URLs and the ref URL); the `Fork-owned` entries in `SYSTEM_PATHS` (`jev-ag-eval.mjs`, `jev-pregate.mjs`, `lib/jev-client.mjs`, `lib/apply-route.mjs`, `lib/jev-apply-helpers.mjs`, `web/`); and `modes/apply-llm-owned.md`. |
 | `jd-skill-gap.mjs` | The `jev-client` import beside upstream's imports; the `jevChoice` call and `isJevEnabled` gate in the skill-gap scorer. |
 | `web/src/lib/apply/drive.ts` | The `jev-drive` import and `DriveResult` re-export; the `isJevDriveEnabled()` branch that delegates to `driveSessionJev`. Keep upstream's spawn helper. |
 
@@ -87,6 +87,12 @@ Keep these across rebases; each exists for a reason.
   separate release component. The Jev apply driver
   (`web/src/lib/apply/jev-drive*.{ts,mjs}`, `web/scripts/arm1-jev-agentbrowser.mjs`)
   lives there and has to reach the tracks.
+- **LLM-owned apply path.** `lib/apply-route.mjs`, `lib/jev-apply-helpers.mjs`,
+  `web/scripts/jev-apply.mjs`, and `modes/apply-llm-owned.md` are the
+  "LLM owning, Jev helping" apply path. Route is a pure function of the job URL
+  and `FAST_HOSTS` (initially only `applytojob.com`); a dispatched worker on
+  `apply-llm-owned` submits once after the ready gate. Interactive `apply` still
+  never submits.
 - **`agent-browser` and `jev-agent-browser` are declared in `web/package.json`.**
   Installed with `--no-save`, the next `npm install` pruned them.
 - **`import * as yaml from "js-yaml"`** in the Jev scripts. js-yaml 5 is ESM with
@@ -120,7 +126,7 @@ filter in `scan.mjs` (no `profile.yml` sets it), `title_filter_overrides`
 ## Verifying the three tracks are in sync
 
 ```sh
-for f in update-system.mjs lib/jev-client.mjs web/src/lib/apply/drive.ts web/package.json; do
+for f in update-system.mjs lib/jev-client.mjs lib/apply-route.mjs lib/jev-apply-helpers.mjs web/src/lib/apply/drive.ts web/package.json; do
   md5sum ~/dev/career-ops/$f ~/dev/career-ops-product/$f ~/dev/career-ops-ops/$f ~/dev/career-ops-fork/$f
 done
 node update-system.mjs check   # in any track: "status":"up-to-date"

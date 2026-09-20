@@ -98,6 +98,7 @@ These files contain system logic, scripts, templates, and instructions that impr
 | `modes/scan.md` | Portal scanner instructions |
 | `modes/batch.md` | Batch processing instructions |
 | `modes/apply.md` | Application assistant instructions |
+| `modes/apply-llm-owned.md` | Dispatched LLM-owned apply worker instructions |
 | `modes/auto-pipeline.md` | Auto-pipeline instructions |
 | `modes/contacto.md` | LinkedIn outreach instructions |
 | `modes/email.md` | Formal application email draft instructions |
