@@ -225,40 +225,56 @@ test('readyToSubmit: false when a required field is empty — deterministic, no 
     ],
   }, { jev, threshold: T });
   assert.equal(res.ready, false);
+  assert.equal(res.abstained, false);
   assert.equal(jev.calls.length, 0);
 });
 
-test('readyToSubmit: all required filled + consistent answers ready', async () => {
+test('readyToSubmit: confident consistent answer is ready, not abstained', async () => {
   const jev = stubNoul({ enabled: true, probability: 0.95 });
   const res = await readyToSubmit({
     fields: [{ label: 'Email', required: true, value: 'you@example.com' }],
   }, { jev, threshold: T });
   assert.equal(res.ready, true);
+  assert.equal(res.abstained, false);
 });
 
-test('readyToSubmit: filled but inconsistent is not ready', async () => {
+test('readyToSubmit: confident inconsistent answer is not ready, not abstained', async () => {
   const jev = stubNoul({ enabled: true, probability: 0.1 });
   const res = await readyToSubmit({
     fields: [{ label: 'Email', required: true, value: 'you@example.com' }],
   }, { jev, threshold: T });
   assert.equal(res.ready, false);
+  assert.equal(res.abstained, false);
 });
 
-test('readyToSubmit: a disabled client falls back to the deterministic floor', async () => {
+test('readyToSubmit: a below-threshold (abstained) answer does not block — the deterministic floor already passed', async () => {
+  // probability near 0.5 -> noulConfidence < T=0.6, so Jev made no decision.
+  const jev = stubNoul({ enabled: true, probability: 0.55 });
+  const res = await readyToSubmit({
+    fields: [{ label: 'Email', required: true, value: 'you@example.com' }],
+  }, { jev, threshold: T });
+  assert.equal(res.ready, true);
+  assert.equal(res.abstained, true);
+  assert.equal(res.error, null);
+});
+
+test('readyToSubmit: a disabled client falls back to the deterministic floor, unchanged, and reports abstained', async () => {
   const jev = stubNoul({ enabled: false, probability: null });
   const res = await readyToSubmit({
     fields: [{ label: 'Email', required: true, value: 'you@example.com' }],
   }, { jev, threshold: T });
   assert.equal(res.ready, true);
+  assert.equal(res.abstained, true);
   assert.equal(res.error, null);
 });
 
-test('readyToSubmit: a transport error reports not-ready with the error', async () => {
+test('readyToSubmit: a transport error reports not-ready with the error, and abstained', async () => {
   const jev = stubNoul({ enabled: true, probability: null, error: 'Jev HTTP 503' });
   const res = await readyToSubmit({
     fields: [{ label: 'Email', required: true, value: 'you@example.com' }],
   }, { jev, threshold: T });
   assert.equal(res.ready, false);
+  assert.equal(res.abstained, true);
   assert.equal(res.error, 'Jev HTTP 503');
 });
 

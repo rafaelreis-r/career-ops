@@ -14,8 +14,8 @@
 //       input:  {"options":[...],"label":"...","desiredValue":"..."}
 //   jev-apply.mjs bool   [--input <json>]  -> {"bool":true|false|null,"confidence":n,"probability":p|null}
 //       input:  {"question":"..."}
-//   jev-apply.mjs ready  [--input <json>]  -> {"ready":true|false,"confidence":n}
-//       input:  {"fields":[{"label","required","value"}, ...]}
+//   jev-apply.mjs ready  [--input <json>]  -> {"ready":true|false,"confidence":n,"abstained":bool}
+//       input:  {"fields":[{"label","required","value"}, ...],"profileFacts":<optional>}
 //   jev-apply.mjs block  [--input <json>]  -> {"block":<class>|null,"confidence":n}
 //       input:  {"pageState":{...}}  (or the whole JSON object is the page state)
 //
@@ -164,15 +164,20 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   if (cmd === 'ready') {
-    const profile = await loadProfile();
     const fields = Array.isArray(input.fields) ? input.fields : (Array.isArray(input) ? input : []);
-    const res = await readyToSubmit({ fields, profileFacts: profileFactsFromConfig(profile) });
+    let profileFacts = input.profileFacts;
+    if (profileFacts === undefined) {
+      const profile = await loadProfile();
+      const { answersFromProfile } = await import('./ab-jev-apply.mjs');
+      profileFacts = profile ? answersFromProfile(profile) : [];
+    }
+    const res = await readyToSubmit({ fields, profileFacts });
     if (res.error) {
       process.stderr.write(`jev transport error: ${res.error}\n`);
       process.exitCode = 2;
       return;
     }
-    emit({ ready: res.ready, confidence: res.confidence });
+    emit({ ready: res.ready, confidence: res.confidence, abstained: res.abstained });
     return;
   }
 

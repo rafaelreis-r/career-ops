@@ -79,10 +79,16 @@ Before clicking the real submit control, assemble the current form state and pas
 ```bash
 echo '{"fields":[{"label":"Email","required":true,"value":"you@example.com"},{"label":"Phone","required":true,"value":"+1 555 0100"}]}' \
   | node web/scripts/jev-apply.mjs ready
-# -> {"ready":true,"confidence":0.9}
+# -> {"ready":true,"confidence":0.9,"abstained":false}
 ```
 
-`ready` is a hard gate: it returns `false` whenever any required field is empty (deterministic, no Jev call), and otherwise asks Jev whether every filled value is consistent with the profile. **Do not submit on `ready:false`.** Fix the missing/inconsistent field, or report filled-blocked and stop.
+`ready` is a hard gate: it returns `false` whenever any required field is empty (deterministic, no Jev call). Once every required field is filled, it asks Jev whether the filled values are consistent with the profile (attaching the candidate's canonical answers automatically when the input has no `profileFacts` of its own), and the answer falls into one of three outcomes:
+
+- **Confident consistent** — `ready:true`, `abstained:false`.
+- **Confident inconsistent** — `ready:false`, `abstained:false`. Fix the flagged field, or report filled-blocked and stop.
+- **Abstained** (Jev's confidence was below threshold, Jev is disabled, or the call hit a malformed answer) — `ready:true`, `abstained:true`. `abstained:true` means "Jev did not judge; the deterministic floor passed" — this is not a reason to withhold submit.
+
+A real transport error is reported separately: non-zero exit with the error, never folded into `ready`. **Do not submit on `ready:false`.**
 
 ## Step 3 — Classify any block, stop on anything but ok
 
