@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<!-- career-ops-template
+name: Perfiltech Spec Sheet
+version: 1.0.0
+-->
+<html lang="{{LANG}}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{NAME}} — CV</title>
+<style>
+  /* Perfiltech spec-sheet look (from dev/perfiltech/site/cv/cv.html):
+     system Helvetica + ui-monospace labels — no bundled webfonts, so PDF text
+     extraction stays clean for ATS keyword parsing (see zh-minimal note). */
+  @page { size: A4; margin: 0; }
+  :root {
+    /* real @page margins so page 2+ keeps a top margin — generate-pdf.mjs
+       reads this var; .page padding must stay 0 or margins double up */
+    --page-margin: 10mm 14mm;
+    --paper: #FFFFFF;
+    --ink: #171717;
+    --quiet: #52524C;
+    --rule: #C2C2BA;
+    --soft: #E4E4DD;
+    --accent: #A8510A;
+  }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    /* Helvetica Neue substitutes fi/fl/ffi pairs with the Unicode glyphs
+       U+FB01/FB02/FB03 at PDF layout time, and PDF text extractors (what ATS
+       systems read) decode them back to those codepoints, so "Cloudflare"
+       becomes "Cloudﬂare" and a literal keyword search misses it. Same rule as
+       cv-template.html. Required ligatures (rlig) stay on. */
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "clig" 0, "dlig" 0;
+  }
+  html, body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 9.6pt/1.34 "Helvetica Neue", Helvetica, Arial, sans-serif;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .page {
+    max-width: {{PAGE_WIDTH}};
+    margin: 0 auto;
+    padding: 0;
+    counter-reset: sec;
+  }
+  @media screen {
+    .page { padding: 11mm 14mm; }
+  }
+
+  /* ---------- Header ---------- */
+  .header { border-bottom: 2.5px solid var(--ink); padding-bottom: 4mm; margin-bottom: 4.5mm; }
+  h1 {
+    font-size: 26pt;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    text-transform: uppercase;
+    line-height: 1;
+  }
+  h1 .dot { color: var(--accent); }
+  .header-gradient { display: none; }
+  .contact-row {
+    margin-top: 2.5mm;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 8.4pt;
+    color: var(--ink);
+  }
+  .contact-row a { color: var(--ink); text-decoration: none; }
+  .contact-row .separator { color: var(--rule); padding: 0 1.5mm; }
+
+  .cv-photo { float: right; width: 25mm; margin: 0 0 2mm 4mm; }
+  .cv-photo--rounded { border-radius: 2mm; }
+  .cv-photo--circle { border-radius: 50%; }
+  .cv-photo--square { border-radius: 0; }
+
+  /* ---------- Section scaffolding ---------- */
+  .section { margin-bottom: 3.4mm; }
+  .section-title {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 8.6pt;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    border-bottom: 1.5px solid var(--ink);
+    padding-bottom: 1.2mm;
+    margin: 3.4mm 0 2.4mm;
+  }
+  .section-title::before {
+    counter-increment: sec;
+    content: counter(sec, decimal-leading-zero);
+    color: var(--accent);
+    margin-right: 2mm;
+  }
+
+  /* ---------- Summary ---------- */
+  .summary-text { font-size: 9.8pt; }
+
+  /* ---------- Competencies (spec-sheet chips) ---------- */
+  .competencies-grid { display: flex; flex-wrap: wrap; gap: 1.6mm; }
+  .competency-tag {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 7.6pt;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border: 1px solid var(--ink);
+    padding: 1mm 2.2mm;
+    white-space: nowrap;
+  }
+
+  /* ---------- Experience ---------- */
+  .job { margin-bottom: 2.8mm; break-inside: avoid; }
+  .job-header { display: flex; justify-content: space-between; align-items: baseline; gap: 4mm; }
+  .job-company { font-size: 10.8pt; font-weight: 700; }
+  .job-period {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 8pt;
+    color: var(--quiet);
+    white-space: nowrap;
+  }
+  .job-role { font-size: 9.2pt; color: var(--quiet); margin: 0.6mm 0 1.6mm; }
+  .job-location {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 8pt;
+    color: var(--quiet);
+    margin-bottom: 0.6mm;
+  }
+  ul { list-style: none; margin: 0; }
+  ul li { padding-left: 4.5mm; position: relative; margin-bottom: 0.8mm; font-size: 9.3pt; }
+  ul li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 1.9mm;
+    width: 1.8mm;
+    height: 1.8mm;
+    background: var(--accent);
+  }
+
+  /* ---------- Projects ---------- */
+  .project { margin-bottom: 2.8mm; break-inside: avoid; }
+  .project-title { font-size: 10pt; font-weight: 700; }
+  .project-badge {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 7pt;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 0.4mm 1.6mm;
+    margin-left: 2mm;
+    vertical-align: middle;
+  }
+  .project-desc { font-size: 9.4pt; margin-top: 0.6mm; }
+  .project-tech {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 7.6pt;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--quiet);
+    margin-top: 0.8mm;
+  }
+
+  /* ---------- Skills ---------- */
+  .skills-grid { display: block; }
+  .skill-item { margin-bottom: 1.8mm; font-size: 9.4pt; }
+  .skill-category {
+    display: block;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 7.6pt;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--quiet);
+    margin-bottom: 0.6mm;
+  }
+
+  /* ---------- Education / Certifications / Awards ---------- */
+  .edu-item { margin-bottom: 2.6mm; break-inside: avoid; }
+  .edu-header { display: flex; justify-content: space-between; align-items: baseline; gap: 4mm; }
+  .edu-title { font-size: 9.8pt; font-weight: 700; }
+  .edu-org { font-weight: 400; color: var(--quiet); }
+  .edu-year {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 8pt;
+    color: var(--quiet);
+    white-space: nowrap;
+  }
+  .edu-desc { font-size: 9pt; color: var(--quiet); margin-top: 0.4mm; }
+
+  .cert-table, .award-table { display: block; }
+  .cert-item, .award-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 4mm;
+    margin-bottom: 1.2mm;
+    font-size: 9.4pt;
+  }
+  .cert-title, .award-title { font-weight: 700; }
+  .cert-org, .award-org { color: var(--quiet); flex: 1; }
+  .cert-year, .award-year {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 8pt;
+    color: var(--quiet);
+    white-space: nowrap;
+  }
+
+  @media print {
+    .page { max-width: none; }
+    .job, .project, .edu-item { break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  {{PHOTO}}
+  <!-- HEADER -->
+  <div class="header">
+    <h1>{{NAME}}<span class="dot">.</span></h1>
+    <div class="header-gradient"></div>
+    <div class="contact-row">
+      <a href="tel:{{PHONE}}">{{PHONE}}</a>
+      <span class="separator">|</span>
+      <a href="mailto:{{EMAIL}}">{{EMAIL}}</a>
+      <span class="separator">|</span>
+      <a href="{{LINKEDIN_URL}}">{{LINKEDIN_DISPLAY}}</a>
+      <span class="separator">|</span>
+      <a href="{{PORTFOLIO_URL}}">{{PORTFOLIO_DISPLAY}}</a>
+      <span class="separator">|</span>
+      <span>{{LOCATION}}</span>
+    </div>
+  </div>
+
+  <!-- PROFESSIONAL SUMMARY -->
+  <div class="section">
+    <div class="section-title">{{SECTION_SUMMARY}}</div>
+    <div class="summary-text">{{SUMMARY_TEXT}}</div>
+  </div>
+
+  <!-- CORE COMPETENCIES -->
+  <div class="section">
+    <div class="section-title">{{SECTION_COMPETENCIES}}</div>
+    <div class="competencies-grid">
+      {{COMPETENCIES}}
+    </div>
+  </div>
+
+  <!-- WORK EXPERIENCE -->
+  <div class="section">
+    <div class="section-title">{{SECTION_EXPERIENCE}}</div>
+    {{EXPERIENCE}}
+  </div>
+
+  <!-- PROJECTS -->
+  <div class="section">
+    <div class="section-title">{{SECTION_PROJECTS}}</div>
+    {{PROJECTS}}
+  </div>
+
+  <!-- SKILLS -->
+  <div class="section">
+    <div class="section-title">{{SECTION_SKILLS}}</div>
+    {{SKILLS}}
+  </div>
+
+  <!-- EDUCATION -->
+  <div class="section">
+    <div class="section-title">{{SECTION_EDUCATION}}</div>
+    {{EDUCATION}}
+  </div>
+
+  <!-- CERTIFICATIONS -->
+  <div class="section">
+    <div class="section-title">{{SECTION_CERTIFICATIONS}}</div>
+    <div class="cert-table">{{CERTIFICATIONS}}</div>
+  </div>
+
+  <!-- AWARDS -->
+  <div class="section">
+    <div class="section-title">{{SECTION_AWARDS}}</div>
+    <div class="award-table">{{AWARDS}}</div>
+  </div>
+
+</div>
+</body>
+</html>

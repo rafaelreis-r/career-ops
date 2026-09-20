@@ -782,6 +782,18 @@ process_offer() {
   # could pre-create it as a symlink and redirect or clobber the write.
   local jd_file
   jd_file="$(mktemp "${TMPDIR:-/tmp}/batch-jd-${id}.XXXXXX")"
+  # If notes carries `jd=jds/...`, seed the temp file so headless workers
+  # (--strict-mcp-config, no browser) can evaluate without fetching LinkedIn.
+  if [[ "$notes" == *"jd="* ]]; then
+    local jd_rel="${notes#*jd=}"
+    jd_rel="${jd_rel%% *}"
+    jd_rel="${jd_rel%%$'\r'}"
+    if [[ -f "$PROJECT_DIR/$jd_rel" ]]; then
+      cp "$PROJECT_DIR/$jd_rel" "$jd_file"
+    fi
+  fi
+  # A locally archived JD wins; only prefetch from the network when nothing was seeded.
+  if [[ ! -s "$jd_file" ]]; then
   # The worker is a native process. Under Git Bash / MSYS the path above is a
   # POSIX one (/tmp/... or /c/...) that a Windows binary cannot open, so every
   # worker read "JD source unavailable" even when curl had filled the file.
@@ -904,6 +916,8 @@ process_offer() {
         echo "    ℹ️  JD prefetch: ${jd_prefetch_words} words written to JD file"
       fi
   fi
+  fi
+
 
   echo "--- Processing offer #$id: $url (report $report_num, attempt $((retries + 1)))"
 
@@ -1057,8 +1071,8 @@ process_offer() {
     break
   done
 
-  # Cleanup resolved prompt and pre-fetched JD file
-  rm -f "$resolved_prompt" "$jd_file"
+  # Cleanup resolved prompt
+  rm -f "$resolved_prompt"
 
   local completed_at
   completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)

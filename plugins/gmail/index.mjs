@@ -14,7 +14,9 @@
 // `search://` rows are emitted (they aren't real URLs the pipeline can open).
 //
 // Enable in config/plugins.yml:
-//   gmail: { enabled: true, label: "Job Leads", days_back: 7 }
+//   gmail: { enabled: true, label: "Job Leads", days_back: 7, senders: ["info@alerts.example"] }
+// `senders` (optional) matches job-alert mail by From: address regardless of
+// how Gmail labelled it; the label and the senders are OR'd in the query.
 // Add to .env: GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN.
 // Run:  node plugins.mjs run gmail
 
@@ -78,6 +80,10 @@ export default {
     }
 
     const label = ctx?.settings?.label || 'Job Leads';
+    const senders = ctx?.settings?.senders ?? [];
+    if (!Array.isArray(senders) || senders.some(s => typeof s !== 'string' || !s.trim())) {
+      throw new Error('gmail: invalid senders (must be a list of non-empty From: addresses or domains)');
+    }
     const daysBack = Number(ctx?.settings?.days_back ?? 7);
     if (!Number.isInteger(daysBack) || daysBack <= 0) {
       throw new Error(`gmail: invalid days_back "${ctx?.settings?.days_back}" (must be a positive integer)`);
@@ -85,7 +91,9 @@ export default {
 
     const token = await getAccessToken({ clientId, clientSecret, refreshToken }, ctx.fetch);
     const auth = { Authorization: `Bearer ${token}` };
-    const query = `label:"${label}" newer_than:${daysBack}d`;
+    const terms = [`label:"${label}"`, ...senders.map(s => `from:${s.trim()}`)];
+    const scope = terms.length > 1 ? `(${terms.join(' OR ')})` : terms[0];
+    const query = `${scope} newer_than:${daysBack}d`;
     ctx.log(`gmail: querying ${query}`);
 
     // List message ids (paginated). ctx.fetch throws on a non-2xx (with the body

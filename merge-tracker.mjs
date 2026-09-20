@@ -1360,6 +1360,16 @@ for (const file of tsvFiles) {
   const content = readFileSync(join(ADDITIONS_DIR, file), 'utf-8');
   const addition = parseTsvContent(content, file);
   if (!addition) { skipped++; continue; }
+  // A row whose Company or Role parsed blank is a column-shift symptom (a TSV
+  // that does not actually match the contract it claims): every downstream
+  // field reads one column off, and a duplicate check against an empty company
+  // is meaningless. Same handling as the other parse-contract failures above:
+  // warn, skip, archive (2026-09-02).
+  if (!String(addition.company ?? '').trim() || !String(addition.role ?? '').trim()) {
+    console.warn(`⚠️  Skipping ${file}: Company or Role is blank after parsing — the cells are shifted or the header does not match the values`);
+    skipped++;
+    continue;
+  }
 
   // A via= tag can only be stored if the tracker has a Via column — warn
   // instead of dropping the channel silently (#1596). Clear the value too:
@@ -1572,8 +1582,25 @@ for (const file of tsvFiles) {
       if (additionReqNum && appReqNum && additionReqNum !== appReqNum) return false;
       return true;
     };
-    duplicate = existingApps.find(app => fuzzyTierMatch(app, false))
-      || existingApps.find(app => fuzzyTierMatch(app, true));
+    // Collect EVERY candidate of the pass that fires instead of taking the
+    // first: array order is not evidence of which row is right, and merging
+    // into the wrong one overwrites a row with unrelated data in a tracker that
+    // is gitignored with no backup. Nine same-day CI&T postings (2026-09-02)
+    // made "Master Generative AI Developer" fuzzy-match two distinct rows; the
+    // old `.find()` silently picked the first. Only a SECOND candidate that
+    // matches THIS addition is proof the pairing is a guess, so the run skips
+    // the file and asks for a req number rather than corrupting a row.
+    let tier3Candidates = existingApps.filter(app => fuzzyTierMatch(app, false));
+    if (tier3Candidates.length === 0) tier3Candidates = existingApps.filter(app => fuzzyTierMatch(app, true));
+    if (tier3Candidates.length > 1) {
+      console.error(
+        `❌ Skipping ${file}: ${tier3Candidates.length} existing rows fuzzy-match "${addition.role}" at ${addition.company} `
+        + `(#${tier3Candidates.map(c => c.num).join(', #')}) — add a req/job number to Notes on both sides so the right one can be identified`,
+      );
+      failedAdditions.push(file);
+      continue;
+    }
+    duplicate = tier3Candidates[0];
   }
 
   if (duplicate) {

@@ -1,7 +1,11 @@
 // @ts-check
-// Pure, side-effect-free Gmail helpers. Ported verbatim from the gmail-helpers
+// Pure, side-effect-free Gmail helpers. Ported from the gmail-helpers
 // contributed by @SparshGarg999 in #1203 (with thanks). Files prefixed with _
 // are never discovered as plugins.
+//
+// Local deviation from the upstream port (security/compat fix): isCleanUrl below
+// filters LinkedIn CDN hosts and notification-only routes, and stops the keyword
+// scan from discarding real job URLs whose query string carries tracking params.
 
 /**
  * Extract all http/https URLs from a string (plain text or HTML). Normalizes
@@ -21,12 +25,32 @@ export function extractUrls(body) {
   return [...new Set(urls)];
 }
 
-/** File types that are page furniture (logos, webfonts, media), never a posting. */
-const ASSET_EXT_RE =
-  /\.(jpe?g|png|gif|svg|webp|avif|ico|bmp|tiff?|css|js|mjs|woff2?|ttf|otf|eot|mp4|webm|mp3|wav)(\?|#|$)/i;
+/** LinkedIn's CDN: images, JS, tracking pixels — never a job posting. */
+const LICDN_HOST = /(^|\.)licdn\.com$/;
 
-/** Subdomains that only ever serve static files. */
-const ASSET_HOST_PREFIXES = ['cdn.', 'static.', 'assets.', 'img.', 'images.', 'media.'];
+/** Static-asset hosts that only ever serve logos and pixels, never a posting. */
+const ASSET_HOSTS = [/(^|\.)cloudinary\.com$/, /\.blob\.core\.windows\.net$/, /(^|\.)cloudfront\.net$/];
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|ico|bmp)$/i;
+
+/**
+ * LinkedIn routes that only ever carry navigation or telemetry, never a posting.
+ * Matched as path prefixes so a query string cannot smuggle one past the gate.
+ */
+const LINKEDIN_NAV_ROUTES = [
+  '/feed/', '/messaging/', '/mynetwork/', '/notifications/',
+  '/emimp/', '/widgets/', '/jobs/alerts', '/jobs/search-results', '/jobs/jam/',
+];
+
+/** Canonical posting route, e.g. /jobs/view/4123456789. Regional hosts included. */
+const LINKEDIN_JOB_ROUTE = /^\/jobs\/view\/[^/]+/;
+
+/**
+ * @param {string} hostname
+ * @returns {boolean}
+ */
+function isLinkedInHost(hostname) {
+  return hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com');
+}
 
 /**
  * Is a URL clean and relevant (not a click tracker, unsubscribe link, or pixel)?
@@ -36,6 +60,24 @@ const ASSET_HOST_PREFIXES = ['cdn.', 'static.', 'assets.', 'img.', 'images.', 'm
 export function isCleanUrl(url) {
   try {
     const u = new URL(url);
+    if (u.protocol !== 'https:') return false;
+    const hostname = u.hostname.toLowerCase();
+
+    if (LICDN_HOST.test(hostname)) return false;
+    if (ASSET_HOSTS.some(re => re.test(hostname)) || IMAGE_EXT.test(u.pathname)) return false;
+
+    if (isLinkedInHost(hostname)) {
+      let path = u.pathname.toLowerCase();
+      // Notification mail mirrors every link under /comm/<real path>; the prefix
+      // itself holds no posting, so judge the route underneath it.
+      if (path === '/comm' || path === '/comm/') return false;
+      if (path.startsWith('/comm/')) path = path.slice('/comm'.length);
+      if (LINKEDIN_NAV_ROUTES.some(route => path.startsWith(route))) return false;
+      // A real posting is exempt from the keyword scan below: digest links carry
+      // trackingId/refId query params that would otherwise match 'track'.
+      if (LINKEDIN_JOB_ROUTE.test(path)) return true;
+    }
+
     const lowerUrl = url.toLowerCase();
     const badKeywords = [
       'click', 'track', 'openpixel', 'sendgrid', 'unsubscribe', 'optout',
@@ -44,35 +86,36 @@ export function isCleanUrl(url) {
       'linkedin.com/legal', 'linkedin.com/help', 'linkedin.com/settings',
     ];
     if (badKeywords.some(kw => lowerUrl.includes(kw))) return false;
-    // Page assets, not postings. Job-alert emails embed one company logo per job,
-    // and those URLs pass every check above: https, no tracker keyword, hosted on
-    // the board's own domain. They land in the pipeline as untitled "job leads" you
-    // have to click to discover are 160x160 PNGs. Extension check first (query
-    // string included, since CDNs append cache-busters), then the CMS upload paths
-    // and asset subdomains that serve files without one.
-    const host = u.hostname.toLowerCase();
-    if (ASSET_EXT_RE.test(u.pathname + u.search)) return false;
-    if (/\/(wp-content|wp-includes)\//i.test(u.pathname)) return false;
-    if (host === 'fonts.googleapis.com' || host === 'fonts.gstatic.com') return false;
-    if (ASSET_HOST_PREFIXES.some(prefix => host.startsWith(prefix))) return false;
-    return u.protocol === 'https:';
+    return true;
   } catch {
     return false;
   }
 }
 
 /**
- * DMARC alignment check (anti-spoof gate, fail-closed). Only emails whose
- * Authentication-Results header reports dmarc=pass are trusted.
+ * Anti-spoof gate, fail-closed. Trusted when Authentication-Results reports
+ * dmarc=pass, or — when Gmail records no DMARC verdict at all, as happens for
+ * senders whose policy is p=none — when a dkim=pass signing domain aligns with
+ * the From: domain (DMARC's own relaxed alignment rule, applied by hand).
  * @param {Array<{ name: string, value: string }>} headers
  * @returns {boolean}
  */
 export function isAuthenticEmail(headers) {
   if (!Array.isArray(headers)) return false;
-  for (const h of headers) {
-    if (h.name && h.name.toLowerCase() === 'authentication-results') {
-      if (h.value && /dmarc=pass/i.test(h.value)) return true;
-    }
+  const header = (name) => headers
+    .filter(h => h.name?.toLowerCase() === name)
+    .map(h => h.value || '')
+    .join('; ');
+  const auth = header('authentication-results');
+  if (!auth) return false;
+  if (/dmarc=pass/i.test(auth)) return true;
+  if (/dmarc=/i.test(auth)) return false;
+
+  const fromDomain = header('from').match(/@([a-z0-9.-]+)/i)?.[1]?.toLowerCase();
+  if (!fromDomain) return false;
+  const aligned = (d) => d === fromDomain || fromDomain.endsWith(`.${d}`);
+  for (const m of auth.matchAll(/dkim=pass[^;]*?header\.(?:i=@|d=)([a-z0-9.-]+)/gi)) {
+    if (aligned(m[1].toLowerCase())) return true;
   }
   return false;
 }
