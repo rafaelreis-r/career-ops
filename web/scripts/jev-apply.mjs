@@ -15,7 +15,7 @@
 //   jev-apply.mjs bool   [--input <json>]  -> {"bool":true|false|null,"confidence":n,"probability":p|null}
 //       input:  {"question":"..."}
 //   jev-apply.mjs ready  [--input <json>]  -> {"ready":true|false,"confidence":n,"abstained":bool}
-//       input:  {"fields":[{"label","required","value"}, ...],"profileFacts":<optional>}
+//       input:  {"fields":[{"label","required","value"}, ...]}
 //   jev-apply.mjs block  [--input <json>]  -> {"block":<class>|null,"confidence":n}
 //       input:  {"pageState":{...}}  (or the whole JSON object is the page state)
 //
@@ -25,11 +25,10 @@
 // decision; a transport error is not.
 //
 // Canonical answers come from config/profile.yml through ab-jev-apply.mjs's
-// answersFromProfile() (dynamically imported by `match`, and by `ready` when
-// the input has no profileFacts of its own; never re-implemented — the PT-BR
-// aliases and consent answers live there once). That module pulls in
-// playwright-core at module scope, so it is loaded LAZILY, only when those
-// subcommands actually need it; it needs no browser.
+// answersFromProfile() (dynamically imported by the `match` subcommand, never
+// re-implemented — the PT-BR aliases and consent answers live there once).
+// That module pulls in playwright-core at module scope, so it is loaded LAZILY,
+// only when `match` actually runs; it needs no browser.
 import fs from 'node:fs';
 import path from 'node:path';
 import { isMainModule } from '../../lib/is-main-module.mjs';
@@ -165,14 +164,9 @@ async function main(argv = process.argv.slice(2)) {
   }
 
   if (cmd === 'ready') {
+    const profile = await loadProfile();
     const fields = Array.isArray(input.fields) ? input.fields : (Array.isArray(input) ? input : []);
-    let profileFacts = input.profileFacts;
-    if (profileFacts === undefined) {
-      const profile = await loadProfile();
-      const { answersFromProfile } = await import('./ab-jev-apply.mjs');
-      profileFacts = profile ? answersFromProfile(profile) : [];
-    }
-    const res = await readyToSubmit({ fields, profileFacts });
+    const res = await readyToSubmit({ fields, profileFacts: profileFactsFromConfig(profile) });
     if (res.error) {
       process.stderr.write(`jev transport error: ${res.error}\n`);
       process.exitCode = 2;

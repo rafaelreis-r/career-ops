@@ -82,7 +82,7 @@ echo '{"fields":[{"label":"Email","required":true,"value":"you@example.com"},{"l
 # -> {"ready":true,"confidence":0.9,"abstained":false}
 ```
 
-`ready` is a hard gate: it returns `false` whenever any required field is empty (deterministic, no Jev call). Once every required field is filled, it asks Jev whether the filled values are consistent with the profile (attaching the candidate's canonical answers automatically when the input has no `profileFacts` of its own), and the answer falls into one of three outcomes:
+`ready` is a hard gate: it returns `false` whenever any required field is empty (deterministic, no Jev call). Once every required field is filled, it asks Jev whether the filled values are consistent with the candidate's profile facts (always attached from `config/profile.yml`), and the answer falls into one of three outcomes:
 
 - **Confident consistent** — `ready:true`, `abstained:false`.
 - **Confident inconsistent** — `ready:false`, `abstained:false`. Fix the flagged field, or report filled-blocked and stop.

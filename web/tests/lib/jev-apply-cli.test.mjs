@@ -12,19 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
-import { createRequire } from 'node:module';
 import { main } from '../../scripts/jev-apply.mjs';
-
-const require = createRequire(import.meta.url);
-
-function playwrightCoreAvailable() {
-  try {
-    require.resolve('playwright-core', { paths: [join(WEB, 'scripts')] });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const WEB = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = join(WEB, 'scripts', 'jev-apply.mjs');
@@ -188,9 +176,7 @@ test('CLI ready: a below-threshold Jev noul (confidence 0.12) is ready and absta
   assert.equal(exitCodeAfter, 0);
 });
 
-test('CLI ready: an input with no profileFacts attaches answersFromProfile\'s canonical answers to the state sent to Jev', {
-  skip: playwrightCoreAvailable() ? false : 'playwright-core is not installed; answersFromProfile lives in ab-jev-apply.mjs',
-}, async () => {
+test('CLI ready: the candidate\'s profile facts are always attached to the state sent to Jev', async () => {
   const tmpProfile = join(os.tmpdir(), `co-jev-apply-cli-${process.pid}-${Date.now()}.yml`);
   fs.writeFileSync(
     tmpProfile,
@@ -231,11 +217,7 @@ test('CLI ready: an input with no profileFacts attaches answersFromProfile\'s ca
   assert.ok(capturedBody, 'expected the ready gate to call Jev');
   const state = JSON.parse(capturedBody.state);
   const profileFacts = state?.form_state?.profileFacts;
-  assert.ok(Array.isArray(profileFacts), 'profileFacts should be attached from answersFromProfile');
-  assert.ok(
-    profileFacts.some((f) => f.label === 'Email' && f.value === 'jordan.rivera@example.com'),
-    'the candidate\'s canonical Email answer should be in the state sent to Jev',
-  );
+  assert.equal(profileFacts?.candidate?.email, 'jordan.rivera@example.com');
 
   const json = JSON.parse(stdout.trim());
   assert.equal(json.ready, true);
