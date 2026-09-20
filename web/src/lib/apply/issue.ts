@@ -12,3 +12,7 @@ export type ApplyIssue = { level: "block" | "warn" | "info"; code: string; messa
 // note stays the human sentence; this is the machine-readable half, so a caller
 // never has to parse prose to tell "we protected you" from "the page moved".
 export type DriveStep = { turn: number; action: string; detail: string; thumb?: string; note?: string; refusal?: "submit-control" | "not-offered" | "gone" };
+
+// The result of a full drive loop run (planner or Jev — see drive.ts /
+// jev-drive.ts), shared so both loops and their callers agree on one shape.
+export type DriveResult = { reached: boolean; turns: number; reason: string; steps: DriveStep[] };

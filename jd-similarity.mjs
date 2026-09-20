@@ -11,6 +11,7 @@
 
 import { readFileSync } from 'fs';
 import { isMainModule } from './lib/is-main-module.mjs';
+import { isJevEnabled, jevChoice } from './lib/jev-client.mjs';
 
 const STOP_WORDS = new Set([
   'and', 'the', 'for', 'with', 'from', 'that', 'this', 'have', 'will', 'you',
@@ -135,6 +136,56 @@ export function recommendCvReuse(newJd, previousText, options = {}) {
   return { decision: 'regenerate', score, reason: 'low-similarity' };
 }
 
+// ── Jev-backed reuse recommendation (opt-in via TYPESAFE_API_KEY) ────
+//
+// recommendCvReuse() above is unchanged and stays the only path used when
+// TYPESAFE_API_KEY is unset: Jaccard similarity, the LEVELS detector, and
+// the hard-mismatch gate all keep deciding on their own.
+
+const DEFAULT_JEV_CONFIDENCE_THRESHOLD = 0.6;
+
+function resolveConfidenceThreshold(raw) {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : DEFAULT_JEV_CONFIDENCE_THRESHOLD;
+}
+
+const JEV_REUSE_OPTIONS = {
+  reuse: 'The two documents describe close enough roles, at the same seniority, that the previous CV/resume can be reused as-is.',
+  'reuse-with-edits': 'The previous CV/resume overlaps enough to reuse as a base, but the new JD needs some tailoring first.',
+  regenerate: 'The two documents are different enough — including describing different seniority levels — that a fresh CV/resume should be generated instead of reused.',
+};
+
+const JEV_REUSE_INSTRUCTIONS = 'Whether the candidate should reuse their previous CV/resume as-is (reuse), reuse it ' +
+  'with edits, or regenerate a fresh one, for the NEW JD given the PREVIOUS JD/CV also given in state. A seniority-' +
+  'level mismatch between the two always means regenerate, per the option descriptions.';
+
+/**
+ * Jev-aware CV reuse recommendation. The hard seniority-mismatch gate always
+ * wins (mirrors #4289's rule that a real level difference is never
+ * overridden): when recommendCvReuse() already reports 'level-mismatch',
+ * that decision stands unconditionally. Otherwise Jev gets a second opinion
+ * on the Jaccard-based decision, applied only when its confidence clears the
+ * threshold. With TYPESAFE_API_KEY unset, on any error, or below threshold,
+ * this resolves to exactly what recommendCvReuse(newJd, previousText,
+ * options) returns.
+ *
+ * @param {string} newJd
+ * @param {string} previousText
+ * @param {{ highThreshold?: number, mediumThreshold?: number, confidenceThreshold?: number }} [options]
+ * @returns {Promise<{decision: string, score: number, reason: string, confidence?: number}>}
+ */
+export async function recommendCvReuseAsync(newJd, previousText, options = {}) {
+  const deterministic = recommendCvReuse(newJd, previousText, options);
+  if (!isJevEnabled() || deterministic.reason === 'level-mismatch') return deterministic;
+
+  const threshold = resolveConfidenceThreshold(options.confidenceThreshold ?? process.env.JEV_REUSE_CONFIDENCE_THRESHOLD);
+  const state = `NEW JD:\n${newJd}\n\nPREVIOUS JD/CV:\n${previousText}`;
+  const result = await jevChoice({ state, instructions: JEV_REUSE_INSTRUCTIONS, options: JEV_REUSE_OPTIONS, id: 'cv-reuse' });
+  if (result.choice === null || result.confidence < threshold) return deterministic;
+
+  return { decision: result.choice, score: deterministic.score, reason: 'jev', confidence: result.confidence };
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────
 
 const KNOWN_FLAGS = ['--help', '-h'];
@@ -169,7 +220,7 @@ function parseArgs(argv) {
 if (isMainModule(import.meta.url)) {
   const { newJdPath, previousPath } = parseArgs(process.argv);
   try {
-    const result = recommendCvReuse(readFileSync(newJdPath, 'utf8'), readFileSync(previousPath, 'utf8'));
+    const result = await recommendCvReuseAsync(readFileSync(newJdPath, 'utf8'), readFileSync(previousPath, 'utf8'));
     console.log(JSON.stringify(result, null, 2));
   } catch (error) {
     console.error(`Unable to read input files: ${error.message}`);

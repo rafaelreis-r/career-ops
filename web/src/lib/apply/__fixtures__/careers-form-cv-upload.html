@@ -1,0 +1,49 @@
+<!doctype html>
+<!--
+  Fixture: application form dedicated to validating ab-jev-apply.mjs's CV
+  upload + no-data-field-skip runner behavior (fm/jev-runner-cv-skip), without
+  ever driving a real job application. Deliberately separate from
+  careers-form.html (whose field count/order web/tests/apply-jev-drive.test.mjs
+  already asserts against) — this fixture adds:
+    - a résumé/CV file input (required), to prove setInputFiles() lands
+    - an OPTIONAL "Postal / ZIP Code" text field with no canonical answer in
+      any candidate source, to prove the fill loop skips it as a gap instead
+      of looping TYPE_TEXT on it until stuck
+  See web/tests/ab-jev-apply.test.mjs.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Apply — DevOps Engineer at Avahi</title>
+  </head>
+  <body>
+    <main id="application_form">
+      <h1>Apply for DevOps Engineer</h1>
+      <form>
+        <section>
+          <label for="full_name">Full name*</label>
+          <input id="full_name" name="full_name" type="text" required />
+        </section>
+        <section>
+          <label for="email">Email*</label>
+          <input id="email" name="email" type="email" required />
+        </section>
+        <section>
+          <label for="phone">Phone number</label>
+          <input id="phone" name="phone" type="tel" />
+        </section>
+        <section>
+          <label for="resume">Resume/CV*</label>
+          <input id="resume" name="resume" type="file" required />
+        </section>
+        <section>
+          <label for="postal_code">Postal / ZIP Code (optional)</label>
+          <input id="postal_code" name="postal_code" type="text" />
+        </section>
+        <section>
+          <button type="submit" id="submit_application">Submit Application</button>
+        </section>
+      </form>
+    </main>
+  </body>
+</html>
