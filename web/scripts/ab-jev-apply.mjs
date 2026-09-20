@@ -106,7 +106,7 @@ function loadYamlSafe(file) {
  * to the common label spellings ATS forms use. Every value is copied as-is —
  * never reworded or inferred — so a field either gets the user's real value
  * or is left for resolveTypeTextValue()/bestLabelMatch() to report as unmatched. */
-function answersFromProfile(profile) {
+export function answersFromProfile(profile) {
   const c = profile?.candidate || {};
   const loc = profile?.location || {};
   const out = [];

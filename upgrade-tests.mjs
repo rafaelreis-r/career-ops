@@ -35,8 +35,25 @@ const CANONICAL = 'https://github.com/career-ops-hq/career-ops.git';
 const CANONICAL_LEGACY = 'https://github.com/santifer/career-ops.git';
 const TAG_RE = /^career-ops-v(\d+)\.(\d+)\.(\d+)$/;
 
+/** Every git URL `apply()` might fetch, given an updater's source.
+ *
+ *  Old tags fetch CANONICAL / CANONICAL_LEGACY. After self-reexec the TARGET
+ *  updater fetches its own CANONICAL_REPO — this fork defaults that to
+ *  rafaelreis-r/career-ops, not career-ops-hq. If that URL is missing from
+ *  insteadOf, the reexec'd apply hits real GitHub `main` and a PR's new
+ *  SYSTEM_PATHS files never land (non-vacuity oracle goes red). */
+function canonicalFetchUrls(updaterSource = '') {
+  const urls = new Set([CANONICAL, CANONICAL_LEGACY]);
+  const slug = /CAREER_OPS_CANONICAL_SLUG \|\| ['"]([^'"]+)['"]/.exec(updaterSource);
+  if (slug) urls.add(`https://github.com/${slug[1]}.git`);
+  for (const m of updaterSource.matchAll(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\.git/g)) {
+    urls.add(m[0]);
+  }
+  return [...urls];
+}
+
 function git(cwd, ...args) {
-  return execFileSync('git', args, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  return execFileSync('git', ['-c', 'core.hooksPath=/dev/null', ...args], { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
 const semverKey = (t) => TAG_RE.exec(t).slice(1).map(Number);
@@ -63,10 +80,13 @@ function buildMirror(work, targetSha) {
   return mirror;
 }
 
-function writeGitConfig(work, mirror) {
+function writeGitConfig(work, mirror, updaterSource = '') {
   const cfg = join(work, 'gitconfig');
   const url = pathToFileURL(mirror).href;
-  writeFileSync(cfg, `[user]\n\tname = upgrade-tests\n\temail = upgrade-tests@career-ops.test\n[url "${url}"]\n\tinsteadOf = ${CANONICAL}\n\tinsteadOf = ${CANONICAL_LEGACY}\n[safe]\n\tdirectory = *\n`);
+  const insteadOf = canonicalFetchUrls(updaterSource)
+    .map((u) => `\tinsteadOf = ${u}`)
+    .join('\n');
+  writeFileSync(cfg, `[user]\n\tname = upgrade-tests\n\temail = upgrade-tests@career-ops.test\n[url "${url}"]\n${insteadOf}\n[safe]\n\tdirectory = *\n`);
   return cfg;
 }
 
@@ -126,13 +146,13 @@ export function runLeg({ oldTag, targetSha, label = oldTag, mutateMirror = null,
   try {
     const mirror = buildMirror(work, targetSha);
     if (mutateMirror) targetSha = mutateMirror(mirror, work);
-    const cfg = writeGitConfig(work, mirror);
 
     // The target's SYSTEM_PATHS — the set apply manages. Drives both the oracle
     // selection (a changed file apply actually rewrites) and the #1998-class
     // new-path assertion below. A refactor that renames the constant would make
     // the regex miss; fail loud rather than dereference null.
     const targetUpdater = git(mirror, 'show', `${targetSha}:update-system.mjs`);
+    const cfg = writeGitConfig(work, mirror, targetUpdater);
     const sysMatch = targetUpdater.match(/const\s+SYSTEM_PATHS\s*=\s*\[([\s\S]*?)\];/);
     if (!sysMatch) throw new Error(`Could not locate SYSTEM_PATHS in the target's update-system.mjs (constant renamed?) — refusing to run a leg with no managed-path set`);
     const targetSystemPaths = Array.from(sysMatch[1].matchAll(/['"]([^'"]+)['"]/g), (m) => m[1]);
@@ -402,7 +422,7 @@ function localPathsLeg() {
     git(mirror, 'worktree', 'remove', '--force', wt);
     git(mirror, 'update-ref', 'refs/heads/main', targetSha);
 
-    const cfg = writeGitConfig(work, mirror);
+    const cfg = writeGitConfig(work, mirror, updater);
     const install = join(work, 'install');
     git(ROOT, 'clone', '--quiet', '--branch', oldTag, ROOT, install);
     git(install, 'remote', 'set-url', 'origin', CANONICAL);
