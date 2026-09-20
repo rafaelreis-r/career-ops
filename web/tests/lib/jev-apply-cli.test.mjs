@@ -12,7 +12,19 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fs from 'node:fs';
 import os from 'node:os';
+import { createRequire } from 'node:module';
 import { main } from '../../scripts/jev-apply.mjs';
+
+const require = createRequire(import.meta.url);
+
+function playwrightCoreAvailable() {
+  try {
+    require.resolve('playwright-core', { paths: [join(WEB, 'scripts')] });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const WEB = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const CLI = join(WEB, 'scripts', 'jev-apply.mjs');
@@ -74,22 +86,27 @@ test('CLI --help exits 0; unknown subcommand and invalid JSON exit 1', () => {
 });
 
 test('CLI ready: an empty required field is not ready (deterministic, exit 0)', () => {
+  // profileFacts is supplied so this spawn does not load ab-jev-apply.mjs
+  // (playwright-core). The documented no-profileFacts worker path is the same
+  // readyToSubmit call; the empty-required return happens before Jev either way.
   const res = run(['ready', '--input', JSON.stringify({
     fields: [
       { label: 'Email', required: true, value: 'you@example.com' },
       { label: 'Phone', required: true, value: '   ' },
     ],
+    profileFacts: [],
   })]);
   assert.equal(res.status, 0);
-  assert.equal(res.json.ready, false);
+  assert.deepEqual(res.json, { ready: false, confidence: 1, abstained: false });
 });
 
 test('CLI ready: disabled Jev with every required field filled is ready (deterministic floor)', () => {
   const res = run(['ready', '--input', JSON.stringify({
     fields: [{ label: 'Email', required: true, value: 'you@example.com' }],
+    profileFacts: [],
   })]);
   assert.equal(res.status, 0);
-  assert.equal(res.json.ready, true);
+  assert.deepEqual(res.json, { ready: true, confidence: 0, abstained: true });
 });
 
 test('CLI pick/bool/block: disabled Jev abstains to null and still exits 0', () => {
@@ -126,7 +143,54 @@ test('CLI pick: JSON on stdin is accepted the same as --input', () => {
 // cleared never reaches the transport at all, so it can't prove what state
 // would have been sent.
 
-test('CLI ready: an input with no profileFacts attaches answersFromProfile\'s canonical answers to the state sent to Jev', async () => {
+test('CLI ready: a below-threshold Jev noul (confidence 0.12) is ready and abstained, not a hold-back', async () => {
+  // Pins the 2026-09-20 Tier 1 round: Cohere/CookUnity/General Legal/Lightning AI
+  // came back ready:false at confidence 0.12–0.32 even though every required
+  // field was filled. noul 0.56 → |0.56-0.5|*2 = 0.12. Abstention is "no
+  // decision", not "not ready"; the deterministic floor already passed.
+  const originalFetch = global.fetch;
+  const originalWrite = process.stdout.write;
+  const originalExitCode = process.exitCode;
+  const hadKeyEnv = 'TYPESAFE_API_KEY' in process.env;
+  const savedKeyEnv = process.env.TYPESAFE_API_KEY;
+  const hadThresholdEnv = 'JEV_APPLY_CONFIDENCE_THRESHOLD' in process.env;
+  const savedThresholdEnv = process.env.JEV_APPLY_CONFIDENCE_THRESHOLD;
+
+  let stdout = '';
+  let exitCodeAfter = 0;
+  process.env.TYPESAFE_API_KEY = 'test-key';
+  process.env.JEV_APPLY_CONFIDENCE_THRESHOLD = '0.6';
+  global.fetch = async () => ({
+    ok: true,
+    json: async () => ({ answers: { ready_to_submit: { noul: 0.56 } } }),
+  });
+  process.stdout.write = (chunk) => { stdout += chunk; return true; };
+
+  try {
+    await main(['ready', '--input', JSON.stringify({
+      fields: [{ label: 'Email', required: true, value: 'jordan.rivera@example.com' }],
+      profileFacts: [{ label: 'Email', value: 'jordan.rivera@example.com' }],
+    })]);
+    exitCodeAfter = process.exitCode || 0;
+  } finally {
+    global.fetch = originalFetch;
+    process.stdout.write = originalWrite;
+    process.exitCode = originalExitCode;
+    if (hadKeyEnv) process.env.TYPESAFE_API_KEY = savedKeyEnv; else delete process.env.TYPESAFE_API_KEY;
+    if (hadThresholdEnv) process.env.JEV_APPLY_CONFIDENCE_THRESHOLD = savedThresholdEnv;
+    else delete process.env.JEV_APPLY_CONFIDENCE_THRESHOLD;
+  }
+
+  const json = JSON.parse(stdout.trim());
+  assert.equal(json.ready, true);
+  assert.equal(json.abstained, true);
+  assert.ok(json.confidence < 0.6, `expected below-threshold confidence, got ${json.confidence}`);
+  assert.equal(exitCodeAfter, 0);
+});
+
+test('CLI ready: an input with no profileFacts attaches answersFromProfile\'s canonical answers to the state sent to Jev', {
+  skip: playwrightCoreAvailable() ? false : 'playwright-core is not installed; answersFromProfile lives in ab-jev-apply.mjs',
+}, async () => {
   const tmpProfile = join(os.tmpdir(), `co-jev-apply-cli-${process.pid}-${Date.now()}.yml`);
   fs.writeFileSync(
     tmpProfile,

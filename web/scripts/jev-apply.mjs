@@ -25,10 +25,11 @@
 // decision; a transport error is not.
 //
 // Canonical answers come from config/profile.yml through ab-jev-apply.mjs's
-// answersFromProfile() (dynamically imported by the `match` subcommand, never
-// re-implemented — the PT-BR aliases and consent answers live there once).
-// That module pulls in playwright-core at module scope, so it is loaded LAZILY,
-// only when `match` actually runs; it needs no browser.
+// answersFromProfile() (dynamically imported by `match`, and by `ready` when
+// the input has no profileFacts of its own; never re-implemented — the PT-BR
+// aliases and consent answers live there once). That module pulls in
+// playwright-core at module scope, so it is loaded LAZILY, only when those
+// subcommands actually need it; it needs no browser.
 import fs from 'node:fs';
 import path from 'node:path';
 import { isMainModule } from '../../lib/is-main-module.mjs';
@@ -89,7 +90,7 @@ function usage() {
     '  jev-apply.mjs match  [--input <json>]   # {"field":{label,placeholder,nearbyText,type}}',
     '  jev-apply.mjs pick   [--input <json>]   # {"options":[...],"label":...,"desiredValue":...}',
     '  jev-apply.mjs bool   [--input <json>]   # {"question":"..."}',
-    '  jev-apply.mjs ready  [--input <json>]   # {"fields":[{label,required,value}, ...]}',
+    '  jev-apply.mjs ready  [--input <json>]   # {"fields":[{label,required,value}, ...], profileFacts?}',
     '  jev-apply.mjs block  [--input <json>]   # {"pageState":{...}}',
   ].join('\n');
 }

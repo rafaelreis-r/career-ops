@@ -108,5 +108,5 @@ Only after a real submit does the application count as submitted. **Never re-sub
 
 ## Configuration
 
-- `TYPESAFE_API_KEY` — enables the Jev helpers. Absent, every helper returns its NONE/null outcome (opt-in, exactly as `jev-pregate.mjs` and `lib/jev-client.mjs` behave), and you fall back to your own judgment.
-- `JEV_APPLY_CONFIDENCE_THRESHOLD` — minimum confidence to accept a Jev decision (default `0.6`, mirroring the pre-gate). Below it, a helper abstains rather than guess.
+- `TYPESAFE_API_KEY` — enables the Jev helpers. Absent, match/pick/bool/block return their NONE/null outcome (opt-in, exactly as `jev-pregate.mjs` and `lib/jev-client.mjs` behave). `ready` follows Step 2's abstained path.
+- `JEV_APPLY_CONFIDENCE_THRESHOLD` — minimum confidence to accept a Jev decision (default `0.6`, mirroring the pre-gate). Below it, a helper abstains rather than guess. For `ready`, that abstention is not a hold-back (Step 2).
