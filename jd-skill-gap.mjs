@@ -29,6 +29,7 @@
 import { readFileSync, existsSync } from 'fs';
 import { canonicalize, extractSkills } from './skill-extract.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
+import { isJevEnabled, jevChoice } from './lib/jev-client.mjs';
 import { join } from 'path';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 
@@ -452,6 +453,86 @@ function classifySkillGaps(jdSkills, cvText) {
   }
 
   return { existing, supportedByResume, gap };
+}
+
+// ── Jev classification for free tokens (opt-in via TYPESAFE_API_KEY) ──
+//
+// classifySkillGaps() above is unchanged: it stays the deterministic path
+// and the only one used when TYPESAFE_API_KEY is unset. This section adds
+// classifySkillGapsAsync(), which only reclassifies "free tokens" — JD
+// skills skill-extract.mjs's alias table does not recognize, currently
+// resolved by classifySkillGaps() via the word-boundary heuristic — and
+// only when the alias table's own recognized skills are left exactly as
+// classifySkillGaps() decided them.
+
+const DEFAULT_JEV_CONFIDENCE_THRESHOLD = 0.6;
+
+function resolveConfidenceThreshold(raw) {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : DEFAULT_JEV_CONFIDENCE_THRESHOLD;
+}
+
+const JEV_SKILL_GAP_OPTIONS = {
+  existing: 'The resume explicitly names the skill given at the top of state as one it already claims.',
+  supportedByResume: "The resume does not name that exact skill, but the candidate's other described experience clearly demonstrates it.",
+  gap: 'The resume gives no indication the candidate has that skill at all.',
+};
+
+const JEV_SKILL_GAP_INSTRUCTIONS = 'Classify whether the resume shows the skill named at the top of state ' +
+  '("SKILL TO CHECK") as existing, supportedByResume, or a gap, per the option descriptions.';
+
+/**
+ * Ask Jev to classify one free-token skill against cv.md. The skill name is
+ * untrusted JD-derived text, so it travels only inside `state` (never
+ * `instructions`), alongside the resume text it is being checked against.
+ */
+async function classifyFreeTokenWithJev(skill, cvText, threshold) {
+  const state = `SKILL TO CHECK: ${skill}\n\nRESUME:\n${cvText}`;
+  const result = await jevChoice({ state, instructions: JEV_SKILL_GAP_INSTRUCTIONS, options: JEV_SKILL_GAP_OPTIONS, id: 'skill-gap' });
+  if (result.choice === null || result.confidence < threshold) return null;
+  return result.choice;
+}
+
+/**
+ * Jev-aware skill-gap classification. Recognized skills (skill-extract.mjs's
+ * alias table) are always the classifySkillGaps() result — this only offers
+ * a second opinion on free tokens the alias table does not recognize, and
+ * only replaces the word-boundary heuristic's bucket when Jev's answer
+ * clears the confidence threshold. With TYPESAFE_API_KEY unset, or on any
+ * error, this resolves to exactly what classifySkillGaps(jdSkills, cvText)
+ * returns.
+ *
+ * @param {string[]} jdSkills
+ * @param {string} cvText
+ * @param {{ confidenceThreshold?: number }} [opts]
+ * @returns {Promise<{existing: string[], supportedByResume: string[], gap: string[]}>}
+ */
+export async function classifySkillGapsAsync(jdSkills, cvText, { confidenceThreshold } = {}) {
+  const deterministic = classifySkillGaps(jdSkills, cvText);
+  if (!isJevEnabled()) return deterministic;
+
+  const threshold = resolveConfidenceThreshold(confidenceThreshold ?? process.env.JEV_SKILL_GAP_CONFIDENCE_THRESHOLD);
+  const buckets = {
+    existing: new Set(deterministic.existing),
+    supportedByResume: new Set(deterministic.supportedByResume),
+    gap: new Set(deterministic.gap),
+  };
+
+  for (const skill of jdSkills) {
+    const canon = canonicalize(skill);
+    const known = canon !== skill || extractSkills(skill).size > 0;
+    if (known) continue; // alias table already resolved this one deterministically
+
+    const choice = await classifyFreeTokenWithJev(skill, cvText, threshold);
+    if (!choice) continue; // disabled/error/low confidence — heuristic bucket stands
+
+    buckets.existing.delete(skill);
+    buckets.supportedByResume.delete(skill);
+    buckets.gap.delete(skill);
+    buckets[choice].add(skill);
+  }
+
+  return { existing: [...buckets.existing], supportedByResume: [...buckets.supportedByResume], gap: [...buckets.gap] };
 }
 
 // ── Exports (for test-all.mjs and other consumers) ───────────────────
@@ -891,7 +972,7 @@ if (selfTestMode) {
   const jdText = readFileSync(jdPathArg, 'utf-8');
   const cvText = readFileSync(CV_PATH, 'utf-8');
   const jdSkills = extractJdSkills(jdText);
-  const result = classifySkillGaps(jdSkills, cvText);
+  const result = await classifySkillGapsAsync(jdSkills, cvText);
   // Computed for BOTH output modes. The JSON branch is the one other tools
   // consume (modes/pdf.md Step 4 gates on it), so it is the branch that most
   // needs to say "nothing was classified" out loud - an empty three-bucket

@@ -3,6 +3,7 @@
  */
 
 import { isPlaceholderCompany } from './lib/placeholder-cell.mjs';
+import { isJevEnabled, jevChoice } from './lib/jev-client.mjs';
 
 export function extractDomain(emailStr) {
   if (!emailStr) return null;
@@ -670,6 +671,89 @@ export function classifyReply(cand) {
     type: 'Unknown',
     evidence: [],
     suggestedTrackerUpdate: 'Needs Review'
+  };
+}
+
+// ── Jev classification (opt-in via TYPESAFE_API_KEY) ─────────────────
+//
+// classifyReply() above is unchanged and stays the only path used when
+// TYPESAFE_API_KEY is unset. A deterministic keyword hit (any non-empty
+// `evidence`, including a signal-derived one) always wins — Jev is only
+// consulted when the keyword tables found nothing at all and classifyReply()
+// fell through to its Unknown default.
+
+const DEFAULT_JEV_CONFIDENCE_THRESHOLD = 0.6;
+
+function resolveConfidenceThreshold(raw) {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : DEFAULT_JEV_CONFIDENCE_THRESHOLD;
+}
+
+const JEV_REPLY_OPTIONS = {
+  Noise: 'Bulk job-alert or marketing email advertising other openings — not a reply about an application the candidate made.',
+  Rejected: 'The company is declining to move the candidate forward for this role.',
+  Offer: 'The company has made an explicit, written job offer — not merely a mention of being unable to extend one.',
+  'Auto-confirmation': 'An automated acknowledgement that an application was received, with no decision yet either way.',
+  'Need-Action': 'The candidate must do something next: complete an assessment, fill a form, or respond by a deadline.',
+  Interview: 'The company is inviting the candidate to interview, or scheduling/confirming an interview.',
+  Responded: 'A human at the company replied with an update or wants to talk, with no concrete next action or decision yet.',
+  Unknown: 'None of the above — the message does not clearly fit any category.',
+};
+
+const JEV_REPLY_INSTRUCTIONS = 'Classify this email reply about a job application into exactly one category, per ' +
+  'the option descriptions. Disambiguate Rejected from Offer carefully: "Offer" requires an explicit written offer, ' +
+  'not merely a mention of the company being unable to extend one (e.g. "we are unable to offer you the position" ' +
+  'is Rejected, not Offer).';
+
+// suggestedTrackerUpdate for each Jev category. 'Need-Action' cannot tell, from
+// the category alone, whether the ask is scheduling-flavored (classifyReply()'s
+// own hasSchedulingWording check), so it conservatively maps to 'Responded' —
+// the same default classifyReply() uses for non-scheduling Need Action mail.
+const JEV_TRACKER_UPDATE = {
+  Noise: 'none',
+  Rejected: 'Rejected',
+  Offer: 'Offer',
+  'Auto-confirmation': 'none',
+  'Need-Action': 'Responded',
+  Interview: 'Interview',
+  Responded: 'Responded',
+  Unknown: 'Needs Review',
+};
+
+/**
+ * Jev-aware reply classification. Delegates to classifyReply() for the
+ * deterministic keyword tables; a keyword hit (non-empty `evidence`) always
+ * wins and short-circuits before any Jev call. Only when classifyReply()
+ * found no keyword evidence at all does this ask Jev to choose one of the
+ * eight categories, and only accepts that answer above the confidence
+ * threshold. With TYPESAFE_API_KEY unset, a keyword hit, a Jev error, or a
+ * low-confidence Jev answer, this resolves to exactly classifyReply(cand)
+ * plus a `source` tag.
+ *
+ * @param {object} cand - Same shape classifyReply() takes.
+ * @param {{ confidenceThreshold?: number }} [opts]
+ * @returns {Promise<{type: string, evidence: string[], suggestedTrackerUpdate: string, source: 'deterministic'|'jev', confidence?: number}>}
+ */
+export async function classifyReplyAsync(cand, { confidenceThreshold } = {}) {
+  const deterministic = classifyReply(cand);
+  if (!isJevEnabled() || deterministic.evidence.length > 0) {
+    return { ...deterministic, source: 'deterministic' };
+  }
+
+  const threshold = resolveConfidenceThreshold(confidenceThreshold ?? process.env.JEV_REPLY_CONFIDENCE_THRESHOLD);
+  const state = `FROM: ${cand.from || ''}\nSUBJECT: ${cand.subject || ''}\nBODY: ${cand.body_snippet || ''}`;
+  const result = await jevChoice({ state, instructions: JEV_REPLY_INSTRUCTIONS, options: JEV_REPLY_OPTIONS, id: 'reply-category' });
+
+  if (result.choice === null || result.confidence < threshold) {
+    return { ...deterministic, source: 'deterministic', confidence: result.confidence, jevError: result.error };
+  }
+
+  return {
+    type: result.choice,
+    evidence: [],
+    suggestedTrackerUpdate: JEV_TRACKER_UPDATE[result.choice] ?? 'Needs Review',
+    source: 'jev',
+    confidence: result.confidence,
   };
 }
 

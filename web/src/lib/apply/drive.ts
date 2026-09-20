@@ -3,11 +3,12 @@ import type { Page, Frame } from "playwright-core";
 import { resolveCli } from "@/lib/clis";
 import { careerOpsRoot } from "@/lib/career-ops";
 import { dropNewTabs } from "./diagnose";
-import type { DriveStep } from "./issue";
+import type { DriveStep, DriveResult } from "./issue";
+import { driveSessionJev, isJevDriveEnabled } from "./jev-drive";
 import { CAPS } from "../worker-capabilities.mjs";
 import { scopeFrom } from "../claude-invocation.mjs";
 
-export type { DriveStep };
+export type { DriveStep, DriveResult };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AGENTIC DRIVE LOOP — the backend gets "as intelligent as Claude Code + Playwright":
@@ -20,8 +21,6 @@ export type { DriveStep };
 // HYBRID = drive only until a fillable application form is reached, then hand back
 // to deterministic fill+verify. FULL = keep driving (fill the fields too).
 // ─────────────────────────────────────────────────────────────────────────────
-
-export type DriveResult = { reached: boolean; turns: number; reason: string; steps: DriveStep[] };
 
 const SUBMIT_RX = /\b(submit|send application|finish( application)?|complete application|apply (and|&) submit|enviar|finalizar)\b/i;
 
@@ -127,7 +126,11 @@ function parseAction(out: string): Action | null {
 
 /** Drive the page agentically toward the application form (hybrid) or through it
  *  (full). `isFormReady` lets the caller stop the loop the moment a fillable form
- *  appears (hybrid hand-back). `emit` streams each step to the UI. */
+ *  appears (hybrid hand-back). `emit` streams each step to the UI.
+ *
+ *  Opt-in dispatch: TYPESAFE_API_KEY set → delegates to the Jev ref-table
+ *  decision loop (jev-drive.ts) instead of the claude -p planner below. No
+ *  key → this function is exactly the planner it always was. */
 export async function driveSession(
   page: Page,
   cliId: string,
@@ -137,6 +140,10 @@ export async function driveSession(
   budget = 10,
   answers?: { label: string; value: string }[],
 ): Promise<DriveResult> {
+  if (isJevDriveEnabled()) {
+    return driveSessionJev(page, goal, isFormReady, emit, budget, answers ?? []);
+  }
+
   const resolved = resolveCli(cliId);
   const steps: DriveStep[] = [];
   if (!resolved || cliId !== "claude") {

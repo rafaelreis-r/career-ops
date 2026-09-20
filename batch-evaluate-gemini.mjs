@@ -21,6 +21,9 @@ import { promisify } from 'util';
 import { rejectPrivateOrInvalid } from './liveness-browser.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { TSV_ADDITION_HEADER } from './tracker-parse.mjs';
+import { preGateOffer, recordPreGateDecision } from './jev-pregate.mjs';
+import { evaluateWithJevFanout, jevFanoutEnabled } from './jev-ag-eval.mjs';
+import { hasFlag } from './lib/cli-flags.mjs';
 const execFileAsync = promisify(execFile);
 try {
   const { config } = await import('dotenv');
@@ -46,6 +49,10 @@ export const PATHS = {
 let apiKey;
 let model;
 let modelName;
+
+// Reproducibility net: force the prose path even with a Jev key configured, so
+// the two evaluators can be run against the same posting and compared.
+const LEGACY_PROSE = hasFlag(process.argv.slice(2), '--legacy-prose');
 
 function readSpendTier() {
   try {
@@ -266,8 +273,44 @@ export async function processOffer(browser, line, idx, _evaluate = evaluateWithR
       throw new Error('Extracted text too short (likely blocked or empty)');
     }
 
-    console.log(`🧠 Calling Gemini (${modelName})...`);
-    const evaluationText = await _evaluate(`URL: ${url}\n\n${jdText}`);
+    // Pre-screen gate. The deterministic hard-stops above (blocked URL, JD
+    // unavailable / too short) have already thrown and win outright; this is
+    // the recommendation layer in front of the expensive A-G call, and it
+    // no-ops entirely without TYPESAFE_API_KEY.
+    const gate = await preGateOffer({ url, jdText });
+    recordPreGateDecision(gate, { url });
+    if (gate.error) {
+      console.log(`⚠️ Pre-gate unavailable, evaluating anyway: ${gate.error}`);
+    }
+    if (gate.skip) {
+      console.log(`⏭️ Skipped before evaluation: ${gate.reason}`);
+      // modes/pipeline.md's pre-screen shape: no REPORT_NUM claimed (`#--`),
+      // reason carried inline, and the row counts as processed so the batch
+      // never re-fetches it.
+      const flat = gate.reason.replace(/[\r\n|]+/g, ' ').trim();
+      return { line: `- [x] #-- | ${url} | skipped (pre-screen mismatch: ${flat})`, processed: true };
+    }
+
+    // Jev fan-out (opt-in): many typed questions in three requests, composed in
+    // code into the same SCORE_SUMMARY block the prose path is asked to emit,
+    // so everything below this line is unchanged. Without TYPESAFE_API_KEY, or
+    // with --legacy-prose, this is skipped entirely; a fan-out that fails falls
+    // back to the prose call rather than failing the offer.
+    let evaluationText = null;
+    if (jevFanoutEnabled({ legacyProse: LEGACY_PROSE })) {
+      const fanout = await evaluateWithJevFanout({ jdText, url });
+      if (fanout.ok) {
+        console.log(`🧩 Jev fan-out evaluation (${fanout.usage.total_tokens} tokens)`);
+        evaluationText = fanout.text;
+      } else {
+        console.log(`⚠️ Jev fan-out unavailable, using the prose path: ${fanout.error}`);
+      }
+    }
+
+    if (evaluationText === null) {
+      console.log(`🧠 Calling Gemini (${modelName})...`);
+      evaluationText = await _evaluate(`URL: ${url}\n\n${jdText}`);
+    }
 
     // Parse output
     const summaryMatch = evaluationText.match(/---SCORE_SUMMARY---\s*([\s\S]*?)---END_SUMMARY---/);

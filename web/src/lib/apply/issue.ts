@@ -7,3 +7,7 @@ export type ApplyIssue = { level: "block" | "warn" | "info"; code: string; messa
 
 // One step of the agentic drive loop (the AI reaching/filling the form live).
 export type DriveStep = { turn: number; action: string; detail: string; thumb?: string; note?: string };
+
+// The result of a full drive loop run (planner or Jev — see drive.ts /
+// jev-drive.ts), shared so both loops and their callers agree on one shape.
+export type DriveResult = { reached: boolean; turns: number; reason: string; steps: DriveStep[] };

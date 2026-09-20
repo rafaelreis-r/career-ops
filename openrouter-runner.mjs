@@ -34,6 +34,9 @@ import { buildTitleFilter } from './title-keywords.mjs';
 import { appendToPipeline, appendToScanHistory } from './scan.mjs';
 import { localToday } from './lib/local-today.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
+import { preGateOffer, recordPreGateDecision } from './jev-pregate.mjs';
+import { evaluateWithJevFanout, jevFanoutEnabled } from './jev-ag-eval.mjs';
+import { hasFlag } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -527,6 +530,23 @@ function markPipelineDone(url) {
   writeFile('data/pipeline.md', content);
 }
 
+// A pre-screen skip is marked in the shape modes/pipeline.md defines:
+// `- [x] #-- | {url} | skipped (pre-screen mismatch: {reason})`. The `#--`
+// sentinel says no REPORT_NUM was claimed, and scan.mjs's dedup readers treat
+// this shape as "seen, no company/role pair" (tests/scan-url-dedup.test.mjs).
+function markPipelineSkipped(url, reason) {
+  let content = readFile('data/pipeline.md') ?? '';
+  const escaped = url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const flat = String(reason ?? '').replace(/[\r\n|]+/g, ' ').trim();
+  // Callback replacement: a reason can legitimately contain `$` (a salary
+  // figure), and a replacement STRING would read `$&`/`$1` as backreferences.
+  content = content.replace(
+    new RegExp(`^- \\[ \\] ${escaped}.*$`, 'm'),
+    () => `- [x] #-- | ${url} | skipped (pre-screen mismatch: ${flat})`
+  );
+  writeFile('data/pipeline.md', content);
+}
+
 // Both writes go through the shared writers in scan.mjs rather than this
 // module's own read-modify-write. Those writers hold pipeline-lock.mjs on the
 // file they touch, so this stops being a fourth, unlocked writer racing the
@@ -645,9 +665,16 @@ async function cmdScan() {
 }
 
 // -- EVALUATE --
-async function cmdEvaluate(input, ctx) {
+// `preGate` is opt-in per call and set ONLY by cmdPipeline: modes/pipeline.md
+// exempts a single interactive evaluation from the pre-screen gate (pasting a
+// URL is already the decision that this JD is worth a look). Returns the report
+// path, `null` on failure, or `{ skipped: true, ... }` when the gate cut it.
+async function cmdEvaluate(input, ctx, { preGate = false, legacyProse = false } = {}) {
   tracker.recordZeroToken('scan');
   tracker.recordZeroToken('pdf payload');
+  // Read unconditionally: the fan-out does not use it, but the prose fallback
+  // below does, and a fallback with an empty rubric would be worse than no
+  // fallback at all.
   const modeContent = readFile('modes/oferta.md') ?? readFile('modes/auto-pipeline.md') ?? '';
 
   let jdText = input;
@@ -678,18 +705,57 @@ async function cmdEvaluate(input, ctx) {
     }
   }
 
-  console.log('\nEvaluating...');
-  const systemPrompt = buildSystemPrompt(modeContent, ctx);
-
-  let resultObj;
-  try {
-    resultObj = await callOpenRouter(systemPrompt, `Evaluate this job listing:\n\n${jdText}`);
-  } catch (e) {
-    console.error(`OpenRouter error: ${e.message}`);
-    return null;
+  // Pre-screen gate (opt-in, pipeline only). The deterministic hard-stop above
+  // — an unfetchable JD — has already returned; this is the recommendation
+  // layer on top of it, and it no-ops entirely without TYPESAFE_API_KEY.
+  if (preGate) {
+    const decision = await preGateOffer({ url: typeof input === 'string' ? input : null, jdText });
+    recordPreGateDecision(decision, { url: typeof input === 'string' ? input : '(pasted)' });
+    if (decision.error) {
+      console.log(`  Pre-gate unavailable, evaluating anyway: ${decision.error}`);
+    }
+    if (decision.skip) {
+      console.log(`  ⏭️  Skipped before evaluation — ${decision.reason}`);
+      return { skipped: true, reason: decision.reason, probability: decision.probability };
+    }
   }
-  tracker.record('evaluation', resultObj.usage);
-  const result = resultObj.content;
+
+  console.log('\nEvaluating...');
+
+  // Jev fan-out (opt-in): the A-G evaluation as many typed questions composed
+  // in code, instead of one ~12K-token prose call scraped with a regex. It
+  // emits the same report header and SCORE_SUMMARY contract, so every line
+  // below is unchanged. No TYPESAFE_API_KEY, or --legacy-prose, means the
+  // prose path runs exactly as it did before; a fan-out failure falls back to
+  // it rather than losing the evaluation.
+  let result = null;
+  if (jevFanoutEnabled({ legacyProse })) {
+    const fanout = await evaluateWithJevFanout({ jdText, url: typeof input === 'string' && input.startsWith('http') ? input : null });
+    if (fanout.ok) {
+      console.log(`  Jev fan-out evaluation (${fanout.usage.total_tokens} tokens)`);
+      tracker.record('evaluation', fanout.usage);
+      result = fanout.text;
+    } else {
+      console.log(`  Jev fan-out unavailable, using the prose path: ${fanout.error}`);
+    }
+  }
+
+  if (result === null) {
+    const systemPrompt = buildSystemPrompt(modeContent, ctx);
+    let resultObj;
+    try {
+      // The entry point skips the model preload when the fan-out owns the
+      // evaluation, so a fallback arriving here may be the first thing that
+      // needs the rotation list.
+      if (freeModels === null && !process.env.CAREER_OPS_MODEL) await loadFreeModels();
+      resultObj = await callOpenRouter(systemPrompt, `Evaluate this job listing:\n\n${jdText}`);
+    } catch (e) {
+      console.error(`OpenRouter error: ${e.message}`);
+      return null;
+    }
+    tracker.record('evaluation', resultObj.usage);
+    result = resultObj.content;
+  }
 
   let reservedNumbers;
   try {
@@ -745,7 +811,7 @@ async function cmdEvaluate(input, ctx) {
 }
 
 // -- PIPELINE --
-async function cmdPipeline(ctx) {
+async function cmdPipeline(ctx, { legacyProse = false } = {}) {
   const pending = readPipeline();
   if (pending.length === 0) {
     console.log('No pending listings in pipeline.md.');
@@ -758,8 +824,9 @@ async function cmdPipeline(ctx) {
     const item = pending[i];
     console.log(`\n[${i + 1}/${pending.length}] ${item.company} — ${item.role}`);
     try {
-      const report = await cmdEvaluate(item.url, ctx);
-      if (report) markPipelineDone(item.url);
+      const result = await cmdEvaluate(item.url, ctx, { preGate: true, legacyProse });
+      if (result && result.skipped) markPipelineSkipped(item.url, result.reason);
+      else if (typeof result === 'string') markPipelineDone(item.url);
     } catch (e) {
       console.error(`  Error: ${e.message}`);
     }
@@ -839,12 +906,21 @@ async function cmdApply(ref, ctx) {
 // Only run the CLI when invoked directly (`node openrouter-runner.mjs ...`), so the
 // module can be imported (e.g. by test-all.mjs) without executing a command.
 const invokedDirectly = isMainModule(import.meta.url);
-const [,, command, ...args] = invokedDirectly ? process.argv : [];
+const [,, command, ...rawArgs] = invokedDirectly ? process.argv : [];
+// Reproducibility net: force the prose path even with a Jev key configured, so
+// both evaluators can be run against the same posting and compared.
+const legacyProse = hasFlag(rawArgs, '--legacy-prose');
+const args = rawArgs.filter((a) => a !== '--legacy-prose');
 if (invokedDirectly) loadEnvFile();
 const ctx = invokedDirectly ? loadContext() : null;
 
-// Load free models list before running any AI command (skip when a model is pinned)
-if (invokedDirectly && ['evaluate', 'eval', 'pipeline', 'apply', 'models'].includes(command) && !process.env.CAREER_OPS_MODEL) {
+// Load free models before any command that may call OpenRouter (skip when a
+// model is pinned, and when the Jev fan-out owns the evaluation — this throws
+// without OPENROUTER_API_KEY, and the fan-out path does not need one).
+const needsModelRotation = ['evaluate', 'eval', 'pipeline'].includes(command)
+  ? legacyProse || !jevFanoutEnabled()
+  : ['apply', 'models'].includes(command);
+if (invokedDirectly && needsModelRotation && !process.env.CAREER_OPS_MODEL) {
   await loadFreeModels();
 }
 
@@ -855,11 +931,11 @@ if (invokedDirectly) switch (command) {
 
   case 'evaluate':
   case 'eval':
-    await cmdEvaluate(args.join(' ').trim() || null, ctx);
+    await cmdEvaluate(args.join(' ').trim() || null, ctx, { legacyProse });
     break;
 
   case 'pipeline':
-    await cmdPipeline(ctx);
+    await cmdPipeline(ctx, { legacyProse });
     break;
 
   case 'apply':
@@ -883,6 +959,11 @@ COMMANDS:
   node openrouter-runner.mjs pipeline          → Batch-evaluate all pending entries in pipeline.md
   node openrouter-runner.mjs apply <report_no> → Generate application form answers from a report
   node openrouter-runner.mjs models            → List available free models from OpenRouter
+
+EVALUATION PATH:
+  With TYPESAFE_API_KEY set, evaluate/pipeline run the Jev fan-out (typed
+  questions composed in code) instead of one prose call. Add --legacy-prose to
+  force the prose path even with a key.
 
 SETUP:
   1. Copy .env.example to .env

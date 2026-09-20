@@ -16,6 +16,7 @@ try {
 import { readFileSync, existsSync } from 'fs';
 import * as yaml from 'js-yaml';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { isJevEnabled, jevChoice, jevNoul } from './lib/jev-client.mjs';
 import { appendToPipeline, appendToScanHistory, loadSeenUrls, PORTALS_PATH } from './scan.mjs';
 import { localToday } from './lib/local-today.mjs';
 
@@ -64,6 +65,68 @@ export async function extractWithAI(rawText, model) {
   }
 }
 
+// ── Jev Extraction Layer (opt-in via TYPESAFE_API_KEY) ──────────────────
+//
+// Takes priority over the Gemini/keyword branches below when enabled, but
+// changes nothing when TYPESAFE_API_KEY is unset: extractWithAI() and the
+// keyword `.includes` fallback are untouched, and main() only reaches this
+// path when isJevEnabled() is true.
+
+const DEFAULT_JEV_CONFIDENCE_THRESHOLD = 0.6;
+
+function resolveConfidenceThreshold(raw) {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : DEFAULT_JEV_CONFIDENCE_THRESHOLD;
+}
+
+const JEV_LISTING_INSTRUCTIONS = 'Whether `text` is an actual individual HN "Who is hiring" job listing ' +
+  '(a company naming a specific role it is hiring for), as opposed to a reply, question, or meta commentary ' +
+  'about the hiring thread itself.';
+
+/**
+ * Jev-backed replacement for the ad-hoc Gemini-YAML extraction: a Noul asks
+ * whether `text` is a real job listing at all, then a Choice picks which of
+ * the user's configured keyword archetypes (if any) it matches. Returns null
+ * — letting the caller fall back to its own logic — when Jev is disabled, a
+ * question errors, or either answer's confidence is below `threshold`.
+ *
+ * @param {string} text - Untrusted HN post title + body.
+ * @param {string[]} keywords - The user's configured hn_hiring.keywords archetypes.
+ * @param {{ confidenceThreshold?: number }} [opts]
+ * @returns {Promise<{ archetype: string, confidence: number } | null>}
+ */
+export async function extractWithJev(text, keywords, { confidenceThreshold } = {}) {
+  if (!isJevEnabled() || typeof text !== 'string' || !text.trim() || !Array.isArray(keywords) || keywords.length === 0) {
+    return null;
+  }
+  const threshold = resolveConfidenceThreshold(confidenceThreshold ?? process.env.JEV_HN_CONFIDENCE_THRESHOLD);
+
+  const noul = await jevNoul({
+    state: text,
+    instructions: JEV_LISTING_INSTRUCTIONS,
+    whenTrue: 'The text names a company and a specific role it is hiring for.',
+    whenFalse: 'The text is a reply, question, or meta commentary with no listing of its own.',
+    id: 'is-listing',
+  });
+  if (noul.probability === null || noul.probability < threshold) return null;
+
+  const options = {};
+  for (const kw of keywords) options[kw] = `The listing is hiring for a role matching "${kw}".`;
+  options.none = 'The listing does not match any of the target archetypes.';
+  options.maybe = 'The listing might match a target archetype, but it is genuinely unclear which one.';
+
+  const choice = await jevChoice({
+    state: text,
+    instructions: 'Which target archetype (if any) this job listing matches.',
+    options,
+    id: 'archetype',
+  });
+  if (choice.choice === null || choice.confidence < threshold || choice.choice === 'none' || choice.choice === 'maybe') {
+    return null;
+  }
+  return { archetype: choice.choice, confidence: Math.min(noul.probability, choice.confidence) };
+}
+
 // ── Main Logic ───────────────────────────────────────────────────────
 
 async function main() {
@@ -78,8 +141,23 @@ async function main() {
 
   const newOffers = [];
 
-  // STEP 2: The Architecture Branch
-  if (apiKey) {
+  // STEP 2: The Architecture Branch. Jev takes priority when enabled (see
+  // extractWithJev's doc comment); the Gemini and keyword branches below are
+  // byte-for-byte unchanged and are exactly what runs when TYPESAFE_API_KEY
+  // is unset.
+  if (isJevEnabled()) {
+    console.log(`✨ Jev enabled. Classifying via TypeSafe...`);
+    for (const job of rawJobs) {
+      if (seen.has(job.url)) continue;
+
+      const match = await extractWithJev(job.title + " " + (job.text || ""), myKeywords);
+      if (match) {
+        newOffers.push({ ...job, source: 'hn-hiring', postedAt: Date.now(), jevArchetype: match.archetype });
+        console.log(`  ✅ Jev match (${match.archetype}): ${job.title}`);
+      }
+      seen.add(job.url);
+    }
+  } else if (apiKey) {
     console.log(`✨ AI Key detected. Processing with Gemini...`);
     const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
     const genAI = new GoogleGenerativeAI(apiKey);

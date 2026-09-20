@@ -15,6 +15,7 @@
 
 import { validateFlags } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
+import { isJevEnabled, jevChoice } from './lib/jev-client.mjs';
 
 /**
  * Classifies a job title into exactly one seniority tier.
@@ -191,6 +192,55 @@ export function classifyTier(title) {
 
 export default classifyTier;
 
+// Confidence floor below which a Jev answer is discarded in favor of the
+// deterministic regex table above — mirrors #4289's "confidence below 0.6
+// stays Unknown rather than guessing". Configurable because different
+// callers may want a stricter or looser bar than the classifier's default.
+const DEFAULT_JEV_CONFIDENCE_THRESHOLD = 0.6;
+
+function resolveConfidenceThreshold(raw) {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : DEFAULT_JEV_CONFIDENCE_THRESHOLD;
+}
+
+const JEV_TIER_OPTIONS = {
+  intern: 'Internship, trainee, co-op, or graduate-programme role with no professional seniority.',
+  entry: 'Entry-level, junior, or associate individual-contributor role.',
+  mid: 'An ordinary individual-contributor role with no explicit level marker, or an explicit mid/II marker.',
+  senior: 'Senior, staff, principal, lead, director, VP, head-of, or chief level role.',
+};
+
+const JEV_TIER_INSTRUCTIONS = 'Classify the seniority tier this job title itself names. English job titles put ' +
+  'the level word first: POSITION decides the role\'s own level, not the weight of the word. A senior-sounding word ' +
+  'that trails the title (e.g. "Summer Intern, Director of Product") usually names the team, office, or person the ' +
+  'role sits beside, not the role\'s own seniority, and must not outrank a level marker that leads the title.';
+
+/**
+ * Jev-aware seniority classification. Delegates to the deterministic
+ * `classifyTier` regex table for the actual fallback logic and only
+ * overrides it with a Jev Choice answer that clears the confidence
+ * threshold. With TYPESAFE_API_KEY unset, or on any Jev error, this
+ * resolves to exactly what `classifyTier(title)` returns.
+ *
+ * @param {string} title - The job title to classify.
+ * @param {{ confidenceThreshold?: number }} [opts]
+ * @returns {Promise<{ tier: 'intern'|'entry'|'mid'|'senior', source: 'jev'|'deterministic', confidence?: number, jevError?: string }>}
+ */
+export async function classifyTierAsync(title, { confidenceThreshold } = {}) {
+  const deterministic = classifyTier(title);
+  if (!isJevEnabled() || typeof title !== 'string') {
+    return { tier: deterministic, source: 'deterministic' };
+  }
+
+  const threshold = resolveConfidenceThreshold(confidenceThreshold ?? process.env.JEV_TIER_CONFIDENCE_THRESHOLD);
+  const result = await jevChoice({ state: title, instructions: JEV_TIER_INSTRUCTIONS, options: JEV_TIER_OPTIONS, id: 'tier' });
+
+  if (result.choice === null || result.confidence < threshold) {
+    return { tier: deterministic, source: 'deterministic', confidence: result.confidence, jevError: result.error };
+  }
+  return { tier: result.choice, source: 'jev', confidence: result.confidence };
+}
+
 // CLI and inline test mode
 const isDirect = isMainModule(import.meta.url);
 
@@ -205,7 +255,10 @@ const USAGE = `Usage:
   node classify-tier.mjs --test          # run the inline test cases
   node classify-tier.mjs --help          # show this message
 
-Tiers: intern, entry, mid, senior. Defaults to mid when no keyword matches.`;
+Tiers: intern, entry, mid, senior. Defaults to mid when no keyword matches.
+With TYPESAFE_API_KEY set, a title argument is classified via Jev, falling
+back to the regex table below TYPESAFE confidence ${DEFAULT_JEV_CONFIDENCE_THRESHOLD}
+(override with JEV_TIER_CONFIDENCE_THRESHOLD). --test never calls Jev.`;
 
 if (isDirect) {
   const args = process.argv.slice(2);
@@ -213,7 +266,8 @@ if (isDirect) {
   if (args.includes('--test')) {
     runTests();
   } else if (args.length > 0) {
-    console.log(classifyTier(args[0]));
+    const { tier } = await classifyTierAsync(args[0]);
+    console.log(tier);
   } else {
     console.log(USAGE);
   }

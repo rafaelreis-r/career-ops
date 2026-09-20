@@ -1,0 +1,55 @@
+<!doctype html>
+<!--
+  Fixture: application form dedicated to validating ab-jev-apply.mjs's
+  accept-attribute CV-upload fallback (fm/jev-runner-cv-detect), without ever
+  driving a real job application. Mirrors the live DOM captured from a real
+  run against https://avahi.bamboohr.com/careers/176 after clicking "Apply
+  for This Job": exactly ONE visible file input, with EMPTY name and id, no
+  <label>, no aria-label, and an accept list of document + image + text
+  types (copied verbatim from that live inspection). Deliberately separate
+  from careers-form-cv-upload.html (which covers the labeled/name-matched
+  résumé field and must keep resolving to exactly one file ref) — this
+  fixture proves attachCv()'s accept-based fallback alone, since RESUME_LABEL_RX
+  cannot match an input with no label at all.
+  See web/tests/ab-jev-apply.test.mjs.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Apply — DevOps Engineer at Avahi</title>
+  </head>
+  <body>
+    <main id="application_form">
+      <h1>Apply for DevOps Engineer</h1>
+      <form>
+        <section>
+          <label for="full_name">Full name*</label>
+          <input id="full_name" name="full_name" type="text" required />
+        </section>
+        <section>
+          <label for="email">Email*</label>
+          <input id="email" name="email" type="email" required />
+        </section>
+        <section>
+          <label for="phone">Phone number</label>
+          <input id="phone" name="phone" type="tel" />
+        </section>
+        <section>
+          <!-- No <label>, no name, no id, no aria-label — byte-identical
+               shape to the real Avahi BambooHR upload field. -->
+          <input
+            type="file"
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.jpg,.jpeg,.tif,.tiff,.gif,.png,.bmp,.txt,.rtf"
+          />
+        </section>
+        <section>
+          <label for="postal_code">Postal / ZIP Code (optional)</label>
+          <input id="postal_code" name="postal_code" type="text" />
+        </section>
+        <section>
+          <button type="submit" id="submit_application">Submit Application</button>
+        </section>
+      </form>
+    </main>
+  </body>
+</html>

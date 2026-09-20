@@ -1,0 +1,60 @@
+<!doctype html>
+<!--
+  Fixture: a representative single-page ATS application form (Greenhouse/Ashby
+  style layout, hand-authored — not scraped from a live posting) used to
+  validate the Jev decision loop's DOM scan + decision logic offline, without
+  ever driving a real job application. See web/tests/apply-jev-drive.test.mjs.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Apply — Senior Site Reliability Engineer at Acme Corp</title>
+  </head>
+  <body>
+    <main id="application_form">
+      <h1>Apply for Senior Site Reliability Engineer</h1>
+      <form>
+        <section>
+          <label for="full_name">Full name*</label>
+          <input id="full_name" name="full_name" type="text" required />
+        </section>
+        <section>
+          <label for="email">Email*</label>
+          <input id="email" name="email" type="email" required />
+        </section>
+        <section>
+          <label for="phone">Phone number</label>
+          <input id="phone" name="phone" type="tel" />
+        </section>
+        <section>
+          <label for="linkedin">LinkedIn URL</label>
+          <input id="linkedin" name="linkedin" type="url" placeholder="https://linkedin.com/in/…" />
+        </section>
+        <section>
+          <label for="resume">Resume/CV*</label>
+          <input id="resume" name="resume" type="file" required />
+        </section>
+        <section>
+          <label for="work_auth">Are you authorized to work in this country?*</label>
+          <select id="work_auth" name="work_auth" required>
+            <option value="">Select…</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+            <option value="sponsorship">Yes, with sponsorship</option>
+          </select>
+        </section>
+        <section>
+          <label for="cover_letter">Cover letter (optional)</label>
+          <textarea id="cover_letter" name="cover_letter"></textarea>
+        </section>
+        <section>
+          <input id="eeo_consent" name="eeo_consent" type="checkbox" required />
+          <label for="eeo_consent">I consent to Acme Corp processing my personal data per the Privacy Policy.*</label>
+        </section>
+        <section>
+          <button type="submit" id="submit_application">Submit Application</button>
+        </section>
+      </form>
+    </main>
+  </body>
+</html>
