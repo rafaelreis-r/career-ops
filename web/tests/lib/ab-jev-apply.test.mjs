@@ -16,7 +16,7 @@
 //      two gaps the captain's brief named (no CV upload, stuck on a no-data
 //      field) are closed, without ever driving https://avahi.bamboohr.com.
 //
-// Run:  node --test tests/ab-jev-apply.test.mjs   (from web/)
+// Run:  node --test tests/lib/ab-jev-apply.test.mjs   (from web/)
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -34,9 +34,9 @@ import {
   deriveCompanySlug,
   RESUME_LABEL_RX,
   DOCUMENT_ACCEPT_RX,
-} from "../scripts/ab-jev-apply.mjs";
+} from "../../scripts/ab-jev-apply.mjs";
 
-const FIXTURES = path.join(import.meta.dirname, "..", "src", "lib", "apply", "__fixtures__");
+const FIXTURES = path.join(import.meta.dirname, "..", "..", "src", "lib", "apply", "__fixtures__");
 
 /** A throwaway root directory shaped like careerOpsRoot() (config/profile.yml,
  *  output/) — NEVER the real repo root, so these tests can never touch the
@@ -151,6 +151,7 @@ function makeFixtureJevStub() {
 
 test("CV attaches, the optional no-data field is skipped without looping, verification passes, and the submit phase reaches SUBMIT — fixture only, never a live site", async (t) => {
   const root = makeTempRoot();
+  t.after(() => { fs.rmSync(root, { recursive: true, force: true }); });
   const outputDir = path.join(root, "output");
   fs.mkdirSync(outputDir, { recursive: true });
   const cvPath = path.join(outputDir, "cv-candidate-avahi-2026-09-18.pdf");
@@ -160,11 +161,14 @@ test("CV attaches, the optional no-data field is skipped without looping, verifi
   const cvResolution = resolveCvPath(root, { companySlug: deriveCompanySlug({ url: "https://avahi.bamboohr.com/careers/176" }) });
   assert.equal(cvResolution.path, cvPath, "resolves the fixture's own newest cv-candidate-avahi-*.pdf, never a fabricated path");
 
-  const browser = await chromium.launch({ channel: "chrome", headless: true });
-  t.after(async () => {
-    await browser.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  });
+  let browser;
+  try {
+    browser = await chromium.launch({ channel: "chrome", headless: true, timeout: 5000 });
+  } catch (err) {
+    t.skip(`chrome not available (${err.message})`);
+    return;
+  }
+  t.after(async () => { await browser.close(); });
   const page = await browser.newPage();
   await page.goto(`file://${path.join(FIXTURES, "careers-form-cv-upload.html")}`);
   const isFormReady = async () => {
@@ -236,6 +240,7 @@ test("CV attaches, the optional no-data field is skipped without looping, verifi
 
 test("CV attaches via the accept-attribute fallback on an unnamed, unlabeled file input — mirrors the real Avahi form, verification passes, and the submit phase reaches SUBMIT", async (t) => {
   const root = makeTempRoot();
+  t.after(() => { fs.rmSync(root, { recursive: true, force: true }); });
   const outputDir = path.join(root, "output");
   fs.mkdirSync(outputDir, { recursive: true });
   const cvPath = path.join(outputDir, "cv-candidate-avahi-2026-09-18.pdf");
@@ -245,11 +250,14 @@ test("CV attaches via the accept-attribute fallback on an unnamed, unlabeled fil
   const cvResolution = resolveCvPath(root, { companySlug: deriveCompanySlug({ url: "https://avahi.bamboohr.com/careers/176" }) });
   assert.equal(cvResolution.path, cvPath);
 
-  const browser = await chromium.launch({ channel: "chrome", headless: true });
-  t.after(async () => {
-    await browser.close();
-    fs.rmSync(root, { recursive: true, force: true });
-  });
+  let browser;
+  try {
+    browser = await chromium.launch({ channel: "chrome", headless: true, timeout: 5000 });
+  } catch (err) {
+    t.skip(`chrome not available (${err.message})`);
+    return;
+  }
+  t.after(async () => { await browser.close(); });
   const page = await browser.newPage();
   await page.goto(`file://${path.join(FIXTURES, "careers-form-cv-upload-unnamed.html")}`);
   const isFormReady = async () => {
