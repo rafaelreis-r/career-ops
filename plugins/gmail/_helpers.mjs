@@ -35,9 +35,15 @@ const ASSET_HOST_PREFIXES = ['cdn.', 'static.', 'assets.', 'img.', 'images.', 'm
 /** LinkedIn's CDN: images, JS, tracking pixels — never a job posting. */
 const LICDN_HOST = /(^|\.)licdn\.com$/;
 
-/** Static-asset hosts that only ever serve logos and pixels, never a posting. */
+/** File types that are page furniture (logos, webfonts, media), never a posting. */
+const ASSET_EXT_RE =
+  /\.(jpe?g|png|gif|svg|webp|avif|ico|bmp|tiff?|css|js|mjs|woff2?|ttf|otf|eot|mp4|webm|mp3|wav)(\?|#|$)/i;
+
+/** Subdomains that only ever serve static files. */
+const ASSET_HOST_PREFIXES = ['cdn.', 'static.', 'assets.', 'img.', 'images.', 'media.'];
+
+/** Named hosts that only ever serve logos and pixels, never a posting. */
 const ASSET_HOSTS = [/(^|\.)cloudinary\.com$/, /\.blob\.core\.windows\.net$/, /(^|\.)cloudfront\.net$/];
-const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|ico|bmp)$/i;
 
 /**
  * LinkedIn routes that only ever carry navigation or telemetry, never a posting.
@@ -71,7 +77,11 @@ export function isCleanUrl(url) {
     const hostname = u.hostname.toLowerCase();
 
     if (LICDN_HOST.test(hostname)) return false;
-    if (ASSET_HOSTS.some(re => re.test(hostname)) || IMAGE_EXT.test(u.pathname)) return false;
+    if (ASSET_EXT_RE.test(u.pathname + u.search)) return false;
+    if (/\/(wp-content|wp-includes)\//i.test(u.pathname)) return false;
+    if (hostname === 'fonts.googleapis.com' || hostname === 'fonts.gstatic.com') return false;
+    if (ASSET_HOST_PREFIXES.some(prefix => hostname.startsWith(prefix))) return false;
+    if (ASSET_HOSTS.some(re => re.test(hostname))) return false;
 
     if (isLinkedInHost(hostname)) {
       let path = u.pathname.toLowerCase();
