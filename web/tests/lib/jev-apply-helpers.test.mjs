@@ -278,6 +278,19 @@ test('readyToSubmit: a transport error reports not-ready with the error, and abs
   assert.equal(res.error, 'Jev HTTP 503');
 });
 
+test('readyToSubmit: the noul statement is the consistent/safe-to-submit claim, matching whenTrue and ready = P > 0.5', async () => {
+  const jev = stubNoul({ enabled: true, probability: 0.95 });
+  await readyToSubmit({
+    fields: [{ label: 'Email', required: true, value: 'you@example.com' }],
+  }, { jev, threshold: T });
+  const { instructions, whenTrue, whenFalse } = jev.calls[0];
+  assert.match(whenTrue, /consistent/i);
+  assert.match(whenFalse, /inconsistent/i);
+  assert.match(instructions, /every filled value is consistent/i);
+  assert.doesNotMatch(instructions, /any filled value is inconsistent/i);
+  assert.doesNotMatch(instructions, /when unsure, answer no/i);
+});
+
 // ── classifyBlock ───────────────────────────────────────────────────────────
 
 test('classifyBlock: a captcha-like page is classified as captcha', async () => {
