@@ -33,7 +33,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import { isMainModule } from "../../lib/is-main-module.mjs";
 import { loadCanonicalData, resolveCvPath, deriveCompanySlug, DOCUMENT_ACCEPT_RX } from "./ab-jev-apply.mjs";
 

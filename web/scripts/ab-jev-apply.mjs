@@ -54,7 +54,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright-core";
-import yaml from "js-yaml";
+import * as yaml from "js-yaml";
 import { isMainModule } from "../../lib/is-main-module.mjs";
 import { parseApplicationAnswersSection } from "../../application-answers.mjs";
 import {
