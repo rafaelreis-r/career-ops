@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cover Letter — {{NAME}}</title>
+<style>
+  :root {
+    --accent-color: #1A56A0;
+    --font-family: "Helvetica", Arial, sans-serif;
+    --font-size: 10.2pt;
+    --page-margin: 0.7in;
+  }
+
+  @page { margin: var(--page-margin); }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "clig" 0, "dlig" 0;
+  }
+
+  html {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    font-family: var(--font-family);
+    font-size: var(--font-size);
+    line-height: 1.48;
+    color: #20242a;
+    background: #ffffff;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "clig" 0, "dlig" 0;
+  }
+
+  .name {
+    font-weight: 700;
+    font-size: 16pt;
+    letter-spacing: -0.01em;
+    margin-bottom: 3pt;
+  }
+
+  .contact, .credentials {
+    font-size: 9pt;
+    color: #5f6874;
+    line-height: 1.35;
+    margin-bottom: 2pt;
+  }
+
+  .contact a, .credentials a, .footnotes a {
+    color: var(--accent-color);
+    text-decoration: underline;
+    text-decoration-thickness: from-font;
+    text-underline-position: from-font;
+    text-decoration-skip-ink: auto;
+  }
+
+  .divider {
+    border: none;
+    border-top: 1.25pt solid var(--accent-color);
+    margin: 8pt 0 10pt;
+  }
+
+  .role-title {
+    color: var(--accent-color);
+    font-weight: 700;
+    font-size: 12pt;
+    line-height: 1.2;
+    margin-top: 8pt;
+    margin-bottom: 3pt;
+  }
+
+  .dateline {
+    font-size: 9pt;
+    color: #5f6874;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 13pt;
+  }
+
+  .greeting {
+    margin-bottom: 9pt;
+  }
+
+  p, .achievements li {
+    text-align: justify;
+    text-justify: inter-word;
+    text-align-last: left;
+    hyphens: none;
+    orphans: 3;
+    widows: 3;
+  }
+
+  p {
+    margin-bottom: 9pt;
+  }
+
+  .achievements {
+    list-style: none;
+    margin: 1pt 0 6pt;
+  }
+
+  .achievements li {
+    margin-bottom: 6pt;
+    padding-left: 15pt;
+    position: relative;
+    break-inside: avoid;
+  }
+
+  .achievements li::before {
+    content: "\2022";
+    color: var(--accent-color);
+    font-weight: 700;
+    position: absolute;
+    left: 1pt;
+  }
+
+  .language-closing {
+    font-style: italic;
+    margin-top: 4pt;
+    margin-bottom: 8pt;
+  }
+
+  .signature {
+    text-align: left;
+    margin-top: 13pt;
+    margin-bottom: 8pt;
+  }
+
+  .footnotes {
+    margin-top: 10pt;
+    padding-top: 5pt;
+    border-top: 0.5pt solid #c8cdd4;
+  }
+
+  .footnotes p {
+    font-size: 8pt;
+    color: #737b86;
+    line-height: 1.35;
+    margin-bottom: 3pt;
+  }
+</style>
+</head>
+<body>
+  <div class="name">{{NAME}}</div>
+  <div class="contact">{{CONTACT_LINE}}</div>
+  {{CREDENTIALS_BLOCK}}
+  <hr class="divider">
+
+  <div class="role-title">Cover Letter: {{ROLE_TITLE}}</div>
+  <div class="dateline">{{DATELINE}}</div>
+
+  {{GREETING_BLOCK}}
+  <p>{{OPENING}}</p>
+  <p>{{PROFILE_INTRO}}</p>
+
+  {{ACHIEVEMENTS_BLOCK}}
+
+  {{PROBLEMS_BLOCK}}
+  {{CLOSING_BLOCK}}
+  {{LANGUAGE_CLOSING_BLOCK}}
+  {{SIGNATURE_BLOCK}}
+  {{FOOTNOTES_BLOCK}}
+</body>
+</html>
