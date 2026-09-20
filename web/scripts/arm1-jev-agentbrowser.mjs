@@ -401,7 +401,17 @@ async function main() {
     console.error(`[arm1-ab] error: ${e instanceof Error ? e.message : e}`);
     outcome = "failed";
   } finally {
-    await browser.close().catch(() => {});
+    // Persist the headed tab when the outcome needs a human (captcha, cookie
+    // consent, or an unconfirmed submit): the agent-browser session is a named,
+    // persistent browser, so NOT closing leaves the window open after this
+    // process exits, for the captain to complete manually and avoid losing the
+    // application. Clean outcomes close normally.
+    const persist = args.headed && (outcome === "blocked" || outcome === "submitted (unconfirmed)");
+    if (persist) {
+      console.log(`[arm1-ab] TAB LEFT OPEN (session=${session}) — outcome "${outcome}". Solve any captcha/consent and click submit manually, then close the window.`);
+    } else {
+      await browser.close().catch(() => {});
+    }
   }
 
   const wallClockSeconds = Number(((Date.now() - t0) / 1000).toFixed(1));
