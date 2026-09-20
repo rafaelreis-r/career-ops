@@ -1,7 +1,11 @@
 // @ts-check
-// Pure, side-effect-free Gmail helpers. Ported verbatim from the gmail-helpers
+// Pure, side-effect-free Gmail helpers. Ported from the gmail-helpers
 // contributed by @SparshGarg999 in #1203 (with thanks). Files prefixed with _
 // are never discovered as plugins.
+//
+// Local deviation from the upstream port (security/compat fix): isCleanUrl below
+// filters LinkedIn CDN hosts and notification-only routes, and stops the keyword
+// scan from discarding real job URLs whose query string carries tracking params.
 
 /**
  * Extract all http/https URLs from a string (plain text or HTML). Normalizes
@@ -28,6 +32,33 @@ const ASSET_EXT_RE =
 /** Subdomains that only ever serve static files. */
 const ASSET_HOST_PREFIXES = ['cdn.', 'static.', 'assets.', 'img.', 'images.', 'media.'];
 
+/** LinkedIn's CDN: images, JS, tracking pixels — never a job posting. */
+const LICDN_HOST = /(^|\.)licdn\.com$/;
+
+/** Static-asset hosts that only ever serve logos and pixels, never a posting. */
+const ASSET_HOSTS = [/(^|\.)cloudinary\.com$/, /\.blob\.core\.windows\.net$/, /(^|\.)cloudfront\.net$/];
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|ico|bmp)$/i;
+
+/**
+ * LinkedIn routes that only ever carry navigation or telemetry, never a posting.
+ * Matched as path prefixes so a query string cannot smuggle one past the gate.
+ */
+const LINKEDIN_NAV_ROUTES = [
+  '/feed/', '/messaging/', '/mynetwork/', '/notifications/',
+  '/emimp/', '/widgets/', '/jobs/alerts', '/jobs/search-results', '/jobs/jam/',
+];
+
+/** Canonical posting route, e.g. /jobs/view/4123456789. Regional hosts included. */
+const LINKEDIN_JOB_ROUTE = /^\/jobs\/view\/[^/]+/;
+
+/**
+ * @param {string} hostname
+ * @returns {boolean}
+ */
+function isLinkedInHost(hostname) {
+  return hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com');
+}
+
 /**
  * Is a URL clean and relevant (not a click tracker, unsubscribe link, or pixel)?
  * @param {string} url
@@ -36,6 +67,24 @@ const ASSET_HOST_PREFIXES = ['cdn.', 'static.', 'assets.', 'img.', 'images.', 'm
 export function isCleanUrl(url) {
   try {
     const u = new URL(url);
+    if (u.protocol !== 'https:') return false;
+    const hostname = u.hostname.toLowerCase();
+
+    if (LICDN_HOST.test(hostname)) return false;
+    if (ASSET_HOSTS.some(re => re.test(hostname)) || IMAGE_EXT.test(u.pathname)) return false;
+
+    if (isLinkedInHost(hostname)) {
+      let path = u.pathname.toLowerCase();
+      // Notification mail mirrors every link under /comm/<real path>; the prefix
+      // itself holds no posting, so judge the route underneath it.
+      if (path === '/comm' || path === '/comm/') return false;
+      if (path.startsWith('/comm/')) path = path.slice('/comm'.length);
+      if (LINKEDIN_NAV_ROUTES.some(route => path.startsWith(route))) return false;
+      // A real posting is exempt from the keyword scan below: digest links carry
+      // trackingId/refId query params that would otherwise match 'track'.
+      if (LINKEDIN_JOB_ROUTE.test(path)) return true;
+    }
+
     const lowerUrl = url.toLowerCase();
     const badKeywords = [
       'click', 'track', 'openpixel', 'sendgrid', 'unsubscribe', 'optout',
@@ -146,12 +195,38 @@ function gmailDmarcClause(headers) {
  * DMARC alignment check (anti-spoof gate, fail-closed). Only mail whose *Gmail*
  * Authentication-Results header reports dmarc=pass is trusted; a header carrying
  * any other authserv-id is the sender's own claim and is ignored.
+ * Fork deviation: when Gmail's own header carries no DMARC verdict at all, as
+ * happens for senders whose policy is p=none, a dkim=pass signing domain that
+ * aligns with the From: domain is accepted instead (relaxed alignment).
  * @param {Array<{ name: string, value: string }>} headers
  * @returns {boolean}
  */
 export function isAuthenticEmail(headers) {
   if (!Array.isArray(headers)) return false;
-  return gmailDmarcClause(headers) !== '';
+  if (gmailDmarcClause(headers) !== '') return true;
+
+  // Fork deviation (p=none senders): when Gmail's own Authentication-Results
+  // carries no DMARC verdict at all, accept a dkim=pass whose signing domain
+  // aligns with the From: domain (DMARC's relaxed alignment, applied by hand).
+  // Read only from Gmail's clauses, never from a header the sender wrote.
+  const gmail = headers.find(h => h?.name?.toLowerCase() === 'authentication-results'
+    && GMAIL_AUTHSERV_ID.test(authResultsClauses(h.value || '')[0]));
+  if (!gmail) return false;
+  const clauses = authResultsClauses(gmail.value || '').slice(1);
+  if (clauses.some(clause => /^dmarc\s*=/i.test(clause))) return false;
+
+  const fromDomain = headers
+    .filter(h => h?.name?.toLowerCase() === 'from')
+    .map(h => h.value || '')
+    .join('; ')
+    .match(/@([a-z0-9.-]+)/i)?.[1]?.toLowerCase();
+  if (!fromDomain) return false;
+  const aligned = (d) => d === fromDomain || fromDomain.endsWith(`.${d}`);
+  for (const clause of clauses) {
+    const m = clause.match(/^dkim\s*=\s*pass\b.*?header\.(?:i=@|d=)([a-z0-9.-]+)/i);
+    if (m && aligned(m[1].toLowerCase())) return true;
+  }
+  return false;
 }
 
 /**

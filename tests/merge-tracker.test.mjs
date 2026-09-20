@@ -756,6 +756,109 @@ try {
   fail(`merge-tracker same-run num collision tests crashed: ${e.message}`);
 }
 
+// ── contract validation: blank Role/Company after parsing (2026-09-02) ─────
+// A TSV that does not actually match the documented 9-column contract (e.g. a
+// pre-#1596-style row that still carries Via as its OWN positional column
+// instead of a trailing `via=Firm` tag) can pass the `>= 8 fields` and
+// resolveScoreStatus checks untouched while every downstream field reads one
+// column off from where the parser expects it. Company/Role landing blank is
+// the one signal that is true regardless of which historical layout produced
+// the shift, so parseTsvContent must reject on it instead of merging a row
+// with a blank Role, a wrong Score, and truncated Notes.
+console.log('\nmerge-tracker.mjs — contract validation (blank Role/Company)');
+try {
+  // A rejected addition is skipped, not applied — like every other
+  // parseTsvContent validation failure (score/status ambiguity, ambiguous
+  // extras), it is still archived to merged/ with a warning rather than
+  // retried forever, since a malformed TSV needs a human fix, not a re-run.
+  const blankRole = runMergeDetailed({
+    '070-acme.tsv': '70\t2026-01-01\tAcme\t\tEvaluated\t4.2/5\t❌\t[70](reports/070-acme-2026-01-01.md)\tshifted row\n',
+  });
+  if (dataRows(blankRole.tracker).length === 0 && blankRole.archived.includes('070-acme.tsv')) {
+    pass('a TSV with a blank Role is rejected with a clear message, not merged');
+  } else {
+    fail(`blank-Role TSV was not rejected cleanly: rows=${dataRows(blankRole.tracker).length} `
+      + `archived=${JSON.stringify(blankRole.archived)} output=${blankRole.output.trim()}`);
+  }
+
+  const blankCompany = runMergeDetailed({
+    '071.tsv': '71\t2026-01-01\t\tStaff Engineer\tEvaluated\t4.2/5\t❌\t[71](reports/071-2026-01-01.md)\tshifted row\n',
+  });
+  if (dataRows(blankCompany.tracker).length === 0 && blankCompany.archived.includes('071.tsv')) {
+    pass('a TSV with a blank Company is rejected, not merged');
+  } else {
+    fail(`blank-Company TSV was not rejected cleanly: rows=${dataRows(blankCompany.tracker).length} `
+      + `archived=${JSON.stringify(blankCompany.archived)}`);
+  }
+} catch (e) {
+  fail(`merge-tracker contract-validation tests crashed: ${e.message}`);
+}
+
+// ── tier-3 dedup guard: ambiguous fuzzy match must fail loud (2026-09-02) ──
+// career-ops incident: nine same-day CI&T postings. `existingApps.find(...)`
+// took the FIRST tier-3 candidate without checking whether a second row also
+// fuzzy-matched — report #480 merged into #478's row and nearly matched #476
+// too. "Master Generative AI Developer" and "Master Software Developer (AI
+// Generative)" clear roleFuzzyMatch's 0.6 Jaccard bar because their only
+// differing word ("software") is itself a BASELINE token.
+console.log('\nmerge-tracker.mjs — tier-3 ambiguous fuzzy match fails loud');
+try {
+  const AMBIGUOUS_ROWS =
+    '| 476 | 2026-08-20 | CI&T | Master Software Developer (AI Generative) | 3.8/5 | Evaluated | ❌ | '
+    + '[476](reports/476-cit-2026-08-20.md) | first posting |\n'
+    + '| 478 | 2026-08-20 | CI&T | Master Generative AI Developer | 4.0/5 | Evaluated | ❌ | '
+    + '[478](reports/478-cit-2026-08-20.md) | second posting |\n';
+  const ambiguous = runMergeDetailed({
+    '480-cit.tsv': '480\t2026-08-20\tCI&T\tMaster Generative AI Developer\tEvaluated\t4.5/5\t❌\t'
+      + '[480](reports/480-cit-2026-08-20.md)\tthird posting, distinct req\n',
+  }, { rows: AMBIGUOUS_ROWS });
+  const stillTwo = dataRows(ambiguous.tracker).length === 2;
+  const unchanged = /3\.8\/5/.test(ambiguous.tracker) && /4\.0\/5/.test(ambiguous.tracker) && !/4\.5\/5/.test(ambiguous.tracker);
+  if (stillTwo && unchanged && ambiguous.pending.includes('480-cit.tsv') && /fuzzy-match/.test(ambiguous.output)) {
+    pass('two fuzzy-matching existing rows block the merge instead of picking one by array order');
+  } else {
+    fail(`ambiguous tier-3 match was not refused: rows=${dataRows(ambiguous.tracker).join(' // ')} `
+      + `pending=${JSON.stringify(ambiguous.pending)} output=${ambiguous.output.trim()}`);
+  }
+} catch (e) {
+  fail(`merge-tracker tier-3 ambiguity tests crashed: ${e.message}`);
+}
+
+// ── tier-3 dedup guard: volume alone must NOT require a req number ─────────
+// A same-company-row-count threshold was tried and reverted (see the comment
+// above the guard in merge-tracker.mjs): career-ops trackers routinely carry
+// several genuinely distinct rows for one company — a true repost, a second
+// specialty, a second `?` unknown-employer submission. Pin the negative case
+// down so nobody re-introduces the volume threshold by accident: a company
+// with multiple EXISTING rows must still let an unambiguous (single-candidate)
+// fuzzy match through with no req number on either side.
+console.log('\nmerge-tracker.mjs — tier-3 guard does not fire on plain multi-row-per-company volume');
+try {
+  const MANY_ROWS =
+    '| 201 | 2026-08-20 | Globex | Recruiting Coordinator | 3.5/5 | Evaluated | ❌ | '
+    + '[201](reports/201-globex-2026-08-20.md) | unrelated opening |\n'
+    + '| 202 | 2026-08-20 | Globex | Data Platform Analyst | 3.6/5 | Evaluated | ❌ | '
+    + '[202](reports/202-globex-2026-08-20.md) | also unrelated |\n'
+    + '| 203 | 2026-08-20 | Globex | Master Generative AI Developer | 4.0/5 | Evaluated | ❌ | '
+    + '[203](reports/203-globex-2026-08-20.md) | no req number on this row |\n';
+
+  // A true repost (identical title) of the one matching row, at a company
+  // that already has THREE rows in the tracker, no req number anywhere.
+  const repost = runMergeDetailed({
+    '204-globex.tsv': '204\t2026-08-21\tGlobex\tMaster Generative AI Developer\tEvaluated\t4.6/5\t❌\t'
+      + '[204](reports/204-globex-2026-08-21.md)\trepost, higher score\n',
+  }, { rows: MANY_ROWS });
+  const globexRows = dataRows(repost.tracker).filter(r => /Master Generative AI Developer/.test(r));
+  if (dataRows(repost.tracker).length === 3 && globexRows.length === 1 && /4\.6\/5/.test(globexRows[0])) {
+    pass('a lone unambiguous fuzzy candidate still merges with no req number, regardless of company row count');
+  } else {
+    fail(`plain volume incorrectly blocked a true repost: rows=${dataRows(repost.tracker).join(' // ')} `
+      + `output=${repost.output.trim()}`);
+  }
+} catch (e) {
+  fail(`merge-tracker tier-3 plain-volume tests crashed: ${e.message}`);
+}
+
 // ── PDF-flag synchronization integration ────────────────────────────────────
 console.log('\nmerge-tracker.mjs — PDF-flag synchronization');
 try {
