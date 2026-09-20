@@ -14,7 +14,7 @@
 //       input:  {"options":[...],"label":"...","desiredValue":"..."}
 //   jev-apply.mjs bool   [--input <json>]  -> {"bool":true|false|null,"confidence":n,"probability":p|null}
 //       input:  {"question":"..."}
-//   jev-apply.mjs ready  [--input <json>]  -> {"ready":true|false,"confidence":n}
+//   jev-apply.mjs ready  [--input <json>]  -> {"ready":true|false,"confidence":n,"abstained":bool}
 //       input:  {"fields":[{"label","required","value"}, ...]}
 //   jev-apply.mjs block  [--input <json>]  -> {"block":<class>|null,"confidence":n}
 //       input:  {"pageState":{...}}  (or the whole JSON object is the page state)
@@ -89,7 +89,7 @@ function usage() {
     '  jev-apply.mjs match  [--input <json>]   # {"field":{label,placeholder,nearbyText,type}}',
     '  jev-apply.mjs pick   [--input <json>]   # {"options":[...],"label":...,"desiredValue":...}',
     '  jev-apply.mjs bool   [--input <json>]   # {"question":"..."}',
-    '  jev-apply.mjs ready  [--input <json>]   # {"fields":[{label,required,value}, ...]}',
+    '  jev-apply.mjs ready  [--input <json>]   # {"fields":[{label,required,value}, ...], profileFacts?}',
     '  jev-apply.mjs block  [--input <json>]   # {"pageState":{...}}',
   ].join('\n');
 }
@@ -172,7 +172,7 @@ async function main(argv = process.argv.slice(2)) {
       process.exitCode = 2;
       return;
     }
-    emit({ ready: res.ready, confidence: res.confidence });
+    emit({ ready: res.ready, confidence: res.confidence, abstained: res.abstained });
     return;
   }
 
