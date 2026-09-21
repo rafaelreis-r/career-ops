@@ -195,10 +195,11 @@ check_prerequisites() {
   local cli_cmd
   case "$CLI" in
     claude)   cli_cmd="claude" ;;
+    omp)      cli_cmd="omp" ;;
     opencode) command -v opencode &>/dev/null && cli_cmd="opencode" || cli_cmd="ollama" ;;
     gemini)   cli_cmd="gemini" ;;
     qwen)     cli_cmd="qwen" ;;
-    *) echo "ERROR: Unknown --cli '$CLI'. Supported: claude, opencode, gemini, qwen"; exit 1 ;;
+    *) echo "ERROR: Unknown --cli '$CLI'. Supported: claude, omp, opencode, gemini, qwen"; exit 1 ;;
   esac
 
   if ! command -v "$cli_cmd" &>/dev/null; then
@@ -209,9 +210,11 @@ check_prerequisites() {
     exit 1
   fi
 
-  # Parallelism, the rate-limit retry loop, and --strict-mcp-config are
-  # claude-only; local models run one at a time.
-  if [[ "$CLI" != "claude" && "$PARALLEL" -gt 1 ]]; then
+  # Parallelism and the rate-limit retry loop are claude-only because the other
+  # supported CLIs drive local models, which run one at a time. omp is a remote
+  # router, not a local model, so it keeps parallelism; it stays out of the
+  # claude retry loop because that loop greps claude's own rate-limit wording.
+  if [[ "$CLI" != "claude" && "$CLI" != "omp" && "$PARALLEL" -gt 1 ]]; then
     echo "WARN: --parallel >1 is not supported for --cli $CLI (local models run sequentially). Resetting to 1."
     PARALLEL=1
   fi
@@ -1023,6 +1026,18 @@ process_offer() {
         ;;
       qwen)
         qwen ${model_args[@]+"${model_args[@]}"} -p "$full_prompt" > "$log_file" 2>&1 || exit_code=$?
+        ;;
+      omp)
+        # --cwd: omp loads the .env of the directory it is LAUNCHED from, before
+        # applying --cwd. A career-ops install whose .env points ANTHROPIC_BASE_URL
+        # at a local relay would otherwise poison every worker, so launch from a
+        # neutral directory and re-enter the project.
+        # < /dev/null: the runner does not redirect stdin. omp sees an open,
+        # non-TTY stdin, decides the prompt is being piped, and waits for an EOF
+        # that never arrives - the worker hangs forever in readPipedInput.
+        ( cd / && omp -p ${model_args[@]+"${model_args[@]}"} \
+            --thinking "${OMP_THINKING:-high}" --cwd "$PROJECT_DIR" \
+            "$full_prompt" ) > "$log_file" 2>&1 < /dev/null || exit_code=$?
         ;;
     esac
 
