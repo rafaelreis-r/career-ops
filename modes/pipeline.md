@@ -103,13 +103,17 @@ are defined:
   (`- [ ] {url} | {company} | {title} | note: curated shortlist` is valid). The
   deterministic scanner never sets it.
 
-- `| rank: {score}/5 — {reason}` — an **opt-in** LLM relevance annotation written
+- `| rank: cal-v1 {score}/5 — {reason}` — an **opt-in** calibrated LLM relevance annotation written
   only by `node rank-pipeline.mjs`, never by a scan. The score is 0–5 to one
   decimal and always carries a one-line reason, so you can disagree with it. It
   is advisory only: the ranker never removes, reorders, or hides a row, and an
-  unranked row simply has no usable annotation — not that it scored badly. (A
-  row can go unranked because the CLI call failed, returned malformed JSON, or
-  gave no usable reason — all of which still spent tokens.)
+  unranked row simply has no usable current-version annotation — not that it
+  scored badly. Unmarked
+  `rank: {score}/5` segments are pre-calibration and the ranker replaces them
+  when it successfully re-ranks the row. (A row can go unranked because a scorer
+  call failed, Jev confidence was below its threshold, scorer output was
+  malformed, or no usable reason was returned — all of which may still spend
+  tokens.)
 
 When more than one is present the order is `posted:` → `trust:` → `note:` →
 `rank:`. Treat them as hints when triaging; none changes how you process the URL.

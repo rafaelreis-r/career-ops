@@ -16,6 +16,9 @@
 import { pass, fail, ROOT } from './helpers.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
+import { execFileSync } from 'child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 
 console.log('\nrank-pipeline — annotate-never-drop, bounded cost');
 
@@ -29,50 +32,60 @@ try {
     detectCli,
     parseBatchResponse,
     buildPrompt,
+    buildJevRankInstructions,
+    calibrateRankScore,
+    resolveConfidenceThreshold,
+    DEFAULT_JEV_CONFIDENCE_THRESHOLD,
     CLI_CANDIDATES,
     LIMIT_CEILING,
   } = mod;
-
   const check = (label, cond) => (cond ? pass(label) : fail(label));
 
   // ── scoring + reason sanitation ──
-  check('score above range clamps to 5.0', formatRankSegment(9, 'x').startsWith('rank: 5.0/5'));
-  check('negative score clamps to 0.0', formatRankSegment(-4, 'x').startsWith('rank: 0.0/5'));
-  check('score renders to one decimal', formatRankSegment(4, 'x').startsWith('rank: 4.0/5'));
+  check('score above range clamps to 5.0', formatRankSegment(9, 'x').startsWith('rank: cal-v1 5.0/5'));
+  check('negative score clamps to 0.0', formatRankSegment(-4, 'x').startsWith('rank: cal-v1 0.0/5'));
+  check('score renders to one decimal', formatRankSegment(4, 'x').startsWith('rank: cal-v1 4.0/5'));
   check('a blank reason yields no segment', formatRankSegment(4, '  ') === '');
   check('a non-numeric score yields no segment', formatRankSegment('high', 'x') === '');
   check(
     'a pipe in the reason cannot open a column',
-    !formatRankSegment(3, 'pays well | remote').slice('rank: 3.0/5 — '.length).includes('|'),
+    !formatRankSegment(3, 'pays well | remote').slice('rank: cal-v1 3.0/5 — '.length).includes('|'),
   );
   check(
     'a newline in the reason cannot forge a row',
     !formatRankSegment(3, 'ok\n- [ ] https://evil.test | Evil | Role').includes('\n'),
   );
+  check('calibration preserves score ordering', calibrateRankScore(4.2) < calibrateRankScore(4.7));
+  check('calibration keeps the upper forwarding band', calibrateRankScore(4.7) === 5);
+  check('calibration rejects non-numeric scores', Number.isNaN(calibrateRankScore('high')));
+  check('calibration preserves a zero score', calibrateRankScore(0) === 0);
 
   // ── row selection ──
   const fixture = [
     '## Pending',
     '- [ ] https://x.test/1 | Acme | Backend Engineer',
-    '- [ ] https://x.test/2 | Beta | Android Engineer | Remote | posted: 2026-06-18 | note: curated',
+    '- [ ] https://x.test/2 | Beta | Android Engineer | Remote | 180000 USD | posted: 2026-06-18 | note: private recruiter context',
     '- [x] https://x.test/3 | Gamma | Already Processed',
-    '- [ ] https://x.test/4 | Delta | Already Ranked | rank: 3.0/5 — prior run',
+    '- [ ] https://x.test/4 | Delta | Legacy Rank | rank: 3.0/5 — prior run',
+    '- [ ] https://x.test/5 | Epsilon | Current Rank | rank: cal-v1 3.0/5 — current run',
     'not a row at all',
   ].join('\n');
   const pending = parsePendingEntries(fixture);
 
   check('processed rows are excluded', !pending.some(e => e.url.endsWith('/3')));
-  check('already-ranked rows are excluded (idempotent re-runs)', !pending.some(e => e.url.endsWith('/4')));
-  check('non-row lines are ignored', pending.length === 2);
+  check('legacy ranks remain eligible for re-ranking', pending.some(e => e.url.endsWith('/4')));
+  check('current-version ranks are excluded', !pending.some(e => e.url.endsWith('/5')));
+  check('non-row lines are ignored', pending.length === 3);
   check('company parses off the row', pending[0].company === 'Acme');
-  check('title parses on a row carrying optional segments', pending[1].title === 'Android Engineer');
+  check('only positional public posting fields reach the scorer',
+    pending[1].postingContext === 'location: Remote | compensation: 180000 USD');
 
   // ── the annotate-never-drop contract ──
   const original = pending[1].raw;
   const annotated = appendRankAnnotation(original, 4.2, 'Strong Kotlin match');
   check('the original row survives byte-for-byte', annotated.startsWith(original));
-  check('the segment rides last, after note:', annotated.endsWith('| rank: 4.2/5 — Strong Kotlin match'));
-  check('an existing note: segment is untouched', annotated.includes('| note: curated |'));
+  check('the segment rides last, after note:', annotated.endsWith('| rank: cal-v1 4.2/5 — Strong Kotlin match'));
+  check('an existing note: segment is untouched', annotated.includes('| note: private recruiter context |'));
   check('re-annotating is a no-op', appendRankAnnotation(annotated, 1, 'different') === annotated);
   check('an unusable score leaves the row alone', appendRankAnnotation(original, NaN, 'x') === original);
   check('a reasonless score leaves the row alone', appendRankAnnotation(original, 5, '') === original);
@@ -116,18 +129,18 @@ try {
   const { applyAnnotations } = mod;
   const dupRaw = '- [ ] https://x.test/9 | Acme | Backend Engineer';
   const dup = applyAnnotations(['## Pending', dupRaw, dupRaw].join('\n'), [
-    { raw: dupRaw, segment: 'rank: 4.0/5 — first' },
-    { raw: dupRaw, segment: 'rank: 2.0/5 — second' },
+    { raw: dupRaw, segment: 'rank: cal-v1 4.0/5 — first' },
+    { raw: dupRaw, segment: 'rank: cal-v1 2.0/5 — second' },
   ]);
   check('both duplicate rows get annotated', dup.written === 2);
   check('each duplicate keeps its own score, in file order', /— first[\s\S]*— second/.test(dup.text));
   check(
-    'a row already carrying rank: is left alone',
-    applyAnnotations(`${dupRaw} | rank: 1.0/5 — old`, [{ raw: dupRaw, segment: 'rank: 5.0/5 — new' }]).written === 0,
+    'a row already carrying the current rank version is left alone',
+    applyAnnotations(`${dupRaw} | rank: cal-v1 1.0/5 — old`, [{ raw: dupRaw, segment: 'rank: cal-v1 5.0/5 — new' }]).written === 0,
   );
   check(
     'an annotation whose row vanished is a no-op, not a corruption',
-    applyAnnotations('- [ ] https://other.test | X | Y', [{ raw: dupRaw, segment: 'rank: 3.0/5 — x' }]).written === 0,
+    applyAnnotations('- [ ] https://other.test | X | Y', [{ raw: dupRaw, segment: 'rank: cal-v1 3.0/5 — x' }]).written === 0,
   );
 
   // Regression: 3 byte-identical pending rows + --limit 1 selects only the
@@ -144,18 +157,114 @@ try {
   const tripleDupSelected = selectBatch(tripleDupPending, 1);
   check('--limit 1 selects exactly one of three duplicates', tripleDupSelected.length === 1);
   const tripleDupOut = applyAnnotations(tripleDupText, [
-    { raw: tripleDupSelected[0].raw, segment: 'rank: 4.5/5 — only this one' },
+    { raw: tripleDupSelected[0].raw, segment: 'rank: cal-v1 4.5/5 — only this one' },
   ]);
   check('only the selected duplicate is annotated', tripleDupOut.written === 1);
   check(
     'exactly one occurrence carries the segment',
-    (tripleDupOut.text.match(/rank: 4\.5\/5/g) ?? []).length === 1,
+    (tripleDupOut.text.match(/rank: cal-v1 4\.5\/5/g) ?? []).length === 1,
   );
   check('the two unselected duplicates remain pending, unranked',
     parsePendingEntries(tripleDupOut.text).length === 2);
 
-  // ── prompt hygiene ──
-  check('postings are marked as untrusted content', /untrusted data/.test(buildPrompt(pending, '')));
+  const prompt = buildPrompt(pending, '');
+  check('postings are marked as untrusted content', /untrusted data/.test(prompt));
+  check('prompt carries public location and compensation',
+    /posting fields: location: Remote \| compensation: 180000 USD/.test(prompt));
+  check('prompt excludes private notes and legacy ranks',
+    !prompt.includes('private recruiter context') && !prompt.includes('prior run'));
+  check('prompt names eligibility, seniority, and compensation checks',
+    /work-authorization.*seniority.*compensation/.test(prompt));
+  const instructions = buildJevRankInstructions('');
+  check('Jev instructions score relevance on a 0-5 ladder', /relevant.*0-5 ladder/.test(instructions));
+  check('Jev instructions treat missing data as unknown', /Missing fields are unknown/.test(instructions));
+  check('Jev instructions do not punish missing fields', /not negative evidence/.test(instructions));
+  check('Jev confidence default is 0.45', DEFAULT_JEV_CONFIDENCE_THRESHOLD === 0.45);
+  check('invalid confidence falls back to the default',
+    resolveConfidenceThreshold('invalid') === DEFAULT_JEV_CONFIDENCE_THRESHOLD);
+  check('blank confidence values fall back to the default',
+    [undefined, null, '', '   ', '\t'].every(value =>
+      resolveConfidenceThreshold(value) === DEFAULT_JEV_CONFIDENCE_THRESHOLD));
+
+  const replayMod = await import(pathToFileURL(join(ROOT, 'rank-calibration-replay.mjs')).href);
+  const replay = replayMod.replayCalibration(replayMod.canonicalReplayPairs());
+  check('replay fixture contains all 84 measured pairs', replay.pairCount === 84);
+  check('calibration bias is effectively zero', Math.abs(replay.bias) < 1e-9);
+  check('calibration preserves useful ordering', replay.spearman >= 0.30);
+  check('calibrated spread stays comparable to final-score spread',
+    replay.stddevRatio >= 0.75 && replay.stddevRatio <= 1.25);
+  check('calibration anchors are monotonic',
+    Array.from({ length: 51 }, (_, i) => calibrateRankScore(i / 10))
+      .every((value, i, values) => i === 0 || value >= values[i - 1]));
+  check('calibration anchor at 3.3 matches replay fit', Math.abs(calibrateRankScore(3.3) - 0.8050602409) < 1e-9);
+  check('calibration anchor at 4.5 preserves the forwarding band', Math.abs(calibrateRankScore(4.5) - 3.1600602410) < 1e-9);
+  const thresholdTable = Object.fromEntries(replay.thresholds.map(row => [row.threshold, row]));
+  check('3.0 replay forwards 9 with measured precision and coverage',
+    thresholdTable[3].forwarded === 9
+      && thresholdTable[3].truePositives === 2
+      && Math.abs(thresholdTable[3].precision - 2 / 9) < 1e-12
+      && Math.abs(thresholdTable[3].coverage - 2 / 12) < 1e-12);
+  check('3.3 replay keeps the apply-worthy floor separate',
+    thresholdTable[3.3].forwarded === 1
+      && thresholdTable[3.3].truePositives === 1
+      && thresholdTable[3.3].precision === 1
+      && Math.abs(thresholdTable[3.3].coverage - 1 / 12) < 1e-12);
+  check('2.8 replay uses the persisted one-decimal scores',
+    thresholdTable[2.8].forwarded === 54
+      && thresholdTable[2.8].truePositives === 9
+      && Math.abs(thresholdTable[2.8].precision - 1 / 6) < 1e-12
+      && Math.abs(thresholdTable[2.8].coverage - 3 / 4) < 1e-12);
+
+  const testDir = mkdtempSync(join(tmpdir(), 'career-ops-ranker-offline-'));
+  try {
+    const rankerRoot = mkdtempSync(join(tmpdir(), 'career-ops-ranker-integration-'));
+    try {
+      mkdirSync(join(rankerRoot, 'data'));
+      const pipelinePath = join(rankerRoot, 'data', 'pipeline.md');
+      writeFileSync(pipelinePath, [
+        '## Pending',
+        '- [ ] https://x.test/job | Acme | Engineer | rank: 4.5/5 — legacy raw score',
+        '',
+      ].join('\n'));
+      const scorerPath = join(rankerRoot, 'fake-scorer.cjs');
+      writeFileSync(scorerPath, [
+        'if (process.argv.length === 1) {',
+        '  process.on("uncaughtException", () => {',
+        '    process.stdout.write(JSON.stringify([{ id: 0, score: 4.5, reason: "offline fake" }]));',
+        '    process.exitCode = 0;',
+        '  });',
+        '}',
+        '',
+      ].join('\n'));
+      execFileSync(process.execPath, [join(ROOT, 'rank-pipeline.mjs'), '--cli', process.execPath, '--limit', '1'], {
+        encoding: 'utf8',
+        cwd: rankerRoot,
+        env: {
+          ...process.env,
+          CAREER_OPS_ROOT: rankerRoot,
+          TYPESAFE_API_KEY: '',
+          NODE_OPTIONS: '--require=./fake-scorer.cjs',
+        },
+      });
+      const persistedPipeline = readFileSync(pipelinePath, 'utf8');
+      check('ranker write path persists the calibrated, versioned score',
+        persistedPipeline.includes('| rank: cal-v1 3.2/5 — offline fake')
+          && !persistedPipeline.includes('| rank: 4.5/5 — legacy raw score'));
+    } finally {
+      rmSync(rankerRoot, { recursive: true, force: true });
+    }
+
+    const fixturePath = join(testDir, 'fixture.json');
+    const outputPath = join(testDir, 'replay.json');
+    execFileSync(process.execPath, [join(ROOT, 'rank-calibration-replay.mjs'),
+      '--write-canonical', '--fixture', fixturePath, '--output', outputPath]);
+    const persistedFixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
+    const persistedReplay = JSON.parse(readFileSync(outputPath, 'utf8'));
+    check('offline replay persists its 84-pair fixture and calibrated output',
+      persistedFixture.pairs.length === 84 && persistedReplay.rows.length === 84);
+  } finally {
+    rmSync(testDir, { recursive: true, force: true });
+  }
 } catch (err) {
   fail(`rank-pipeline test suite threw: ${err?.message ?? err}`);
 }
