@@ -253,6 +253,9 @@ export function buildPrompt(entries, cvExcerpt) {
 export const DEFAULT_JEV_CONFIDENCE_THRESHOLD = 0.45;
 
 export function resolveConfidenceThreshold(raw) {
+  if (raw == null || (typeof raw === 'string' && raw.trim() === '')) {
+    return DEFAULT_JEV_CONFIDENCE_THRESHOLD;
+  }
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : DEFAULT_JEV_CONFIDENCE_THRESHOLD;
 }

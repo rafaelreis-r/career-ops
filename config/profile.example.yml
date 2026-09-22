@@ -289,33 +289,6 @@ cover_letter:
 # generate a PDF for every offer.
 # auto_pdf_score_threshold: 4.0
 
-# ── Two-pass triage gate ────────────────────────────────────────────────────
-#
-# Used by `/career-ops pipeline`. Before running the full A-G evaluation on
-# every URL in a batch, a lightweight first pass (`modes/triage.md`) scores each
-# role from a compact profile brief (`modes/_brief.md`) and filters out the ones
-# that would clearly disqualify — so the expensive full evaluation only runs on
-# roles that pass. On a mixed batch this cuts total tokens by roughly half.
-#
-#   triage_threshold  — minimum triage score (out of 5) to proceed to full
-#                       evaluation. Scores from 3.0 up to (threshold) are
-#                       MARGINAL; scores below 3.0 are filtered silently.
-#                       Default (key absent): 3.0.
-#   The old 4.0 default was set before score calibration. A replay of the
-#   calibrated 84-pair fixture measured forwarding precision and coverage
-#   against final scores >= 3.3 as follows:
-#     4.0: 1/84 forwarded, 100.0% precision, 8.3% coverage
-#     3.6: 1/84 forwarded, 100.0% precision, 8.3% coverage
-#     3.3: 1/84 forwarded, 100.0% precision, 8.3% coverage
-#     3.0: 9/84 forwarded, 22.2% precision, 16.7% coverage
-#     2.8: 9/84 forwarded, 22.2% precision, 16.7% coverage
-#   The default is 3.0: it doubles measured good-role coverage versus 3.3
-#   without lowering the floor below 2.8, which produced the same batch.
-#   The forwarding floor is separate from the 3.3 apply-worthy floor.
-#
-# pipeline:
-#   triage_threshold: 3.0
-
 # ── Re-apply Cooldown Windows ──────────────────────────────────────────────
 #
 # Define cooldown windows for companies where you've recently applied.

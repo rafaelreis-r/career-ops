@@ -90,12 +90,10 @@ MARGINAL band below depends on.
 ### 4. Verdict
 | Score | Verdict |
 |-------|---------|
-| ≥ triage_threshold | **PASS** — proceed to full A-G evaluation |
-| 3.0–(threshold − 0.1) | **MARGINAL** — one-liner shown to user; skip full eval unless user overrides |
+| ≥ 3.5 | **PASS** — proceed to full A-G evaluation |
+| 3.0–3.4 | **MARGINAL** — one-liner shown to user; skip full eval unless user overrides |
 | < 3.0 | **FAIL** — clear no-go; return the line and stop |
 | N/A | **SKIP** — inaccessible posting |
-
-(`triage_threshold` is `config/profile.yml → pipeline.triage_threshold`, default `3.5`.)
 
 **Priority override:** If the company is on the Priority Override List in
 `modes/_brief.md`, return PASS regardless of score. Check the company name before
@@ -112,8 +110,7 @@ The `TRIAGE:` prefix, the verdict keyword, and the `{Company} | {Role} | {Score}
 cells are machine-readable and stay exactly as written above whatever the output
 language — the caller parses them. Only `{reason}` is human-facing prose: write it
 in `{language.output}` per AGENTS.md § "Output Language vs Market Modes" (default
-`en` when the key is absent). As with `triage_threshold`, the caller injects the
-resolved value; triage never reads `config/profile.yml` itself.
+`en` when the key is absent).
 
 **Examples** (English output; only the reason field changes with `language.output`):
 ```text

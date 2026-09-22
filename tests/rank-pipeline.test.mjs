@@ -179,6 +179,9 @@ try {
   check('Jev confidence default is 0.45', DEFAULT_JEV_CONFIDENCE_THRESHOLD === 0.45);
   check('invalid confidence falls back to the default',
     resolveConfidenceThreshold('invalid') === DEFAULT_JEV_CONFIDENCE_THRESHOLD);
+  check('blank confidence values fall back to the default',
+    [undefined, null, '', '   ', '\t'].every(value =>
+      resolveConfidenceThreshold(value) === DEFAULT_JEV_CONFIDENCE_THRESHOLD));
 
   const replayMod = await import(pathToFileURL(join(ROOT, 'rank-calibration-replay.mjs')).href);
   const replay = replayMod.replayCalibration(replayMod.canonicalReplayPairs());
