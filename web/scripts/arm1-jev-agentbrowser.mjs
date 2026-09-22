@@ -36,7 +36,7 @@ import { pathToFileURL } from "node:url";
 import * as yaml from "js-yaml";
 import { isMainModule } from "../../lib/is-main-module.mjs";
 import { loadCanonicalData, resolveCvPath, deriveCompanySlug, DOCUMENT_ACCEPT_RX } from "./ab-jev-apply.mjs";
-import { resolveFields } from "./arm1-salary.mjs";
+import { matchAnswer, resolveFields } from "./arm1-salary.mjs";
 
 const require = createRequire(import.meta.url);
 const JEV_PKG = require.resolve("jev-agent-browser/package.json");

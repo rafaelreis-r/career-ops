@@ -14,6 +14,9 @@ function isCommissionInReais(fieldName) {
   return commission && reais;
 }
 
+/** Match canonical answers by label while keeping synthesized desired salary
+ * out of BRL commission/variable-pay fields. Exact report answers remain
+ * eligible because they do not carry the desired-compensation kind. */
 export function matchAnswer(fieldName, answers) {
   const fn = stripLabel(fieldName);
   if (!fn) return null;
