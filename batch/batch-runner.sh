@@ -1037,7 +1037,7 @@ process_offer() {
         # non-TTY stdin, decides the prompt is being piped, and waits for an EOF
         # that never arrives - the worker hangs forever in readPipedInput.
         ( cd / && omp -p ${model_args[@]+"${model_args[@]}"} \
-            --thinking "${OMP_THINKING:-high}" --cwd "$PROJECT_DIR" \
+            --cwd "$PROJECT_DIR" \
             "$full_prompt" ) > "$log_file" 2>&1 < /dev/null || exit_code=$?
         ;;
     esac
