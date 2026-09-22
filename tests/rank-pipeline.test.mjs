@@ -17,7 +17,7 @@ import { pass, fail, ROOT } from './helpers.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { execFileSync } from 'child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 
 console.log('\nrank-pipeline — annotate-never-drop, bounded cost');
@@ -226,16 +226,25 @@ try {
         '- [ ] https://x.test/job | Acme | Engineer | rank: 4.5/5 — legacy raw score',
         '',
       ].join('\n'));
-      const scorerPath = join(rankerRoot, 'fake-scorer.mjs');
+      const scorerPath = join(rankerRoot, 'fake-scorer.cjs');
       writeFileSync(scorerPath, [
-        '#!/usr/bin/env node',
-        'process.stdout.write(JSON.stringify([{ id: 0, score: 4.5, reason: "offline fake" }]));',
+        'if (process.argv.length === 1) {',
+        '  process.on("uncaughtException", () => {',
+        '    process.stdout.write(JSON.stringify([{ id: 0, score: 4.5, reason: "offline fake" }]));',
+        '    process.exitCode = 0;',
+        '  });',
+        '}',
         '',
       ].join('\n'));
-      chmodSync(scorerPath, 0o755);
-      execFileSync(process.execPath, [join(ROOT, 'rank-pipeline.mjs'), '--cli', scorerPath, '--limit', '1'], {
+      execFileSync(process.execPath, [join(ROOT, 'rank-pipeline.mjs'), '--cli', process.execPath, '--limit', '1'], {
         encoding: 'utf8',
-        env: { ...process.env, CAREER_OPS_ROOT: rankerRoot, TYPESAFE_API_KEY: '' },
+        cwd: rankerRoot,
+        env: {
+          ...process.env,
+          CAREER_OPS_ROOT: rankerRoot,
+          TYPESAFE_API_KEY: '',
+          NODE_OPTIONS: '--require=./fake-scorer.cjs',
+        },
       });
       const persistedPipeline = readFileSync(pipelinePath, 'utf8');
       check('ranker write path persists the calibrated, versioned score',
