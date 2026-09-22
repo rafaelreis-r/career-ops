@@ -36,6 +36,7 @@ import { pathToFileURL } from "node:url";
 import * as yaml from "js-yaml";
 import { isMainModule } from "../../lib/is-main-module.mjs";
 import { loadCanonicalData, resolveCvPath, deriveCompanySlug, DOCUMENT_ACCEPT_RX } from "./ab-jev-apply.mjs";
+import { matchAnswer, resolveFields } from "./arm1-salary.mjs";
 
 const require = createRequire(import.meta.url);
 const JEV_PKG = require.resolve("jev-agent-browser/package.json");
@@ -62,58 +63,19 @@ function salaryAnswers(root) {
     const m = src.match(/USD\s*\$?\s*(\d+)\s*K\s*\/?\s*month/i);
     if (!m) return [];
     const value = `USD ${Number(m[1]) * 1000}/month`;
-    return ["Desired Pay", "Desired Salary", "Salary", "Salary Expectation", "Expected Salary", "Compensation", "Pretensão salarial"]
-      .map((label) => ({ label, value }));
+    const answer = { value, kind: "desired-compensation" };
+    return ["Desired Pay", "Desired Salary", "Salary", "Salary Expectation", "Expected Salary", "Desired Compensation", "Pretensão salarial"]
+      .map((label) => ({ label, ...answer }));
   } catch {
     return [];
   }
 }
-
 /** Lowercase, collapse whitespace — the normalization the loop's
- *  resolveInputValue() applies to a field's accessible name before lookup. */
+ * resolveInputValue() applies to a field's accessible name before lookup. */
 function normKey(s) {
   return String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-/** Strip a field label to its comparable core: lowercase, drop a trailing
- *  required-marker asterisk, collapse non-alphanumeric runs to one space. */
-function stripLabel(s) {
-  return String(s ?? "").toLowerCase().replace(/\*+\s*$/, "").replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-/** Resolve a field's value from canonical answers — exact stripped-label match
- *  wins, else the longest stripped answer label that is a substring (>=4 chars)
- *  of the field name or vice versa. Never fabricates: no match returns null. */
-function matchAnswer(fieldName, answers) {
-  const fn = stripLabel(fieldName);
-  if (!fn) return null;
-  let best = null;
-  for (const { label, value } of answers) {
-    const al = stripLabel(label);
-    if (!al) continue;
-    if (al === fn) return value;
-    const contained = fn.includes(al) || al.includes(fn);
-    if (contained && Math.min(al.length, fn.length) >= 4) {
-      if (!best || al.length > best.len) best = { value, len: al.length };
-    }
-  }
-  return best?.value ?? null;
-}
-
-/** From a snapshot's refs, resolve each fillable field (textbox/combobox) to a
- *  canonical value. Only matched fields are returned; an unmatched field is
- *  never offered a value. */
-function resolveFields(refs, answers) {
-  const matched = [];
-  for (const [ref, details] of Object.entries(refs)) {
-    const role = String(details.role || "").toLowerCase();
-    if (role !== "textbox" && role !== "combobox") continue;
-    if (/leave this field (blank|empty)|deixe este campo em branco/i.test(details.name || "")) continue; // honeypot
-    const value = matchAnswer(details.name, answers);
-    if (value != null) matched.push({ ref, name: details.name, role, value });
-  }
-  return matched;
-}
 
 /** Key each matched field's value under every lookup key the loop's
  *  resolveInputValue() tries: ref, name, normalized name, role:name. */
