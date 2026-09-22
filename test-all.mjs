@@ -10244,7 +10244,13 @@ try {
   const RESERVE = join(ROOT, 'reserve-report-num.mjs');
   const reserveRun = (args, dir, tracker = join(dir, 'applications.md')) => execFileSync(NODE, [RESERVE, ...args], {
     encoding: 'utf-8',
-    env: { ...process.env, CAREER_OPS_REPORTS_DIR: dir, CAREER_OPS_TRACKER: tracker, CAREER_OPS_BATCH_STATE: join(dir, 'batch-state.tsv') },
+    env: {
+      ...process.env,
+      CAREER_OPS_REPORTS_DIR: dir,
+      CAREER_OPS_TRACKER: tracker,
+      CAREER_OPS_BATCH_STATE: join(dir, 'batch-state.tsv'),
+      CAREER_OPS_REPORT_NUMBER_RANGE: '1-9007199254740991',
+    },
   }).trim();
 
   // Importing the module must expose the same allocator used by the CLI,
@@ -10291,7 +10297,13 @@ try {
     }));
   `], {
     encoding: 'utf-8',
-    env: { ...process.env, CAREER_OPS_REPORTS_DIR: apiTmp, CAREER_OPS_TRACKER: apiTracker, CAREER_OPS_BATCH_STATE: join(apiTmp, 'batch-state.tsv') },
+    env: {
+      ...process.env,
+      CAREER_OPS_REPORTS_DIR: apiTmp,
+      CAREER_OPS_TRACKER: apiTracker,
+      CAREER_OPS_BATCH_STATE: join(apiTmp, 'batch-state.tsv'),
+      CAREER_OPS_REPORT_NUMBER_RANGE: '1-9007199254740991',
+    },
   }).trim();
   let apiResult = null;
   try { apiResult = JSON.parse(apiProbe); } catch {}
@@ -10363,7 +10375,9 @@ try {
   const unsafeRangeTmp = mkdtempSync(join(tmpdir(), 'career-ops-reserve-unsafe-range-'));
   const unsafeRangeReports = join(unsafeRangeTmp, 'reports');
   const unsafeRangeTracker = join(unsafeRangeTmp, 'applications.md');
+  const unsafeRangeProfile = join(unsafeRangeTmp, 'profile.yml');
   mkdirSync(unsafeRangeReports);
+  writeFileSync(unsafeRangeProfile, 'report_number_range: "1-9007199254740991"\n');
   writeFileSync(
     join(unsafeRangeReports, `${Number.MAX_SAFE_INTEGER - 1}-existing.md`),
     '# fixture',
@@ -10375,6 +10389,7 @@ try {
       reportsDir: unsafeRangeReports,
       trackerPath: unsafeRangeTracker,
       batchStateFile: join(unsafeRangeTmp, 'batch-state.tsv'),
+      profilePath: unsafeRangeProfile,
     });
   } catch (err) {
     unsafeRangeError = err;
@@ -10634,7 +10649,12 @@ try {
     try {
       const spawnReserve = () => new Promise(resolve => {
         const child = spawn(NODE, [RESERVE, '--count', '4'], {
-          env: { ...process.env, CAREER_OPS_REPORTS_DIR: concTmp, CAREER_OPS_BATCH_STATE: join(concTmp, 'batch-state.tsv') },
+          env: {
+            ...process.env,
+            CAREER_OPS_REPORTS_DIR: concTmp,
+            CAREER_OPS_BATCH_STATE: join(concTmp, 'batch-state.tsv'),
+            CAREER_OPS_REPORT_NUMBER_RANGE: '1-9007199254740991',
+          },
         });
         let stdout = '';
         child.stdout.on('data', chunk => { stdout += chunk; });
