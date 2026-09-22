@@ -95,7 +95,13 @@ MARGINAL band below depends on.
 | < 3.0 | **FAIL** — clear no-go; return the line and stop |
 | N/A | **SKIP** — inaccessible posting |
 
-(`triage_threshold` is `config/profile.yml → pipeline.triage_threshold`, default `3.5`.)
+(`triage_threshold` is `config/profile.yml → pipeline.triage_threshold`, default `4.0`.)
+
+The 2026-09-21 calibration covered 84 international postings. Measured yield,
+defined as a final score at or above the unchanged 3.3 apply-worthy floor, was 0%
+for scores from 3.3 to 3.6 across 13 attempts, 12% for 3.7 to 3.9, 18% for
+4.0 to 4.4, and 22% for 4.5 and above. This forwarding floor is separate from
+the 3.3 apply-worthy floor used after full evaluation.
 
 **Priority override:** If the company is on the Priority Override List in
 `modes/_brief.md`, return PASS regardless of score. Check the company name before

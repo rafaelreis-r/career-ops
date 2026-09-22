@@ -29,10 +29,12 @@ try {
     detectCli,
     parseBatchResponse,
     buildPrompt,
+    buildJevRankInstructions,
+    resolveConfidenceThreshold,
+    DEFAULT_JEV_CONFIDENCE_THRESHOLD,
     CLI_CANDIDATES,
     LIMIT_CEILING,
   } = mod;
-
   const check = (label, cond) => (cond ? pass(label) : fail(label));
 
   // ── scoring + reason sanitation ──
@@ -65,7 +67,8 @@ try {
   check('already-ranked rows are excluded (idempotent re-runs)', !pending.some(e => e.url.endsWith('/4')));
   check('non-row lines are ignored', pending.length === 2);
   check('company parses off the row', pending[0].company === 'Acme');
-  check('title parses on a row carrying optional segments', pending[1].title === 'Android Engineer');
+  check('optional posting fields stay available to the scorer',
+    pending[1].postingContext === 'Remote | posted: 2026-06-18 | note: curated');
 
   // ── the annotate-never-drop contract ──
   const original = pending[1].raw;
@@ -154,8 +157,18 @@ try {
   check('the two unselected duplicates remain pending, unranked',
     parsePendingEntries(tripleDupOut.text).length === 2);
 
-  // ── prompt hygiene ──
-  check('postings are marked as untrusted content', /untrusted data/.test(buildPrompt(pending, '')));
+  const prompt = buildPrompt(pending, '');
+  check('postings are marked as untrusted content', /untrusted data/.test(prompt));
+  check('prompt carries optional posting fields', /posting fields: Remote \| posted: 2026-06-18/.test(prompt));
+  check('prompt names eligibility, seniority, and compensation checks',
+    /work-authorization.*seniority.*compensation/.test(prompt));
+  const instructions = buildJevRankInstructions('');
+  check('Jev instructions score whole-posting fit', /whole-posting fit/.test(instructions));
+  check('Jev instructions treat missing data as unknown', /Missing fields are unknown/.test(instructions));
+  check('Jev instructions do not punish missing fields', /not negative evidence/.test(instructions));
+  check('Jev confidence default is 0.45', DEFAULT_JEV_CONFIDENCE_THRESHOLD === 0.45);
+  check('invalid confidence falls back to the default',
+    resolveConfidenceThreshold('invalid') === DEFAULT_JEV_CONFIDENCE_THRESHOLD);
 } catch (err) {
   fail(`rank-pipeline test suite threw: ${err?.message ?? err}`);
 }
