@@ -10142,7 +10142,11 @@ try {
     try {
       const spawnReserve = () => new Promise(resolve => {
         const child = spawn(NODE, [RESERVE, '--count', '4'], {
-          env: { ...process.env, CAREER_OPS_REPORTS_DIR: concTmp },
+          env: {
+            ...process.env,
+            CAREER_OPS_REPORTS_DIR: concTmp,
+            CAREER_OPS_REPORT_NUMBER_RANGE: '1-9007199254740991',
+          },
         });
         let stdout = '';
         child.stdout.on('data', chunk => { stdout += chunk; });
