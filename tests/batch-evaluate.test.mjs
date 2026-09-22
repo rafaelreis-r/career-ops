@@ -21,6 +21,7 @@ async function testProcessOffer() {
     // reserve-report-num.mjs respects these env vars
     process.env.CAREER_OPS_REPORTS_DIR = reportsDir;
     process.env.CAREER_OPS_TRACKER = join(work, 'applications.md');
+    process.env.CAREER_OPS_REPORT_NUMBER_RANGE = '1-999';
 
     // Create a dummy applications.md to satisfy reserve-report-num.mjs
     mkdirSync(work, { recursive: true });
@@ -87,6 +88,7 @@ LEGITIMACY: High Confidence
     PATHS.trackerAdditions = oldAdditions;
     delete process.env.CAREER_OPS_REPORTS_DIR;
     delete process.env.CAREER_OPS_TRACKER;
+    delete process.env.CAREER_OPS_REPORT_NUMBER_RANGE;
     rmSync(work, { recursive: true, force: true });
   }
 }
