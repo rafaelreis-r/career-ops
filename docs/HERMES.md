@@ -99,7 +99,7 @@ node openai-eval.mjs --url <endpoint> --model <model> --file jds/<posting>.txt
 
 ### Interactive only
 
-Nothing in this repository drives a `hermes` binary headlessly, so there is no Hermes worker path and `batch/batch-runner.sh` stays Claude Code-specific. Everything else, including the full evaluation pipeline, works interactively.
+Nothing in this repository drives a `hermes` binary headlessly, so there is no Hermes worker path in `batch/batch-runner.sh`. The runner's supported worker CLIs are documented in [`batch/README.md`](../batch/README.md); everything else, including the full evaluation pipeline, works interactively in Hermes.
 
 ## If something looks wrong
 

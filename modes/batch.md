@@ -100,14 +100,15 @@ batch/batch-runner.sh [OPTIONS]
 ```
 
 Options:
+- `--cli NAME` — worker CLI: `claude`, `omp`, `opencode`, `gemini`, or `qwen`
 - `--dry-run` — list pending jobs without executing
 - `--retry-failed` — retry only failed jobs
 - `--resume-paused` — resume jobs paused after a Claude session/rate limit
 - `--start-from N` — start from ID N
 - `--limit N` — max number of jobs to process in this run
-- `--parallel N` — N workers in parallel
-- `--max-retries N` — attempts per job (default: 2)
-- `--rate-limit-sleep N` — seconds to wait before retrying a transient rate-limited worker (default: 300; use 0 to pause the batch immediately)
+- `--parallel N` — N workers in parallel (`claude` and `omp`; local-model CLIs are reset to 1)
+- `--max-retries N` — Claude-only attempts per job (default: 2); other CLIs make one attempt
+- `--rate-limit-sleep N` — Claude-only seconds to wait before retrying a transient rate-limited worker (default: 300; use 0 to pause the batch immediately)
 
 ## batch-state.tsv Format
 
