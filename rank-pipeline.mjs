@@ -6,20 +6,20 @@
  * runs unless you invoke this script yourself.
  *
  * It ANNOTATES pending pipeline rows with a versioned
- * `rank: cal-v1 {score}/5 — {reason}` segment.
- * segment. It never filters, reorders, or deletes a row — a relevance pass that
+ * `rank: cal-v1 {score}/5 — {reason}` segment. It never filters, reorders, or
+ * deletes a row — a relevance pass that
  * removes rows hides roles from you; one that writes a score and a reason next to
  * the row lets you disagree with it. The reason is part of the contract: an entry
- * the model scores but cannot explain is left un-annotated rather than reduced to
- * a bare number.
+ * the scorer cannot explain is left un-annotated rather than reduced to a bare
+ * number.
  *
- * Cost is bounded and reported: only pending (`- [ ]`) rows that are not already
- * annotated are eligible, `--limit` caps how many are ranked per run (default 20,
- * hard ceiling 200), and a summary prints at the end.
+ * Cost is bounded and reported: only pending (`- [ ]`) rows without the current
+ * calibration version are eligible, `--limit` caps how many are ranked per run
+ * (default 20, hard ceiling 200), and a summary prints at the end.
  *
- * The work is done by whichever agent CLI you already have installed (the same
- * headless runners AGENTS.md documents) — no API key, no new dependency, and no
- * new network endpoint.
+ * When Jev is enabled it scores entries directly; otherwise the work is done by
+ * whichever installed agent CLI is selected from the headless runners documented
+ * in AGENTS.md.
  *
  * Usage:
  *   node rank-pipeline.mjs                     # rank up to --limit pending entries

@@ -46,7 +46,8 @@ All scripts live in the project root as `.mjs` modules. Most are exposed via
 | `node fix-slugs.mjs` | `fix-slugs.mjs` | Write `verify-portals.mjs`'s suggested ATS slug fixes back to portals.yml (dry run by default, `--fix` to write) |
 | `node audit-portals.mjs` | `audit-portals.mjs` | Audit what each portals.yml board actually serves — provider, posting count, sample titles — not just whether it answers (network; `--baseline` diffs against an earlier `--json` run) |
 | `npm run reposts` | `detect-reposts.mjs` | Flag re-listed (ghost) postings from scan history |
-| `node rank-pipeline.mjs` | `rank-pipeline.mjs` | Opt-in LLM relevance re-ranker — annotates pending pipeline rows with a score + reason (off by default) |
+| `node rank-pipeline.mjs` | `rank-pipeline.mjs` | Opt-in calibrated relevance ranker — annotates pending pipeline rows with a score + reason (off by default) |
+| `node rank-calibration-replay.mjs` | `rank-calibration-replay.mjs` | Replay the rank calibration against its 84-pair fixture and persist the metrics under ignored user data |
 | `npm run gemini:eval` | `gemini-eval.mjs` | Evaluate a JD with Google Gemini (free-tier alternative) |
 | `npm run ollama:eval` | `ollama-eval.mjs` | Evaluate a JD with a local Ollama model |
 | `npm run openai:eval` | `openai-eval.mjs` | Evaluate a JD via any OpenAI-compatible endpoint |
@@ -921,32 +922,45 @@ part of any scan** — `scan.mjs` stays 100% zero-token, and this costs nothing
 unless you run it yourself.
 
 It **annotates, it does not filter**: eligible pending rows can gain a labeled
-`rank: {score}/5 — {reason}` segment, riding after `posted:`/`trust:`/`note:`
-like any other labeled segment. No row is removed, reordered, or hidden — the
-reason is there so you can disagree with the score. An entry the model scores
-but cannot explain is left un-annotated rather than reduced to a bare number,
-and a whole batch is left un-annotated if the CLI call fails or returns
-unusable JSON.
+`rank: cal-v1 {score}/5 — {reason}` segment, riding after
+`posted:`/`trust:`/`note:` like any other labeled segment. `cal-v1` identifies
+the monotonic calibration fitted to the 84 rank/final-score pairs dated
+2026-09-21. No row is removed, reordered, or hidden. The reason is there so you
+can disagree with the score. An entry the scorer cannot explain is left
+unannotated rather than reduced to a bare number, and a whole CLI batch is left
+unannotated if the call fails or returns unusable JSON.
 
-Cost is bounded and reported. Only pending (`- [ ]`) rows that are not already
-annotated are eligible, `--limit` caps each run (default 20, hard ceiling 200
-that the flag cannot raise), and a summary prints the entries ranked, the number
-of CLI calls, and elapsed time. Re-runs are idempotent — an already-annotated
-row is skipped, so you can work through a large pipeline in bounded passes.
+Cost is bounded and reported. Only pending (`- [ ]`) rows without a current
+`cal-v1` annotation are eligible, `--limit` caps each run (default 20, hard
+ceiling 200 that the flag cannot raise), and a summary prints the entries
+ranked, calls attempted, and elapsed time. Re-runs skip current annotations.
+Unversioned `rank: {score}/5` annotations are pre-calibration and are replaced
+after a successful re-rank.
 
-The ranking is done by whichever agent CLI you already have installed (the
-Headless / Batch Mode table in `AGENTS.md`): `claude`, `opencode`, `codex`,
-`copilot`, `qwen`, `agy`, `grok` — first one found wins. No API key, no new
-dependency, no new network endpoint. Each call sends a `cv.md` excerpt (the
-first ~2000 chars) and the selected postings through that CLI's own auth and
-provider handling — review your chosen CLI's data-retention/provider settings
-before running this on sensitive CV content.
+With `TYPESAFE_API_KEY` set, Jev scores each entry and accepts results at or
+above `JEV_RANK_CONFIDENCE_THRESHOLD` (default `0.45`). Otherwise ranking uses
+whichever installed agent CLI is selected from the Headless / Batch Mode table
+in `AGENTS.md`: `claude`, `opencode`, `codex`, `copilot`, `qwen`, `agy`, or
+`grok`. Each scorer receives the first ~2000 characters of `cv.md` plus the URL,
+company, title, and positional location/compensation fields when present; notes
+and earlier rank annotations are excluded. Missing posting fields remain
+unknown and are not invented or scored negatively. Review the selected
+provider's data-retention settings before running this on sensitive CV content.
 
 ```bash
 node rank-pipeline.mjs                  # rank up to 20 pending entries
 node rank-pipeline.mjs --limit 10
 node rank-pipeline.mjs --cli codex      # override auto-detection
 node rank-pipeline.mjs --dry-run        # print annotations, write nothing
+```
+
+The offline replay writes both its canonical 84-pair fixture and calibrated
+output below `data/rank-calibration/`, which is covered by the repository's
+blanket `data/*` ignore rule:
+
+```bash
+node rank-calibration-replay.mjs --write-canonical
+node rank-calibration-replay.mjs        # replay an existing fixture
 ```
 
 Writes go through `pipeline-lock.mjs`, the same lock `scan.mjs` and
