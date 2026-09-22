@@ -9,7 +9,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, existsSync 
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
-import { reserveReportNumbers, releaseReportNumbers } from '../reserve-report-num.mjs';
+import {
+  findReportNumberCollisions, reserveReportNumbers, releaseReportNumbers,
+} from '../reserve-report-num.mjs';
 import { pass, fail, NODE, ROOT } from './helpers.mjs';
 
 // Reserve one slot in a scratch root and report which number it got. Released
@@ -95,5 +97,80 @@ for (const flag of ['--help', '-h']) {
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// An installation range is an allocation boundary, not a formatting hint.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'rrn-range-'));
+  const reports = join(dir, 'reports');
+  mkdirSync(reports, { recursive: true });
+  writeFileSync(join(reports, '1000-acme-2026-09-22.md'), '# fixture\n');
+  writeFileSync(join(reports, '1001-globex-2026-09-22.md'), '# fixture\n');
+  const previousRange = process.env.CAREER_OPS_REPORT_NUMBER_RANGE;
+  process.env.CAREER_OPS_REPORT_NUMBER_RANGE = '1000-1001';
+  let rangeError = null;
+  let sentinels = [];
+  try {
+    await reserveReportNumbers(1, { rootDir: dir });
+  } catch (err) {
+    rangeError = err;
+  } finally {
+    if (previousRange === undefined) delete process.env.CAREER_OPS_REPORT_NUMBER_RANGE;
+    else process.env.CAREER_OPS_REPORT_NUMBER_RANGE = previousRange;
+    sentinels = readdirSync(reports).filter((name) => /-RESERVED\.md$/.test(name));
+    rmSync(dir, { recursive: true, force: true });
+  }
+  if (rangeError instanceof RangeError && sentinels.length === 0) {
+    pass('configured report-number range refuses reservations beyond its upper bound');
+  } else {
+    fail(`configured range guard failed: error=${rangeError?.message}, sentinels=${sentinels.length}`);
+  }
+}
+
+function writeCollisionFixture(root, number, company, slug) {
+  const reports = join(root, 'reports');
+  const data = join(root, 'data');
+  mkdirSync(reports, { recursive: true });
+  mkdirSync(data, { recursive: true });
+  writeFileSync(join(reports, `${number}-${slug}-2026-09-22.md`), `# Evaluation: ${company} — Engineer\n`);
+  writeFileSync(
+    join(data, 'applications.md'),
+    '# Applications Tracker\n\n'
+    + '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |\n'
+    + '|---|---|---|---|---|---|---|---|---|\n'
+    + `| ${number} | 2026-09-22 | ${company} | Engineer | 4.0/5 | Evaluated | ❌ | [${number}](../reports/${number}-${slug}-2026-09-22.md) | fixture |\n`,
+  );
+}
+
+{
+  const first = mkdtempSync(join(tmpdir(), 'rrn-collision-a-'));
+  const second = mkdtempSync(join(tmpdir(), 'rrn-collision-b-'));
+  try {
+    writeCollisionFixture(first, 1155, 'Thales', 'thales');
+    writeCollisionFixture(second, 1155, 'Intermedia', 'intermedia');
+    const collisions = findReportNumberCollisions([first, second]);
+    const cli = spawnSync(NODE, [
+      join(ROOT, 'reserve-report-num.mjs'), '--collisions', first, second,
+    ], { cwd: ROOT, encoding: 'utf-8', timeout: 15000 });
+    const companies = collisions[0]?.companies.map((entry) => entry.company).sort().join(',');
+    if (collisions.length === 1 && collisions[0].number === 1155 && companies === 'Intermedia,Thales') {
+      pass('collision diagnostic identifies the same number used by different companies');
+    } else {
+      fail(`collision API result was unexpected: ${JSON.stringify(collisions)}`);
+    }
+    const sentinelsAfterCli = [
+      ...readdirSync(join(first, 'reports')),
+      ...readdirSync(join(second, 'reports')),
+    ].filter((name) => /-RESERVED\.md$/.test(name));
+    if (cli.status === 0 && /1155:/.test(cli.stdout) && /Thales/.test(cli.stdout)
+        && /Intermedia/.test(cli.stdout) && sentinelsAfterCli.length === 0) {
+      pass('collision diagnostic CLI prints the planted collision without writing');
+    } else {
+      fail(`collision CLI failed: exit=${cli.status}, sentinels=${sentinelsAfterCli.length}, stdout=${JSON.stringify(cli.stdout)}, stderr=${JSON.stringify(cli.stderr)}`);
+    }
+  } finally {
+    rmSync(first, { recursive: true, force: true });
+    rmSync(second, { recursive: true, force: true });
   }
 }
