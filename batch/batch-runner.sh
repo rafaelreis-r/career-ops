@@ -104,7 +104,7 @@ Examples:
   # Retry only failed offers
   ./batch-runner.sh --retry-failed
 
-  # Process 2 at a time starting from ID 10 (claude only)
+  # Process 2 at a time starting from ID 10 (claude or omp)
   ./batch-runner.sh --parallel 2 --start-from 10
 
   # Local LLM via OpenCode (free, runs sequentially)

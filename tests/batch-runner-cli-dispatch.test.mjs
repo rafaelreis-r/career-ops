@@ -56,69 +56,50 @@ if (/Unknown --cli/.test(SRC)) {
   fail('check_prerequisites does not reject an unknown --cli value');
 }
 
-// The omp CLI is remote, so --parallel must remain untouched at validation
-// time. Run the real prerequisite function with a stub binary: no model or
-// network call is involved, and the assertion observes the resulting value.
-const prerequisiteBlock = (() => {
-  const m = SRC.match(/check_prerequisites\(\) \{[\s\S]*?\n\}\n/);
-  return m ? m[0] : null;
-})();
-
-if (prerequisiteBlock) {
-  const work = mkdtempSync(join(tmpdir(), 'batch-omp-prerequisites-'));
-  try {
-    const bin = join(work, 'bin');
-    mkdirSync(bin);
-    const stub = join(bin, 'omp');
-    writeFileSync(stub, '#!/usr/bin/env bash\nexit 0\n');
-    if (process.platform === 'win32') {
-      try { execFileSync(getBash(), ['-c', 'chmod +x bin/omp'], { cwd: work }); } catch {}
-    } else {
-      chmodSync(stub, 0o755);
-    }
-
-    const inputFile = join(work, 'batch-input.tsv');
-    const promptFile = join(work, 'batch-prompt.md');
-    writeFileSync(inputFile, 'id\turl\n');
-    writeFileSync(promptFile, 'PROMPT\n');
-    const script = join(work, 'check-prerequisites.sh');
-    writeFileSync(script, [
-      'set -euo pipefail',
-      `INPUT_FILE=${JSON.stringify(inputFile)}`,
-      `PROMPT_FILE=${JSON.stringify(promptFile)}`,
-      'CLI=omp',
-      'PARALLEL=4',
-      `LOGS_DIR=${JSON.stringify(join(work, 'logs'))}`,
-      `TRACKER_DIR=${JSON.stringify(join(work, 'tracker-additions'))}`,
-      `REPORTS_DIR=${JSON.stringify(join(work, 'reports'))}`,
-      prerequisiteBlock,
-      'check_prerequisites',
-      'printf \'PARALLEL:%s\\n\' "$PARALLEL"',
-    ].join('\n'));
-
-    const env = { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}` };
-    let output = '';
-    let error = null;
-    try {
-      output = execFileSync(getBash(), [script], {
-        encoding: 'utf-8',
-        timeout: 30000,
-        env,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-    } catch (err) {
-      error = err;
-    }
-    if (!error && /^PARALLEL:4$/m.test(output) && !/not supported/.test(output)) {
-      pass('--cli omp is accepted and preserves --parallel 4');
-    } else {
-      fail(`--cli omp prerequisite validation changed parallelism: ${String(error?.stderr || error?.message || output).trim().slice(0, 240)}`);
-    }
-  } finally {
-    rmSync(work, { recursive: true, force: true });
+const ompWork = mkdtempSync(join(tmpdir(), 'batch-omp-entrypoint-'));
+try {
+  const batchDir = join(ompWork, 'batch');
+  const bin = join(ompWork, 'bin');
+  mkdirSync(batchDir);
+  mkdirSync(bin);
+  const runner = join(batchDir, 'batch-runner.sh');
+  const stub = join(bin, 'omp');
+  writeFileSync(runner, SRC);
+  writeFileSync(stub, '#!/usr/bin/env bash\nexit 0\n');
+  if (process.platform === 'win32') {
+    try { execFileSync(getBash(), ['-c', 'chmod +x batch/batch-runner.sh bin/omp'], { cwd: ompWork }); } catch {}
+  } else {
+    chmodSync(runner, 0o755);
+    chmodSync(stub, 0o755);
   }
-} else {
-  fail('could not find check_prerequisites() in batch/batch-runner.sh — omp validation test needs updating');
+  writeFileSync(join(batchDir, 'batch-input.tsv'), [
+    'id\turl\tsource\tnotes',
+    '1\thttps://example.test/one\tfixture\t',
+    '2\thttps://example.test/two\tfixture\t',
+    '',
+  ].join('\n'));
+  writeFileSync(join(batchDir, 'batch-prompt.md'), 'PROMPT\n');
+
+  const env = { ...process.env, PATH: `${bin}${delimiter}${process.env.PATH}` };
+  let output = '';
+  let error = null;
+  try {
+    output = execFileSync(getBash(), [runner, '--cli', 'omp', '--parallel', '4', '--dry-run'], {
+      encoding: 'utf-8',
+      timeout: 30000,
+      env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch (err) {
+    error = err;
+  }
+  if (!error && /^Parallel: 4 \|/m.test(output) && /^CLI: omp \|/m.test(output) && /^Would process 2 offers$/m.test(output) && !/not supported/.test(output)) {
+    pass('--cli omp is accepted and preserves --parallel 4 through the runner entrypoint');
+  } else {
+    fail(`--cli omp entrypoint validation changed parallelism: ${String(error?.stderr || error?.message || output).trim().slice(0, 240)}`);
+  }
+} finally {
+  rmSync(ompWork, { recursive: true, force: true });
 }
 
 
