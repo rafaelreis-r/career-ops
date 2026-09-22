@@ -16,6 +16,9 @@
 import { pass, fail, ROOT } from './helpers.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
+import { execFileSync } from 'child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
 
 console.log('\nrank-pipeline — annotate-never-drop, bounded cost');
 
@@ -174,6 +177,63 @@ try {
   check('Jev confidence default is 0.45', DEFAULT_JEV_CONFIDENCE_THRESHOLD === 0.45);
   check('invalid confidence falls back to the default',
     resolveConfidenceThreshold('invalid') === DEFAULT_JEV_CONFIDENCE_THRESHOLD);
+
+  const replayMod = await import(pathToFileURL(join(ROOT, 'rank-calibration-replay.mjs')).href);
+  const replay = replayMod.replayCalibration(replayMod.canonicalReplayPairs());
+  check('replay fixture contains all 84 measured pairs', replay.pairCount === 84);
+  check('calibration bias is effectively zero', Math.abs(replay.bias) < 1e-9);
+  check('calibration preserves useful ordering', replay.spearman >= 0.30);
+  check('calibrated spread stays comparable to final-score spread',
+    replay.stddevRatio >= 0.75 && replay.stddevRatio <= 1.25);
+  check('calibration anchors are monotonic',
+    Array.from({ length: 51 }, (_, i) => calibrateRankScore(i / 10))
+      .every((value, i, values) => i === 0 || value >= values[i - 1]));
+  check('calibration anchor at 3.3 matches replay fit', Math.abs(calibrateRankScore(3.3) - 0.8050602409) < 1e-9);
+  check('calibration anchor at 4.5 preserves the forwarding band', Math.abs(calibrateRankScore(4.5) - 3.1600602410) < 1e-9);
+  const thresholdTable = Object.fromEntries(replay.thresholds.map(row => [row.threshold, row]));
+  check('3.0 replay forwards 9 with measured precision and coverage',
+    thresholdTable[3].forwarded === 9
+      && thresholdTable[3].truePositives === 2
+      && Math.abs(thresholdTable[3].precision - 2 / 9) < 1e-12
+      && Math.abs(thresholdTable[3].coverage - 2 / 12) < 1e-12);
+  check('3.3 replay keeps the apply-worthy floor separate',
+    thresholdTable[3.3].forwarded === 1
+      && thresholdTable[3.3].truePositives === 1
+      && thresholdTable[3.3].precision === 1
+      && Math.abs(thresholdTable[3.3].coverage - 1 / 12) < 1e-12);
+  check('2.8 replay produces no extra coverage over 3.0',
+    thresholdTable[2.8].forwarded === thresholdTable[3].forwarded
+      && thresholdTable[2.8].truePositives === thresholdTable[3].truePositives);
+
+  const gateDir = mkdtempSync(join(tmpdir(), 'career-ops-triage-gate-'));
+  try {
+    const profilePath = join(gateDir, 'profile.yml');
+    writeFileSync(profilePath, 'pipeline:\n  triage_threshold: 3.6\n');
+    const gatePath = join(ROOT, 'triage-gate.mjs');
+    const runGate = args => JSON.parse(execFileSync(process.execPath,
+      [gatePath, '--profile', profilePath, ...args], { encoding: 'utf8' }));
+    const below = runGate(['--line', 'TRIAGE: PASS | Acme | Engineer | 3.5/5 | close']);
+    const atFloor = runGate(['--line', '- [ ] https://x.test | Acme | Engineer | rank: 3.6/5 — fit']);
+    check('configured upstream floor blocks a score below 3.6', below.forward === false && below.verdict === 'marginal');
+    check('configured upstream floor forwards a score at 3.6', atFloor.forward === true);
+    check('upstream reports the independent apply-worthy 3.3 floor',
+      below.applyWorthyFloor === 3.3 && below.applyWorthy === true);
+    const defaultProfile = join(gateDir, 'missing-profile.yml');
+    const defaults = JSON.parse(execFileSync(process.execPath,
+      [gatePath, '--profile', defaultProfile, '--score', '3.0'], { encoding: 'utf8' }));
+    check('upstream defaults the forwarding floor to 3.0', defaults.threshold === 3.0 && defaults.forward === true);
+
+    const fixturePath = join(gateDir, 'fixture.json');
+    const outputPath = join(gateDir, 'replay.json');
+    execFileSync(process.execPath, [join(ROOT, 'rank-calibration-replay.mjs'),
+      '--write-canonical', '--fixture', fixturePath, '--output', outputPath]);
+    const persistedFixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
+    const persistedReplay = JSON.parse(readFileSync(outputPath, 'utf8'));
+    check('offline replay persists its 84-pair fixture and calibrated output',
+      persistedFixture.pairs.length === 84 && persistedReplay.rows.length === 84);
+  } finally {
+    rmSync(gateDir, { recursive: true, force: true });
+  }
 } catch (err) {
   fail(`rank-pipeline test suite threw: ${err?.message ?? err}`);
 }

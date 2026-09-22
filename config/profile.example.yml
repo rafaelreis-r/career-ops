@@ -312,13 +312,9 @@ cover_letter:
 #   The default is 3.0: it doubles measured good-role coverage versus 3.3
 #   without lowering the floor below 2.8, which produced the same batch.
 #   The forwarding floor is separate from the 3.3 apply-worthy floor.
-#   triage_min_urls  — batches with fewer surviving URLs than this skip triage
-#                       and go straight to full evaluation (triage overhead
-#                       isn't worth it on a handful of roles). Default: 5.
 #
 # pipeline:
 #   triage_threshold: 3.0
-#   triage_min_urls: 5
 
 # ── Re-apply Cooldown Windows ──────────────────────────────────────────────
 #
