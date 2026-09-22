@@ -17,6 +17,28 @@ file local. No application data ever lives here.
 | Track C (Operations & Delivery) | `~/dev/career-ops-ops` |
 | Shared, non-git material (ADRs, track registry) | `~/dev/career-ops-shared` |
 
+Report numbers are installation-scoped but can be consumed by cross-track
+tools, so each track owns a non-overlapping range in its local
+`config/profile.yml`:
+
+| Track | `report_number_range` |
+|---|---|
+| A | `"1-999"` |
+| B | `"1000-1999"` |
+| C | `"2000-2999"` |
+
+`reserve-report-num.mjs` fails closed when this setting is missing or exhausted.
+`CAREER_OPS_REPORT_NUMBER_RANGE` is only a one-run override. Before applying
+this change to the tracks, add the assigned value above to each profile. Existing
+out-of-range reports remain readable; new reservations stay within the assigned
+range. To audit historical reuse across the three installs without writing any
+files, run:
+
+```sh
+node reserve-report-num.mjs --collisions \
+  ~/dev/career-ops ~/dev/career-ops-product ~/dev/career-ops-ops
+```
+
 Each track is a full checkout whose system files are byte-identical to `main`.
 User-layer files (`cv.md`, `config/profile.yml`, `modes/_profile.md`,
 `modes/_custom.md`, `modes/_brief.md`, `data/`, `reports/`, `jds/`, `.env`, …)
@@ -120,8 +142,7 @@ Keep these across rebases; each exists for a reason.
 The tracks descended from a different fork (santifer) and carried code no
 configuration used. It was not carried forward: the `block_scripts` location
 filter in `scan.mjs` (no `profile.yml` sets it), `title_filter_overrides`
-(upstream 1.33 ships its own), and local deltas in `test-all.mjs` and
-`reserve-report-num.mjs`.
+(upstream 1.33 ships its own), and unrelated local deltas in `test-all.mjs`.
 
 ## Verifying the three tracks are in sync
 

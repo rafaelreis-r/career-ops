@@ -9,7 +9,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, existsSync 
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { spawnSync } from 'child_process';
-import { reserveReportNumbers, releaseReportNumbers } from '../reserve-report-num.mjs';
+import {
+  findReportNumberCollisions, reserveReportNumbers, releaseReportNumbers,
+} from '../reserve-report-num.mjs';
 import { pass, fail, NODE, ROOT } from './helpers.mjs';
 
 // Reserve one slot in a scratch root and report which number it got. Released
@@ -18,6 +20,8 @@ async function peekIn(files) {
   const dir = mkdtempSync(join(tmpdir(), 'rrn-'));
   mkdirSync(join(dir, 'reports'), { recursive: true });
   mkdirSync(join(dir, 'data'), { recursive: true });
+  mkdirSync(join(dir, 'config'), { recursive: true });
+  writeFileSync(join(dir, 'config/profile.yml'), 'report_number_range: "1-2999"\n');
   writeFileSync(
     join(dir, 'data/applications.md'),
     '# Applications Tracker\n\n'
@@ -95,5 +99,146 @@ for (const flag of ['--help', '-h']) {
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// The installation profile range is mandatory and is an allocation boundary.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'rrn-range-'));
+  const reports = join(dir, 'reports');
+  mkdirSync(reports, { recursive: true });
+  mkdirSync(join(dir, 'config'), { recursive: true });
+  writeFileSync(join(dir, 'config/profile.yml'), 'report_number_range: "1000-1001"\n');
+  writeFileSync(join(reports, '1000-acme-2026-09-22.md'), '# fixture\n');
+  writeFileSync(join(reports, '1001-globex-2026-09-22.md'), '# fixture\n');
+  const previousRange = process.env.CAREER_OPS_REPORT_NUMBER_RANGE;
+  delete process.env.CAREER_OPS_REPORT_NUMBER_RANGE;
+  let rangeError = null;
+  let sentinels = [];
+  try {
+    await reserveReportNumbers(1, { rootDir: dir });
+  } catch (err) {
+    rangeError = err;
+  } finally {
+    if (previousRange === undefined) delete process.env.CAREER_OPS_REPORT_NUMBER_RANGE;
+    else process.env.CAREER_OPS_REPORT_NUMBER_RANGE = previousRange;
+    sentinels = readdirSync(reports).filter((name) => /-RESERVED\.md$/.test(name));
+    rmSync(dir, { recursive: true, force: true });
+  }
+  if (rangeError instanceof RangeError && sentinels.length === 0) {
+    pass('profile report-number range refuses reservations beyond its upper bound');
+  } else {
+    fail(`configured range guard failed: error=${rangeError?.message}, sentinels=${sentinels.length}`);
+  }
+}
+
+{
+  const dir = mkdtempSync(join(tmpdir(), 'rrn-missing-range-'));
+  mkdirSync(join(dir, 'reports'), { recursive: true });
+  const previousRange = process.env.CAREER_OPS_REPORT_NUMBER_RANGE;
+  delete process.env.CAREER_OPS_REPORT_NUMBER_RANGE;
+  let error = null;
+  try {
+    await reserveReportNumbers(1, { rootDir: dir });
+  } catch (err) {
+    error = err;
+  } finally {
+    if (previousRange === undefined) delete process.env.CAREER_OPS_REPORT_NUMBER_RANGE;
+    else process.env.CAREER_OPS_REPORT_NUMBER_RANGE = previousRange;
+    rmSync(dir, { recursive: true, force: true });
+  }
+  if (/config\/profile\.yml/.test(error?.message || '')
+      && /report_number_range/.test(error?.message || '')) {
+    pass('reservation fails closed with actionable missing-range guidance');
+  } else {
+    fail(`missing range did not fail actionably: ${error?.message}`);
+  }
+}
+
+{
+  const dir = mkdtempSync(join(tmpdir(), 'rrn-range-override-'));
+  mkdirSync(join(dir, 'reports'), { recursive: true });
+  const previousRange = process.env.CAREER_OPS_REPORT_NUMBER_RANGE;
+  process.env.CAREER_OPS_REPORT_NUMBER_RANGE = '2000-2001';
+  let numbers = null;
+  try {
+    numbers = await reserveReportNumbers(1, { rootDir: dir });
+    await releaseReportNumbers(numbers, { rootDir: dir });
+  } finally {
+    if (previousRange === undefined) delete process.env.CAREER_OPS_REPORT_NUMBER_RANGE;
+    else process.env.CAREER_OPS_REPORT_NUMBER_RANGE = previousRange;
+    rmSync(dir, { recursive: true, force: true });
+  }
+  if (numbers?.[0] === 2000) {
+    pass('environment range remains a one-off override without a profile');
+  } else {
+    fail(`environment range override reserved ${numbers?.[0]}, expected 2000`);
+  }
+}
+
+function writeCollisionFixture(root, number, company, role, slug) {
+  const reports = join(root, 'reports');
+  const data = join(root, 'data');
+  mkdirSync(reports, { recursive: true });
+  mkdirSync(data, { recursive: true });
+  writeFileSync(join(reports, `${number}-${slug}-2026-09-22.md`), `# Evaluation: ${company} — ${role}\n`);
+  writeFileSync(
+    join(data, 'applications.md'),
+    '# Applications Tracker\n\n'
+    + '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |\n'
+    + '|---|---|---|---|---|---|---|---|---|\n'
+    + `| ${number} | 2026-09-22 | ${company} | ${role} | 4.0/5 | Evaluated | ❌ | [${number}](../reports/${number}-${slug}-2026-09-22.md) | fixture |\n`,
+  );
+}
+
+{
+  const first = mkdtempSync(join(tmpdir(), 'rrn-collision-a-'));
+  const second = mkdtempSync(join(tmpdir(), 'rrn-collision-b-'));
+  try {
+    writeCollisionFixture(first, 1155, 'Thales', 'Engineer', 'thales');
+    writeCollisionFixture(second, 1155, 'Intermedia', 'Engineer', 'intermedia');
+    const collisions = findReportNumberCollisions([first, second]);
+    const cli = spawnSync(NODE, [
+      join(ROOT, 'reserve-report-num.mjs'), '--collisions', first, second,
+    ], { cwd: ROOT, encoding: 'utf-8', timeout: 15000 });
+    const companies = collisions[0]?.vacancies.map((entry) => entry.company).sort().join(',');
+    if (collisions.length === 1 && collisions[0].number === 1155 && companies === 'Intermedia,Thales') {
+      pass('collision diagnostic identifies the same number used by different companies');
+    } else {
+      fail(`collision API result was unexpected: ${JSON.stringify(collisions)}`);
+    }
+    const sentinelsAfterCli = [
+      ...readdirSync(join(first, 'reports')),
+      ...readdirSync(join(second, 'reports')),
+    ].filter((name) => /-RESERVED\.md$/.test(name));
+    if (cli.status === 0 && /1155:/.test(cli.stdout) && /Thales/.test(cli.stdout)
+        && /Intermedia/.test(cli.stdout) && sentinelsAfterCli.length === 0) {
+      pass('collision diagnostic CLI prints the planted collision without writing');
+    } else {
+      fail(`collision CLI failed: exit=${cli.status}, sentinels=${sentinelsAfterCli.length}, stdout=${JSON.stringify(cli.stdout)}, stderr=${JSON.stringify(cli.stderr)}`);
+    }
+  } finally {
+    rmSync(first, { recursive: true, force: true });
+    rmSync(second, { recursive: true, force: true });
+  }
+}
+
+{
+  const first = mkdtempSync(join(tmpdir(), 'rrn-role-collision-a-'));
+  const second = mkdtempSync(join(tmpdir(), 'rrn-role-collision-b-'));
+  try {
+    writeCollisionFixture(first, 1167, 'Acme', 'Backend Engineer', 'acme-backend');
+    writeCollisionFixture(second, 1167, 'ACME', 'Frontend Engineer', 'acme-frontend');
+    const collisions = findReportNumberCollisions([first, second]);
+    const roles = collisions[0]?.vacancies.map((entry) => entry.role).sort().join(',');
+    if (collisions.length === 1 && collisions[0].number === 1167
+        && roles === 'Backend Engineer,Frontend Engineer') {
+      pass('collision diagnostic distinguishes roles at the same normalized company');
+    } else {
+      fail(`same-company role collision was missed: ${JSON.stringify(collisions)}`);
+    }
+  } finally {
+    rmSync(first, { recursive: true, force: true });
+    rmSync(second, { recursive: true, force: true });
   }
 }
