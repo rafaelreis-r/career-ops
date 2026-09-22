@@ -298,22 +298,26 @@ cover_letter:
 # roles that pass. On a mixed batch this cuts total tokens by roughly half.
 #
 #   triage_threshold  — minimum triage score (out of 5) to proceed to full
-#                       evaluation. Roles at 3.0–(threshold) are MARGINAL and
-#                       shown to you; below 3.0 they are filtered silently.
-#                       Default (key absent): 4.0.
-#   Calibration evidence from 84 international postings measured 2026-09-21.
-#   Yield means a final score at or above the unchanged 3.3 apply-worthy floor:
-#     3.3-3.6: 0% yield in 13 attempts
-#     3.7-3.9: 12% yield
-#     4.0-4.4: 18% yield
-#     4.5+: 22% yield
-#   This forwarding floor is separate from the 3.3 apply-worthy floor.
+#                       evaluation. Scores from 3.0 up to (threshold) are
+#                       MARGINAL; scores below 3.0 are filtered silently.
+#                       Default (key absent): 3.0.
+#   The old 4.0 default was set before score calibration. A replay of the
+#   calibrated 84-pair fixture measured forwarding precision and coverage
+#   against final scores >= 3.3 as follows:
+#     4.0: 1/84 forwarded, 100.0% precision, 8.3% coverage
+#     3.6: 1/84 forwarded, 100.0% precision, 8.3% coverage
+#     3.3: 1/84 forwarded, 100.0% precision, 8.3% coverage
+#     3.0: 9/84 forwarded, 22.2% precision, 16.7% coverage
+#     2.8: 9/84 forwarded, 22.2% precision, 16.7% coverage
+#   The default is 3.0: it doubles measured good-role coverage versus 3.3
+#   without lowering the floor below 2.8, which produced the same batch.
+#   The forwarding floor is separate from the 3.3 apply-worthy floor.
 #   triage_min_urls  — batches with fewer surviving URLs than this skip triage
 #                       and go straight to full evaluation (triage overhead
 #                       isn't worth it on a handful of roles). Default: 5.
 #
 # pipeline:
-#   triage_threshold: 4.0
+#   triage_threshold: 3.0
 #   triage_min_urls: 5
 
 # ── Re-apply Cooldown Windows ──────────────────────────────────────────────
