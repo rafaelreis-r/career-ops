@@ -47,26 +47,33 @@ function matchAnswerResult(fieldName, answers) {
   const fn = stripLabel(fieldName);
   if (!fn) return { value: null, reason: null };
   const meaning = fieldMeaning(fieldName);
-  const desired = answers.find((answer) => answer.kind === DESIRED_COMPENSATION);
-  if (desired && meaning === "restricted") {
-    return { value: null, reason: "incompatible-field-semantics" };
-  }
-  if (desired && meaning === "desired" && fieldCurrency(fieldName) && fieldCurrency(fieldName) !== desired.currency) {
-    return { value: null, reason: "currency-mismatch" };
-  }
-
   let best = null;
+  let rejectedReason = null;
   for (const answer of answers) {
-    if (answer.kind === DESIRED_COMPENSATION && meaning !== "desired") continue;
     const al = stripLabel(answer.label);
     if (!al) continue;
-    if (al === fn) return { value: answer.value, reason: null };
+    const exact = al === fn;
     const contained = fn.includes(al) || al.includes(fn);
-    if (contained && Math.min(al.length, fn.length) >= 4) {
+    if (!exact && (!contained || Math.min(al.length, fn.length) < 4)) continue;
+
+    if (answer.kind === DESIRED_COMPENSATION) {
+      if (meaning !== "desired") {
+        if (meaning === "restricted") rejectedReason ||= "incompatible-field-semantics";
+        continue;
+      }
+      const currency = fieldCurrency(fieldName);
+      if (currency && currency !== answer.currency) {
+        rejectedReason ||= "currency-mismatch";
+        continue;
+      }
+    }
+
+    if (exact) return { value: answer.value, reason: null };
+    if (contained) {
       if (!best || al.length > best.len) best = { value: answer.value, len: al.length };
     }
   }
-  return { value: best?.value ?? null, reason: null };
+  return { value: best?.value ?? null, reason: best ? null : rejectedReason };
 }
 
 /** Resolve a field's value from canonical answers. Salary answers are only

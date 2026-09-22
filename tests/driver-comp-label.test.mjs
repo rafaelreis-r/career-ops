@@ -69,3 +69,23 @@ if (!reaisDesired && rejected.some((field) => field.ref === 'reaisDesired' && fi
 
 if (matchAnswer(refs.commission.name, answers) == null) pass('commission semantic guard returns no answer');
 else fail('commission semantic guard should return no answer');
+
+const reportCommission = {
+  label: refs.commission.name,
+  value: 'R$ 12.000',
+};
+const reportBrlSalary = {
+  label: refs.reaisDesired.name,
+  value: 'R$ 18.000',
+};
+const reportAnswers = [reportCommission, reportBrlSalary, ...answers];
+if (matchAnswer(refs.commission.name, reportAnswers) === reportCommission.value) {
+  pass('exact report answer survives the commission semantic guard');
+} else {
+  fail('commission semantic guard shadowed an exact report answer');
+}
+if (matchAnswer(refs.reaisDesired.name, reportAnswers) === reportBrlSalary.value) {
+  pass('exact report answer survives the synthetic salary currency guard');
+} else {
+  fail('salary currency guard shadowed an exact report answer');
+}
