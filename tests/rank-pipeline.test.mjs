@@ -30,6 +30,7 @@ try {
     parseBatchResponse,
     buildPrompt,
     buildJevRankInstructions,
+    calibrateRankScore,
     resolveConfidenceThreshold,
     DEFAULT_JEV_CONFIDENCE_THRESHOLD,
     CLI_CANDIDATES,
@@ -51,6 +52,10 @@ try {
     'a newline in the reason cannot forge a row',
     !formatRankSegment(3, 'ok\n- [ ] https://evil.test | Evil | Role').includes('\n'),
   );
+  check('calibration preserves score ordering', calibrateRankScore(4.2) < calibrateRankScore(4.7));
+  check('calibration keeps the upper forwarding band', calibrateRankScore(4.7) === 5);
+  check('calibration rejects non-numeric scores', Number.isNaN(calibrateRankScore('high')));
+  check('calibration preserves a zero score', calibrateRankScore(0) === 0);
 
   // ── row selection ──
   const fixture = [
@@ -163,7 +168,7 @@ try {
   check('prompt names eligibility, seniority, and compensation checks',
     /work-authorization.*seniority.*compensation/.test(prompt));
   const instructions = buildJevRankInstructions('');
-  check('Jev instructions score whole-posting fit', /whole-posting fit/.test(instructions));
+  check('Jev instructions score relevance on a 0-5 ladder', /relevant.*0-5 ladder/.test(instructions));
   check('Jev instructions treat missing data as unknown', /Missing fields are unknown/.test(instructions));
   check('Jev instructions do not punish missing fields', /not negative evidence/.test(instructions));
   check('Jev confidence default is 0.45', DEFAULT_JEV_CONFIDENCE_THRESHOLD === 0.45);
