@@ -2,9 +2,10 @@
 # Copy this file to config/profile.yml and fill in your details.
 # This is the single source of truth for your personal data across all modes.
 
-# Required. Assign a non-overlapping range to each career-ops installation.
-# Track A: 1-999, Track B: 1000-1999, Track C: 2000-2999.
-report_number_range: "SET-ME"
+# Required. Assign a non-overlapping MIN-MAX range to each installation.
+# A single installation can use "1-999"; coordinated installations must use
+# distinct ranges. CAREER_OPS_REPORT_NUMBER_RANGE can override this for one run.
+report_number_range: "1-999"
 
 candidate:
   full_name: "Jane Smith"

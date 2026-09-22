@@ -1055,7 +1055,7 @@ These have no `npm run` binding — modes and agents call them with
 | `node followup-seed.mjs [--backfill]` | Seed `data/follow-ups.md` with a pinned first follow-up date when a row turns Applied |
 | `node reply-watch.mjs` | Classify employer replies from `data/reply-candidates.json`, match to tracker rows, print a review digest |
 | `node process-quality.mjs [--summary]` | Aggregate `[process-friction]` tags from `data/active-interviews.md` per company |
-| `node reserve-report-num.mjs [--count N]` | Atomically reserve report numbers for parallel workers (fixes the #749 race) |
+| `node reserve-report-num.mjs [--count N]` | Atomically reserve report numbers inside the required `config/profile.yml` `report_number_range` (fixes the #749 race); `--collisions <installation> <installation> [...]` performs a read-only cross-installation identity audit |
 | `node agent-inbox.mjs add "..."` | Append a request to the queue the agent drains at the next session start |
 | `node generate-latex.mjs <input.tex> [output.pdf]` | Validate and compile a generated `.tex` CV via tectonic or pdflatex |
 | `node classify-tier.mjs` | Classify a job title into intern / entry / mid / senior |
