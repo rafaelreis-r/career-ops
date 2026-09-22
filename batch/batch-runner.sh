@@ -7,12 +7,13 @@ set -euo pipefail
 #
 # Supported CLIs (--cli flag):
 #   claude    — claude -p with --dangerously-skip-permissions (default)
+#   omp       — omp -p (remote router)
 #   opencode  — opencode run (falls back to ollama launch opencode if not in PATH)
 #   gemini    — gemini -p
 #   qwen      — qwen -p
 #
-# Only claude supports --strict-mcp-config, the rate-limit/session retry loop,
-# and --parallel > 1; other CLIs run sequentially with a single attempt.
+# Only claude supports --strict-mcp-config and the rate-limit/session retry loop.
+# omp is remote and keeps parallel dispatch; other non-claude CLIs run sequentially.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -66,12 +67,12 @@ spend_tier in config/profile.yml unless --model overrides it.
 Usage: batch-runner.sh [OPTIONS]
 
 Options:
-  --cli NAME           Agent CLI to use: claude (default), opencode, gemini, qwen
+  --cli NAME           Agent CLI to use: claude (default), omp, opencode, gemini, qwen
   --model NAME         Model for the CLI (e.g. qwen2.5:32b for opencode/ollama).
                        For claude, overrides the tier-resolved model (otherwise
                        config/profile.yml spend_tier: economy/standard/premium;
                        default standard).
-  --parallel N         Number of parallel workers (default: 1; claude only)
+  --parallel N         Number of parallel workers (default: 1; claude and omp)
   --dry-run            Show what would be processed, don't execute
   --retry-failed       Only retry offers marked as "failed" in state
   --resume-paused      Resume offers paused by a Claude session/rate limit
