@@ -16,9 +16,10 @@
  *   node reserve-report-num.mjs --collisions <installation> <installation> [...]
  *   node reserve-report-num.mjs --gc
  *
- * Set CAREER_OPS_REPORT_NUMBER_RANGE per installation (for example, 1-999,
- * 1000-1999, or 2000-2999) to keep reservations inside that installation's
- * identity space. The default remains unbounded for legacy installations.
+ * Set report_number_range in config/profile.yml per installation (for example,
+ * 1-999, 1000-1999, or 2000-2999) to keep reservations inside that
+ * installation's identity space. CAREER_OPS_REPORT_NUMBER_RANGE is a one-off
+ * override.
  *
  * `--collisions` is read-only and compares report numbers across installations.
  * It never acquires a tracker lock or writes a file.
@@ -31,9 +32,10 @@ import {
 import { randomUUID } from 'crypto';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import * as yaml from 'js-yaml';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import {
-  extractTrackerReportNumbers, parseTrackerRow, resolveColumns,
+  extractTrackerReportNumbers, normalizeTextKey, parseTrackerRow, resolveColumns,
 } from './tracker-parse.mjs';
 import {
   acquireTrackerLock, canonicalizeTrackerPath, normalizeCompany,
@@ -72,15 +74,47 @@ export function parseReportNumberRange(value) {
       }
     }
   }
-  throw new RangeError(
-    `${REPORT_NUMBER_RANGE_ENV} must be an ascending safe range such as 1-999`,
-  );
+  throw new RangeError('Report-number range must be an ascending safe range such as 1-999');
 }
 
 function reportNumberRangeFor(options = {}) {
-  return parseReportNumberRange(
-    options.reportNumberRange ?? process.env[REPORT_NUMBER_RANGE_ENV],
+  const override = process.env[REPORT_NUMBER_RANGE_ENV]?.trim();
+  if (override) {
+    try {
+      return parseReportNumberRange(override);
+    } catch (err) {
+      throw new RangeError(`${REPORT_NUMBER_RANGE_ENV}: ${err.message}`);
+    }
+  }
+
+  const profilePath = resolve(
+    options.profilePath
+      || process.env.CAREER_OPS_PROFILE
+      || join(options.rootDir || ROOT, 'config', 'profile.yml'),
   );
+  let profile;
+  try {
+    profile = yaml.load(readFileSync(profilePath, 'utf-8')) || {};
+  } catch (err) {
+    if (err?.code === 'ENOENT') {
+      throw new Error(
+        `Missing required report_number_range in config/profile.yml (${profilePath}). `
+        + 'Set report_number_range to this installation\'s assigned range, such as "1-999".',
+      );
+    }
+    throw new Error(`Cannot read config/profile.yml (${profilePath}): ${err.message}`);
+  }
+  if (profile.report_number_range == null || String(profile.report_number_range).trim() === '') {
+    throw new Error(
+      `Missing required report_number_range in config/profile.yml (${profilePath}). `
+      + 'Set report_number_range to this installation\'s assigned range, such as "1-999".',
+    );
+  }
+  try {
+    return parseReportNumberRange(profile.report_number_range);
+  } catch (err) {
+    throw new RangeError(`Invalid report_number_range in config/profile.yml (${profilePath}): ${err.message}`);
+  }
 }
 
 function rangeDescription(range) {
@@ -164,23 +198,34 @@ function highestNumber(numbers, range = null) {
   return max;
 }
 
-function addReportIdentity(byNumber, number, company, installation, source) {
-  if (!Number.isSafeInteger(number) || number < 1 || !String(company ?? '').trim()) return;
+function addReportIdentity(byNumber, number, company, role, installation, source) {
+  if (!Number.isSafeInteger(number) || number < 1
+      || !String(company ?? '').trim() || !String(role ?? '').trim()) return;
   const displayCompany = String(company).trim();
+  const displayRole = String(role).trim();
   const companyKey = normalizeCompany(displayCompany);
-  if (!companyKey) return;
+  const roleKey = normalizeTextKey(displayRole);
+  if (!companyKey || !roleKey) return;
   const entries = byNumber.get(number) || [];
-  if (!entries.some((entry) => entry.installation === installation && entry.companyKey === companyKey)) {
-    entries.push({ installation, company: displayCompany, companyKey, source });
+  if (!entries.some((entry) => entry.installation === installation
+      && entry.companyKey === companyKey && entry.roleKey === roleKey)) {
+    entries.push({
+      installation,
+      company: displayCompany,
+      role: displayRole,
+      companyKey,
+      roleKey,
+      source,
+    });
     byNumber.set(number, entries);
   }
 }
 
-function companyFromReport(reportPath) {
+function identityFromReport(reportPath) {
   try {
     const content = readFileSync(reportPath, 'utf-8');
-    const match = content.match(/^#\s*(?:Evaluation:\s*)?(.+?)\s+[—–-]\s+/m);
-    return match?.[1]?.trim() || null;
+    const match = content.match(/^#\s*(?:Evaluation:\s*)?(.+?)\s+[—–-]\s+(.+?)\s*$/m);
+    return match ? { company: match[1].trim(), role: match[2].trim() } : null;
   } catch {
     return null;
   }
@@ -202,10 +247,12 @@ function collectInstallationIdentities(rootDir) {
       const match = name.match(/^(\d+)-.+\.md$/);
       if (!match) continue;
       const number = Number(match[1]);
+      const identity = identityFromReport(join(reportsDir, name));
       addReportIdentity(
         byNumber,
         number,
-        companyFromReport(join(reportsDir, name)),
+        identity?.company,
+        identity?.role,
         installation,
         join(reportsDir, name),
       );
@@ -219,9 +266,11 @@ function collectInstallationIdentities(rootDir) {
     for (const line of lines) {
       const row = parseTrackerRow(line, colmap);
       if (!row) continue;
-      addReportIdentity(byNumber, row.num, row.company, installation, trackerPath);
+      addReportIdentity(byNumber, row.num, row.company, row.role, installation, trackerPath);
       for (const reportNum of extractTrackerReportNumbers(row.report, row.notes)) {
-        addReportIdentity(byNumber, reportNum, row.company, installation, trackerPath);
+        addReportIdentity(
+          byNumber, reportNum, row.company, row.role, installation, trackerPath,
+        );
       }
     }
   }
@@ -229,11 +278,11 @@ function collectInstallationIdentities(rootDir) {
 }
 
 /**
- * Find report numbers that identify different companies across installations.
+ * Find report numbers that identify different vacancies across installations.
  * This is a read-only diagnostic: it never acquires a lock or writes files.
  *
  * @param {string[]} installationRoots
- * @returns {Array<{number:number,companies:Array<{installation:string,company:string,source:string}>}>}
+ * @returns {Array<{number:number,vacancies:Array<{installation:string,company:string,role:string,source:string}>}>}
  */
 export function findReportNumberCollisions(installationRoots) {
   if (!Array.isArray(installationRoots) || installationRoots.length < 2) {
@@ -245,7 +294,7 @@ export function findReportNumberCollisions(installationRoots) {
       const all = byNumber.get(number) || [];
       for (const entry of entries) {
         if (!all.some((existing) => existing.installation === entry.installation
-            && existing.companyKey === entry.companyKey)) {
+            && existing.companyKey === entry.companyKey && existing.roleKey === entry.roleKey)) {
           all.push(entry);
         }
       }
@@ -256,11 +305,12 @@ export function findReportNumberCollisions(installationRoots) {
   return [...byNumber.entries()]
     .map(([number, entries]) => ({
       number,
-      companies: entries.filter((entry, index, list) => (
-        list.findIndex((candidate) => candidate.companyKey === entry.companyKey) === index
+      vacancies: entries.filter((entry, index, list) => (
+        list.findIndex((candidate) => candidate.companyKey === entry.companyKey
+          && candidate.roleKey === entry.roleKey) === index
       )),
     }))
-    .filter((collision) => collision.companies.length > 1)
+    .filter((collision) => collision.vacancies.length > 1)
     .sort((a, b) => a.number - b.number);
 }
 
@@ -471,7 +521,8 @@ async function runCli() {
       '  --collisions <paths...>  Read-only cross-installation collision report',
       '  --gc                      Garbage-collect stale reservation sentinels',
       '',
-      `  ${REPORT_NUMBER_RANGE_ENV}=MIN-MAX  Enforce this installation range`,
+      '  config/profile.yml report_number_range: MIN-MAX  Required installation range',
+      `  ${REPORT_NUMBER_RANGE_ENV}=MIN-MAX  One-off range override`,
       '',
     ].join('\n'));
     return 0;
@@ -490,7 +541,9 @@ async function runCli() {
       } else {
         process.stdout.write(collisions.map((collision) => (
           `${formatReportNumber(collision.number)}: ${
-            collision.companies.map((entry) => `${entry.installation}=${entry.company}`).join('; ')
+            collision.vacancies.map((entry) => (
+              `${entry.installation}=${entry.company} — ${entry.role}`
+            )).join('; ')
           }`
         )).join('\n') + '\n');
       }
