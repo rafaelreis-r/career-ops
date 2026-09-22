@@ -36,7 +36,7 @@ import { pathToFileURL } from "node:url";
 import * as yaml from "js-yaml";
 import { isMainModule } from "../../lib/is-main-module.mjs";
 import { loadCanonicalData, resolveCvPath, deriveCompanySlug, DOCUMENT_ACCEPT_RX } from "./ab-jev-apply.mjs";
-import { matchAnswer, resolveFields } from "./arm1-salary.mjs";
+import { resolveFields } from "./arm1-salary.mjs";
 
 const require = createRequire(import.meta.url);
 const JEV_PKG = require.resolve("jev-agent-browser/package.json");
@@ -63,8 +63,8 @@ function salaryAnswers(root) {
     const m = src.match(/USD\s*\$?\s*(\d+)\s*K\s*\/?\s*month/i);
     if (!m) return [];
     const value = `USD ${Number(m[1]) * 1000}/month`;
-    const answer = { value, kind: "desired-compensation", currency: "USD" };
-    return ["Desired Pay","Desired Salary","Salary","Salary Expectation","Expected Salary","Expected Compensation","Compensation Expectation","Pretensão salarial"]
+    const answer = { value, kind: "desired-compensation" };
+    return ["Desired Pay", "Desired Salary", "Salary", "Salary Expectation", "Expected Salary", "Desired Compensation", "Pretensão salarial"]
       .map((label) => ({ label, ...answer }));
   } catch {
     return [];
@@ -301,19 +301,13 @@ async function main() {
   let matched = [];
   let verification = null;
   let cv = { path: cvResolution.path, uploaded: false, strategy: null, accept: null, error: null };
-  let rejected = [];
   let confirmation = null;
   let fieldResults = [];
 
   try {
     await browser.open(args.url);
     const formSnap = await reachForm(browser);
-    const fieldResolution = resolveFields(formSnap.refs, answers);
-    matched = fieldResolution.matched;
-    rejected = fieldResolution.rejected;
-    if (rejected.length) {
-      console.log(`[arm1-ab] guarded ${rejected.length} field(s): ${rejected.map((field) => `${field.name} [${field.reason}]`).join(" | ")}`);
-    }
+    matched = resolveFields(formSnap.refs, answers);
     console.log(`[arm1-ab] resolved ${matched.length} field(s): ${matched.map((m) => m.name).join(" | ") || "(none)"}`);
     if (matched.length === 0) throw new Error("no fillable field matched a canonical answer; nothing to fill");
 
@@ -398,8 +392,6 @@ async function main() {
     wallClockSeconds,
     canonicalSources: sources,
     fieldsResolved: matched.length,
-    fieldsRejected: rejected.length,
-    rejectedFields: rejected,
     fieldResults,
     fieldsAttempted: verification?.fieldsAttempted ?? 0,
     fieldsFilled: verification?.fieldsFilled ?? 0,
