@@ -25,7 +25,7 @@ export function parseTriageScore(value) {
   return Number.isFinite(plain) ? plain : NaN;
 }
 
-export function decideTriage(score, threshold = DEFAULT_TRIAGE_THRESHOLD, priorityOverride = false) {
+export function decideTriage(score, threshold = DEFAULT_TRIAGE_THRESHOLD) {
   const numericScore = Number(score);
   const numericThreshold = Number(threshold);
   if (!Number.isFinite(numericScore) || numericScore < 0 || numericScore > 5) {
@@ -34,7 +34,7 @@ export function decideTriage(score, threshold = DEFAULT_TRIAGE_THRESHOLD, priori
   if (!Number.isFinite(numericThreshold) || numericThreshold < 0 || numericThreshold > 5) {
     throw new TypeError('triage threshold must be a number from 0 to 5');
   }
-  const forward = priorityOverride || numericScore >= numericThreshold;
+  const forward = numericScore >= numericThreshold;
   const verdict = forward
     ? 'pass'
     : numericThreshold > DEFAULT_TRIAGE_THRESHOLD && numericScore >= DEFAULT_TRIAGE_THRESHOLD
@@ -45,7 +45,6 @@ export function decideTriage(score, threshold = DEFAULT_TRIAGE_THRESHOLD, priori
     threshold: numericThreshold,
     applyWorthyFloor: APPLY_WORTHY_FLOOR,
     applyWorthy: numericScore >= APPLY_WORTHY_FLOOR,
-    priorityOverride: Boolean(priorityOverride),
     verdict,
     forward,
   };
@@ -70,7 +69,7 @@ function main(args) {
   const raw = flagValue(args, '--score') ?? flagValue(args, '--line');
   const score = parseTriageScore(raw);
   try {
-    console.log(JSON.stringify(decideTriage(score, threshold, hasFlag(args, '--priority-override'))));
+    console.log(JSON.stringify(decideTriage(score, threshold)));
     return 0;
   } catch (error) {
     console.error(error.message);

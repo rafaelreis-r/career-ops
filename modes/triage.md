@@ -91,18 +91,11 @@ MARGINAL band below depends on.
 | Score | Verdict |
 |-------|---------|
 | ≥ triage_threshold | **PASS** — proceed to full A-G evaluation |
-| 3.0 ≤ score < triage_threshold | **MARGINAL** — one-liner shown to user; skip full eval unless user overrides |
+| 3.0–(threshold − 0.1) | **MARGINAL** — one-liner shown to user; skip full eval unless user overrides |
 | < 3.0 | **FAIL** — clear no-go; return the line and stop |
 | N/A | **SKIP** — inaccessible posting |
 
-(`triage_threshold` is `config/profile.yml → pipeline.triage_threshold`, default `3.0`.)
-
-The old `4.0` floor predates calibration. The 84-pair replay defines a good
-result as final score at or above the unchanged 3.3 apply-worthy floor. At
-thresholds `4.0`, `3.6`, and `3.3`, 1 role was forwarded, with 100.0% precision
-and 8.3% coverage. At `3.0` and `2.8`, 9 roles were forwarded, with 22.2%
-precision and 16.7% coverage. The default is `3.0`; `2.8` produced the same
-batch while setting a lower floor.
+(`triage_threshold` is `config/profile.yml → pipeline.triage_threshold`, default `3.5`.)
 
 **Priority override:** If the company is on the Priority Override List in
 `modes/_brief.md`, return PASS regardless of score. Check the company name before

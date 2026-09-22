@@ -69,13 +69,13 @@ hard gaps you cannot bridge — be specific so triage can pattern-match them.
 ## Quick Scoring Guide
 
 Bands are relative to `triage_threshold` (`config/profile.yml → pipeline.triage_threshold`,
-default **3.0**), matching the verdict table in `modes/triage.md` — so a score at or
+default **3.5**), matching the verdict table in `modes/triage.md` — so a score at or
 above the threshold is PASS, and only the band below it is MARGINAL.
 
 | Score | Verdict | What it means |
 |-------|---------|---------------|
-| ≥ threshold (default 3.0) | **PASS** | Clears the bar — strong archetype + comp + location, gaps bridgeable |
-| 3.0 ≤ score < threshold | **MARGINAL** | Borderline — shown to user as one line |
+| ≥ threshold (default 3.5) | **PASS** | Clears the bar — strong archetype + comp + location, gaps bridgeable |
+| 3.0 – (threshold − 0.1) | **MARGINAL** | Borderline — shown to user as one line |
 | < 3.0 | **FAIL** | Does not clear the bar — filtered |
 
 ## Soft Red Flags (−0.5 each, additive)

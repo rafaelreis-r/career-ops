@@ -36,9 +36,8 @@ strength of a result; it never controls forwarding.
   it pending with an error. Do not run a second triage scale and do not forward
   it to the long evaluation.
 - Pass the versioned rank annotation through the executable
-  gate: `node triage-gate.mjs --line "{line}"`. Add `--priority-override` only
-  when the company is on `_brief.md`'s Priority Override List. Proceed to the
-  full A-G evaluation only when its JSON output has `forward: true`.
+  gate: `node triage-gate.mjs --line "{line}"`. Proceed to the full A-G
+  evaluation only when its JSON output has `forward: true`.
 - This gate only applies to pipeline/batch processing. It never applies to a single interactive evaluation.
 
 **Discard log (auditable):** Every posting the gate filters out MUST be logged with a one-line reason so pre-filtering is never a silent black box. Append one line to `data/discard.log` (create the file if absent) in the format `{ISO8601 timestamp}\t{url}\t{reason}` (three tab-separated fields — interactive pipeline mode has no batch job ID, so the `id` field is omitted here; batch mode's `batch/batch-runner.sh` uses a separate `batch/logs/discard.log` with a four-field format that includes the job ID), in addition to the `skipped` entry already written to "Processed" above. This log is the visible, auditable record of what the gate discarded and why -- review it periodically to tune the North Star archetypes if the gate is too aggressive or too lax.
