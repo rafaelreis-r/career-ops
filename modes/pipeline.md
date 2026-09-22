@@ -18,7 +18,6 @@ This complements — does not replace — the per-URL liveness gate in `auto-pip
 
 ## Calibrated forwarding gate
 
-Read `spend_tier` from `config/profile.yml` (see `modes/_shared.md` -- Spend Tier section; defaults to `standard` if absent).
 Resolve the two independent score floors before processing entries:
 
 ```bash
@@ -30,18 +29,16 @@ The command reads `config/profile.yml -> pipeline.triage_threshold` and returns
 first controls forwarding to the long A-G evaluation. The second labels the
 strength of a result; it never controls forwarding.
 
-- If a pending row already has a valid calibrated `rank: X.X/5` annotation, use
-  that score. Do not run a second relevance call.
-- Otherwise run the lightweight `modes/triage.md` pass. For `standard` and
-  `premium`, use the tier's economy-equivalent model. For `economy`, use the
-  configured economy model. Inject the resolved `triageThreshold`; triage does
-  not read the profile itself.
-- Pass the rank annotation or returned `TRIAGE:` line through the executable
+- Only `rank: cal-v1 X.X/5` is a calibrated annotation. Before the per-URL loop,
+  run `node rank-pipeline.mjs` for pending rows without that marker. An unmarked
+  `rank: X.X/5` annotation is pre-calibration and remains eligible for re-ranking.
+- If a row still lacks `rank: cal-v1` after the ranker finishes or fails, leave
+  it pending with an error. Do not run a second triage scale and do not forward
+  it to the long evaluation.
+- Pass the versioned rank annotation through the executable
   gate: `node triage-gate.mjs --line "{line}"`. Add `--priority-override` only
   when the company is on `_brief.md`'s Priority Override List. Proceed to the
   full A-G evaluation only when its JSON output has `forward: true`.
-- A missing or malformed score is not a rejection. Run the lightweight triage
-  once; if it still has no numeric score, leave the entry pending with an error.
 - This gate only applies to pipeline/batch processing. It never applies to a single interactive evaluation.
 
 **Discard log (auditable):** Every posting the gate filters out MUST be logged with a one-line reason so pre-filtering is never a silent black box. Append one line to `data/discard.log` (create the file if absent) in the format `{ISO8601 timestamp}\t{url}\t{reason}` (three tab-separated fields — interactive pipeline mode has no batch job ID, so the `id` field is omitted here; batch mode's `batch/batch-runner.sh` uses a separate `batch/logs/discard.log` with a four-field format that includes the job ID), in addition to the `skipped` entry already written to "Processed" above. This log is the visible, auditable record of what the gate discarded and why -- review it periodically to tune the North Star archetypes if the gate is too aggressive or too lax.
@@ -123,18 +120,20 @@ are defined:
   (`- [ ] {url} | {company} | {title} | note: curated shortlist` is valid). The
   deterministic scanner never sets it.
 
-- `| rank: {score}/5 — {reason}` — an **opt-in** calibrated LLM relevance annotation written
+- `| rank: cal-v1 {score}/5 — {reason}` — an **opt-in** calibrated LLM relevance annotation written
   only by `node rank-pipeline.mjs`, never by a scan. The score is 0–5 to one
   decimal and always carries a one-line reason, so you can disagree with it. It
   is consumed by `/career-ops pipeline`'s configured forwarding gate. The ranker
   itself never removes, reorders, or hides a row, and an unranked row simply has
-  no usable annotation — not that it scored badly. (A
+  no usable current-version annotation — not that it scored badly. Unmarked
+  `rank: {score}/5` segments are pre-calibration and the ranker replaces them
+  when it successfully re-ranks the row. (A
   row can go unranked because the CLI call failed, returned malformed JSON, or
   gave no usable reason — all of which still spent tokens.)
 
 When more than one is present the order is `posted:` → `trust:` → `note:` →
-`rank:`. `posted:`, `trust:`, and `note:` are triage context. A valid `rank:`
-score is the input to the calibrated forwarding gate above.
+`rank:`. `posted:`, `trust:`, and `note:` are triage context. Only a valid
+`rank: cal-v1` score is input to the calibrated forwarding gate above.
 
 ## Intelligent JD detection from URL
 

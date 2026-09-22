@@ -17,7 +17,7 @@ import { pass, fail, ROOT } from './helpers.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { execFileSync } from 'child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 
 console.log('\nrank-pipeline — annotate-never-drop, bounded cost');
@@ -42,14 +42,14 @@ try {
   const check = (label, cond) => (cond ? pass(label) : fail(label));
 
   // ── scoring + reason sanitation ──
-  check('score above range clamps to 5.0', formatRankSegment(9, 'x').startsWith('rank: 5.0/5'));
-  check('negative score clamps to 0.0', formatRankSegment(-4, 'x').startsWith('rank: 0.0/5'));
-  check('score renders to one decimal', formatRankSegment(4, 'x').startsWith('rank: 4.0/5'));
+  check('score above range clamps to 5.0', formatRankSegment(9, 'x').startsWith('rank: cal-v1 5.0/5'));
+  check('negative score clamps to 0.0', formatRankSegment(-4, 'x').startsWith('rank: cal-v1 0.0/5'));
+  check('score renders to one decimal', formatRankSegment(4, 'x').startsWith('rank: cal-v1 4.0/5'));
   check('a blank reason yields no segment', formatRankSegment(4, '  ') === '');
   check('a non-numeric score yields no segment', formatRankSegment('high', 'x') === '');
   check(
     'a pipe in the reason cannot open a column',
-    !formatRankSegment(3, 'pays well | remote').slice('rank: 3.0/5 — '.length).includes('|'),
+    !formatRankSegment(3, 'pays well | remote').slice('rank: cal-v1 3.0/5 — '.length).includes('|'),
   );
   check(
     'a newline in the reason cannot forge a row',
@@ -66,14 +66,16 @@ try {
     '- [ ] https://x.test/1 | Acme | Backend Engineer',
     '- [ ] https://x.test/2 | Beta | Android Engineer | Remote | posted: 2026-06-18 | note: curated',
     '- [x] https://x.test/3 | Gamma | Already Processed',
-    '- [ ] https://x.test/4 | Delta | Already Ranked | rank: 3.0/5 — prior run',
+    '- [ ] https://x.test/4 | Delta | Legacy Rank | rank: 3.0/5 — prior run',
+    '- [ ] https://x.test/5 | Epsilon | Current Rank | rank: cal-v1 3.0/5 — current run',
     'not a row at all',
   ].join('\n');
   const pending = parsePendingEntries(fixture);
 
   check('processed rows are excluded', !pending.some(e => e.url.endsWith('/3')));
-  check('already-ranked rows are excluded (idempotent re-runs)', !pending.some(e => e.url.endsWith('/4')));
-  check('non-row lines are ignored', pending.length === 2);
+  check('legacy ranks remain eligible for re-ranking', pending.some(e => e.url.endsWith('/4')));
+  check('current-version ranks are excluded', !pending.some(e => e.url.endsWith('/5')));
+  check('non-row lines are ignored', pending.length === 3);
   check('company parses off the row', pending[0].company === 'Acme');
   check('optional posting fields stay available to the scorer',
     pending[1].postingContext === 'Remote | posted: 2026-06-18 | note: curated');
@@ -82,7 +84,7 @@ try {
   const original = pending[1].raw;
   const annotated = appendRankAnnotation(original, 4.2, 'Strong Kotlin match');
   check('the original row survives byte-for-byte', annotated.startsWith(original));
-  check('the segment rides last, after note:', annotated.endsWith('| rank: 4.2/5 — Strong Kotlin match'));
+  check('the segment rides last, after note:', annotated.endsWith('| rank: cal-v1 4.2/5 — Strong Kotlin match'));
   check('an existing note: segment is untouched', annotated.includes('| note: curated |'));
   check('re-annotating is a no-op', appendRankAnnotation(annotated, 1, 'different') === annotated);
   check('an unusable score leaves the row alone', appendRankAnnotation(original, NaN, 'x') === original);
@@ -127,18 +129,18 @@ try {
   const { applyAnnotations } = mod;
   const dupRaw = '- [ ] https://x.test/9 | Acme | Backend Engineer';
   const dup = applyAnnotations(['## Pending', dupRaw, dupRaw].join('\n'), [
-    { raw: dupRaw, segment: 'rank: 4.0/5 — first' },
-    { raw: dupRaw, segment: 'rank: 2.0/5 — second' },
+    { raw: dupRaw, segment: 'rank: cal-v1 4.0/5 — first' },
+    { raw: dupRaw, segment: 'rank: cal-v1 2.0/5 — second' },
   ]);
   check('both duplicate rows get annotated', dup.written === 2);
   check('each duplicate keeps its own score, in file order', /— first[\s\S]*— second/.test(dup.text));
   check(
-    'a row already carrying rank: is left alone',
-    applyAnnotations(`${dupRaw} | rank: 1.0/5 — old`, [{ raw: dupRaw, segment: 'rank: 5.0/5 — new' }]).written === 0,
+    'a row already carrying the current rank version is left alone',
+    applyAnnotations(`${dupRaw} | rank: cal-v1 1.0/5 — old`, [{ raw: dupRaw, segment: 'rank: cal-v1 5.0/5 — new' }]).written === 0,
   );
   check(
     'an annotation whose row vanished is a no-op, not a corruption',
-    applyAnnotations('- [ ] https://other.test | X | Y', [{ raw: dupRaw, segment: 'rank: 3.0/5 — x' }]).written === 0,
+    applyAnnotations('- [ ] https://other.test | X | Y', [{ raw: dupRaw, segment: 'rank: cal-v1 3.0/5 — x' }]).written === 0,
   );
 
   // Regression: 3 byte-identical pending rows + --limit 1 selects only the
@@ -155,12 +157,12 @@ try {
   const tripleDupSelected = selectBatch(tripleDupPending, 1);
   check('--limit 1 selects exactly one of three duplicates', tripleDupSelected.length === 1);
   const tripleDupOut = applyAnnotations(tripleDupText, [
-    { raw: tripleDupSelected[0].raw, segment: 'rank: 4.5/5 — only this one' },
+    { raw: tripleDupSelected[0].raw, segment: 'rank: cal-v1 4.5/5 — only this one' },
   ]);
   check('only the selected duplicate is annotated', tripleDupOut.written === 1);
   check(
     'exactly one occurrence carries the segment',
-    (tripleDupOut.text.match(/rank: 4\.5\/5/g) ?? []).length === 1,
+    (tripleDupOut.text.match(/rank: cal-v1 4\.5\/5/g) ?? []).length === 1,
   );
   check('the two unselected duplicates remain pending, unranked',
     parsePendingEntries(tripleDupOut.text).length === 2);
@@ -207,21 +209,53 @@ try {
 
   const gateDir = mkdtempSync(join(tmpdir(), 'career-ops-triage-gate-'));
   try {
-    const profilePath = join(gateDir, 'profile.yml');
-    writeFileSync(profilePath, 'pipeline:\n  triage_threshold: 3.6\n');
+    mkdirSync(join(gateDir, 'config'));
+    writeFileSync(join(gateDir, 'config', 'profile.yml'), 'pipeline:\n  triage_threshold: 3.6\n');
     const gatePath = join(ROOT, 'triage-gate.mjs');
     const runGate = args => JSON.parse(execFileSync(process.execPath,
-      [gatePath, '--profile', profilePath, ...args], { encoding: 'utf8' }));
-    const below = runGate(['--line', 'TRIAGE: PASS | Acme | Engineer | 3.5/5 | close']);
-    const atFloor = runGate(['--line', '- [ ] https://x.test | Acme | Engineer | rank: 3.6/5 — fit']);
+      [gatePath, ...args], { encoding: 'utf8', env: { ...process.env, CAREER_OPS_ROOT: gateDir } }));
+    const below = runGate(['--line', '- [ ] https://x.test | Acme | Engineer | rank: cal-v1 3.5/5 — close']);
+    const atFloor = runGate(['--line', '- [ ] https://x.test | Acme | Engineer | rank: cal-v1 3.6/5 — fit']);
     check('configured upstream floor blocks a score below 3.6', below.forward === false && below.verdict === 'marginal');
     check('configured upstream floor forwards a score at 3.6', atFloor.forward === true);
     check('upstream reports the independent apply-worthy 3.3 floor',
       below.applyWorthyFloor === 3.3 && below.applyWorthy === true);
-    const defaultProfile = join(gateDir, 'missing-profile.yml');
+    const defaultRoot = mkdtempSync(join(tmpdir(), 'career-ops-triage-default-'));
     const defaults = JSON.parse(execFileSync(process.execPath,
-      [gatePath, '--profile', defaultProfile, '--score', '3.0'], { encoding: 'utf8' }));
+      [gatePath, '--score', '3.0'], {
+        encoding: 'utf8',
+        env: { ...process.env, CAREER_OPS_ROOT: defaultRoot },
+      }));
     check('upstream defaults the forwarding floor to 3.0', defaults.threshold === 3.0 && defaults.forward === true);
+    rmSync(defaultRoot, { recursive: true, force: true });
+
+    const rankerRoot = mkdtempSync(join(tmpdir(), 'career-ops-ranker-integration-'));
+    try {
+      mkdirSync(join(rankerRoot, 'data'));
+      const pipelinePath = join(rankerRoot, 'data', 'pipeline.md');
+      writeFileSync(pipelinePath, [
+        '## Pending',
+        '- [ ] https://x.test/job | Acme | Engineer | rank: 4.5/5 — legacy raw score',
+        '',
+      ].join('\n'));
+      const scorerPath = join(rankerRoot, 'fake-scorer.mjs');
+      writeFileSync(scorerPath, [
+        '#!/usr/bin/env node',
+        'process.stdout.write(JSON.stringify([{ id: 0, score: 4.5, reason: "offline fake" }]));',
+        '',
+      ].join('\n'));
+      chmodSync(scorerPath, 0o755);
+      execFileSync(process.execPath, [join(ROOT, 'rank-pipeline.mjs'), '--cli', scorerPath, '--limit', '1'], {
+        encoding: 'utf8',
+        env: { ...process.env, CAREER_OPS_ROOT: rankerRoot, TYPESAFE_API_KEY: '' },
+      });
+      const persistedPipeline = readFileSync(pipelinePath, 'utf8');
+      check('ranker write path persists the calibrated, versioned score',
+        persistedPipeline.includes('| rank: cal-v1 3.2/5 — offline fake')
+          && !persistedPipeline.includes('| rank: 4.5/5 — legacy raw score'));
+    } finally {
+      rmSync(rankerRoot, { recursive: true, force: true });
+    }
 
     const fixturePath = join(gateDir, 'fixture.json');
     const outputPath = join(gateDir, 'replay.json');

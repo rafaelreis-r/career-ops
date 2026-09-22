@@ -19,7 +19,7 @@ export function resolveTriageThreshold(profile = {}) {
 export function parseTriageScore(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
   const text = String(value ?? '');
-  const labeled = text.match(/(?:TRIAGE:[^\n]*?\|\s*|\brank:\s*)([0-5](?:\.\d+)?)\s*\/\s*5\b/i);
+  const labeled = text.match(/\brank:\s*cal-v1\s+([0-5](?:\.\d+)?)\s*\/\s*5\b/i);
   if (labeled) return Number(labeled[1]);
   const plain = Number(text.trim());
   return Number.isFinite(plain) ? plain : NaN;
@@ -51,7 +51,8 @@ export function decideTriage(score, threshold = DEFAULT_TRIAGE_THRESHOLD, priori
   };
 }
 
-export function loadTriageThreshold(profilePath) {
+export function loadTriageThreshold() {
+  const profilePath = join(getCareerOpsRoot(), 'config', 'profile.yml');
   if (!existsSync(profilePath)) return DEFAULT_TRIAGE_THRESHOLD;
   try {
     return resolveTriageThreshold(yaml.load(readFileSync(profilePath, 'utf8')) || {});
@@ -61,10 +62,7 @@ export function loadTriageThreshold(profilePath) {
 }
 
 function main(args) {
-  const profilePath = flagValue(args, '--profile')
-    || process.env.CAREER_OPS_PROFILE
-    || join(getCareerOpsRoot(), 'config', 'profile.yml');
-  const threshold = loadTriageThreshold(profilePath);
+  const threshold = loadTriageThreshold();
   if (hasFlag(args, '--show-config')) {
     console.log(JSON.stringify({ triageThreshold: threshold, applyWorthyFloor: APPLY_WORTHY_FLOOR }));
     return 0;

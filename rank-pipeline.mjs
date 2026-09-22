@@ -5,7 +5,8 @@
  * The core scan stays 100% zero-token: `scan.mjs` is not touched, and nothing here
  * runs unless you invoke this script yourself.
  *
- * It ANNOTATES pending pipeline rows with a labeled `rank: {score}/5 — {reason}`
+ * It ANNOTATES pending pipeline rows with a versioned
+ * `rank: cal-v1 {score}/5 — {reason}` segment.
  * segment. It never filters, reorders, or deletes a row — a relevance pass that
  * removes rows hides roles from you; one that writes a score and a reason next to
  * the row lets you disagree with it. The reason is part of the contract: an entry
@@ -57,7 +58,9 @@ const DEFAULT_LIMIT = 20;
 // that people run it daily; an unbounded re-rank would quietly undo that.
 export const LIMIT_CEILING = 200;
 const BATCH_SIZE = 10;
-const RANK_LABEL = '| rank: ';
+export const RANK_CALIBRATION_VERSION = 'cal-v1';
+const RANK_LABEL = `| rank: ${RANK_CALIBRATION_VERSION} `;
+const LEGACY_RANK_AT_END = /\s*\|\s*rank:\s*(?!cal-v1\b)[^|]*$/i;
 const REASON_MAX = 140;
 
 // Headless invocations exactly as AGENTS.md documents them — this table applies
@@ -99,13 +102,15 @@ export function formatRankSegment(score, reason) {
   let clean = sanitizeMarkdownField(reason ?? '').trim();
   if (!clean) return '';
   if (clean.length > REASON_MAX) clean = `${clean.slice(0, REASON_MAX - 1).trimEnd()}…`;
-  return `rank: ${clamped}/5 — ${clean}`;
+  return `rank: ${RANK_CALIBRATION_VERSION} ${clamped}/5 — ${clean}`;
+}
+
+function withoutLegacyRank(rawLine) {
+  return rawLine.replace(LEGACY_RANK_AT_END, '');
 }
 
 /**
- * Pending, not-yet-ranked rows, in file order. `- [x]` rows (already processed)
- * are structurally excluded, and a row already carrying `| rank: ` is skipped so
- * re-runs are idempotent without any state file.
+ * Pending rows without the current calibration version, in file order.
  */
 export function parsePendingEntries(text) {
   const out = [];
@@ -127,15 +132,13 @@ export function parsePendingEntries(text) {
 }
 
 /**
- * Append the segment to a row, preserving every other character byte-for-byte.
- * Idempotent: a row already carrying `| rank: ` is returned unchanged.
+ * Append the current segment, replacing a trailing pre-calibration annotation.
  */
 export function appendRankAnnotation(rawLine, score, reason) {
   if (typeof rawLine !== 'string' || rawLine.includes(RANK_LABEL)) return rawLine;
   const segment = formatRankSegment(score, reason);
   if (!segment) return rawLine;
-  // Rides last, after posted:/trust:/note:, keeping scan.mjs's stable order.
-  return `${rawLine} | ${segment}`;
+  return `${withoutLegacyRank(rawLine)} | ${segment}`;
 }
 
 /**
@@ -161,7 +164,7 @@ export function applyAnnotations(text, pending) {
       if (!hit) return line;
       hit.used = true;
       written += 1;
-      return `${line} | ${hit.segment}`;
+      return `${withoutLegacyRank(line)} | ${hit.segment}`;
     })
     .join('\n');
   return { text: out, written };
@@ -452,9 +455,9 @@ function selfTest() {
     }
   };
 
-  check('clamps a score above range', formatRankSegment(7.3, 'x').startsWith('rank: 5.0/5'));
-  check('clamps a negative score', formatRankSegment(-1, 'x').startsWith('rank: 0.0/5'));
-  check('one decimal', formatRankSegment(4, 'x').startsWith('rank: 4.0/5'));
+  check('clamps a score above range', formatRankSegment(7.3, 'x').startsWith('rank: cal-v1 5.0/5'));
+  check('clamps a negative score', formatRankSegment(-1, 'x').startsWith('rank: cal-v1 0.0/5'));
+  check('one decimal', formatRankSegment(4, 'x').startsWith('rank: cal-v1 4.0/5'));
   check('no reason means no segment', formatRankSegment(4, '   ') === '');
   check('non-numeric score means no segment', formatRankSegment('abc', 'x') === '');
   check('pipe in reason cannot break the row', !formatRankSegment(3, 'a | b').slice(7).includes('|'));
@@ -466,18 +469,20 @@ function selfTest() {
     '- [ ] https://x.test/1 | Acme | Backend Engineer',
     '- [ ] https://x.test/2 | Beta | Android Engineer | Remote | posted: 2026-06-18',
     '- [x] https://x.test/3 | Gamma | Done Role',
-    '- [ ] https://x.test/4 | Delta | Ranked Already | rank: 3.0/5 — prior run',
+    '- [ ] https://x.test/4 | Delta | Legacy Rank | rank: 3.0/5 — prior run',
+    '- [ ] https://x.test/5 | Epsilon | Current Rank | rank: cal-v1 3.0/5 — current run',
   ].join('\n');
   const pending = parsePendingEntries(fixture);
   check('skips processed rows', !pending.some(e => e.url.endsWith('/3')));
-  check('skips already-ranked rows', !pending.some(e => e.url.endsWith('/4')));
-  check('finds the two candidates', pending.length === 2);
+  check('keeps legacy ranks eligible', pending.some(e => e.url.endsWith('/4')));
+  check('skips current-version ranks', !pending.some(e => e.url.endsWith('/5')));
+  check('finds the three candidates', pending.length === 3);
   check('parses company', pending[0].company === 'Acme');
   check('parses title', pending[1].title === 'Android Engineer');
 
   const line = pending[1].raw;
   const once = appendRankAnnotation(line, 4.2, 'Strong match');
-  check('annotation appends', once.endsWith('| rank: 4.2/5 — Strong match'));
+  check('annotation appends', once.endsWith('| rank: cal-v1 4.2/5 — Strong match'));
   check('annotation preserves the original line', once.startsWith(line));
   check('annotation is idempotent', appendRankAnnotation(once, 1, 'other') === once);
   check('an unusable score leaves the line alone', appendRankAnnotation(line, NaN, 'x') === line);
@@ -521,16 +526,16 @@ function selfTest() {
   ].join('\n');
   const dupRaw = '- [ ] https://x.test/9 | Acme | Backend Engineer';
   const dupOut = applyAnnotations(dupText, [
-    { raw: dupRaw, segment: 'rank: 4.0/5 — first' },
-    { raw: dupRaw, segment: 'rank: 2.0/5 — second' },
+    { raw: dupRaw, segment: 'rank: cal-v1 4.0/5 — first' },
+    { raw: dupRaw, segment: 'rank: cal-v1 2.0/5 — second' },
   ]);
   check('both duplicate rows are annotated', dupOut.written === 2);
   check('duplicates take their own score, in order',
     dupOut.text.includes('— first') && dupOut.text.includes('— second'));
-  check('an already-ranked row is skipped by applyAnnotations',
-    applyAnnotations(`${dupRaw} | rank: 1.0/5 — old`, [{ raw: dupRaw, segment: 'rank: 5.0/5 — new' }]).written === 0);
+  check('a current-version row is skipped by applyAnnotations',
+    applyAnnotations(`${dupRaw} | rank: cal-v1 1.0/5 — old`, [{ raw: dupRaw, segment: 'rank: cal-v1 5.0/5 — new' }]).written === 0);
   check('a stale target is a no-op, not a corruption',
-    applyAnnotations('- [ ] https://other.test | X | Y', [{ raw: dupRaw, segment: 'rank: 3.0/5 — x' }]).written === 0);
+    applyAnnotations('- [ ] https://other.test | X | Y', [{ raw: dupRaw, segment: 'rank: cal-v1 3.0/5 — x' }]).written === 0);
 
   // Regression: 3 byte-identical pending rows, --limit 1 selects only the first
   // in file order. Only that selected occurrence may end up annotated — the two
@@ -545,11 +550,11 @@ function selfTest() {
   const tripleDupSelected = selectBatch(tripleDupPending, 1);
   check('limit 1 selects exactly one of three duplicates', tripleDupSelected.length === 1);
   const tripleDupOut = applyAnnotations(tripleDupText, [
-    { raw: tripleDupSelected[0].raw, segment: 'rank: 4.5/5 — only this one' },
+    { raw: tripleDupSelected[0].raw, segment: 'rank: cal-v1 4.5/5 — only this one' },
   ]);
   check('only the selected duplicate is annotated', tripleDupOut.written === 1);
   check('exactly one occurrence carries the segment',
-    (tripleDupOut.text.match(/rank: 4\.5\/5/g) ?? []).length === 1);
+    (tripleDupOut.text.match(/rank: cal-v1 4\.5\/5/g) ?? []).length === 1);
   check('the two unselected duplicates remain pending',
     parsePendingEntries(tripleDupOut.text).length === 2);
 
