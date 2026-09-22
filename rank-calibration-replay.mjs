@@ -72,13 +72,14 @@ export function replayCalibration(pairs, thresholds = REPLAY_THRESHOLDS) {
     const rank = Number(pair.rank);
     const final = Number(pair.final);
     if (!Number.isFinite(rank) || !Number.isFinite(final)) throw new TypeError('every pair needs numeric rank and final scores');
-    return { ...pair, calibrated: calibrateRankScore(rank) };
+    const calibrated = calibrateRankScore(rank);
+    return { ...pair, calibrated, persisted: Number(calibrated.toFixed(1)) };
   });
   const calibrated = rows.map(row => row.calibrated);
   const finals = rows.map(row => row.final);
   const positives = rows.filter(row => row.final >= APPLY_WORTHY_FLOOR).length;
   const thresholdMetrics = thresholds.map(threshold => {
-    const forwardedRows = rows.filter(row => row.calibrated >= threshold);
+    const forwardedRows = rows.filter(row => row.persisted >= threshold);
     const truePositives = forwardedRows.filter(row => row.final >= APPLY_WORTHY_FLOOR).length;
     return {
       threshold,

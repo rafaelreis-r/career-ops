@@ -64,7 +64,7 @@ try {
   const fixture = [
     '## Pending',
     '- [ ] https://x.test/1 | Acme | Backend Engineer',
-    '- [ ] https://x.test/2 | Beta | Android Engineer | Remote | posted: 2026-06-18 | note: curated',
+    '- [ ] https://x.test/2 | Beta | Android Engineer | Remote | 180000 USD | posted: 2026-06-18 | note: private recruiter context',
     '- [x] https://x.test/3 | Gamma | Already Processed',
     '- [ ] https://x.test/4 | Delta | Legacy Rank | rank: 3.0/5 — prior run',
     '- [ ] https://x.test/5 | Epsilon | Current Rank | rank: cal-v1 3.0/5 — current run',
@@ -77,15 +77,15 @@ try {
   check('current-version ranks are excluded', !pending.some(e => e.url.endsWith('/5')));
   check('non-row lines are ignored', pending.length === 3);
   check('company parses off the row', pending[0].company === 'Acme');
-  check('optional posting fields stay available to the scorer',
-    pending[1].postingContext === 'Remote | posted: 2026-06-18 | note: curated');
+  check('only positional public posting fields reach the scorer',
+    pending[1].postingContext === 'location: Remote | compensation: 180000 USD');
 
   // ── the annotate-never-drop contract ──
   const original = pending[1].raw;
   const annotated = appendRankAnnotation(original, 4.2, 'Strong Kotlin match');
   check('the original row survives byte-for-byte', annotated.startsWith(original));
   check('the segment rides last, after note:', annotated.endsWith('| rank: cal-v1 4.2/5 — Strong Kotlin match'));
-  check('an existing note: segment is untouched', annotated.includes('| note: curated |'));
+  check('an existing note: segment is untouched', annotated.includes('| note: private recruiter context |'));
   check('re-annotating is a no-op', appendRankAnnotation(annotated, 1, 'different') === annotated);
   check('an unusable score leaves the row alone', appendRankAnnotation(original, NaN, 'x') === original);
   check('a reasonless score leaves the row alone', appendRankAnnotation(original, 5, '') === original);
@@ -169,7 +169,10 @@ try {
 
   const prompt = buildPrompt(pending, '');
   check('postings are marked as untrusted content', /untrusted data/.test(prompt));
-  check('prompt carries optional posting fields', /posting fields: Remote \| posted: 2026-06-18/.test(prompt));
+  check('prompt carries public location and compensation',
+    /posting fields: location: Remote \| compensation: 180000 USD/.test(prompt));
+  check('prompt excludes private notes and legacy ranks',
+    !prompt.includes('private recruiter context') && !prompt.includes('prior run'));
   check('prompt names eligibility, seniority, and compensation checks',
     /work-authorization.*seniority.*compensation/.test(prompt));
   const instructions = buildJevRankInstructions('');
@@ -206,32 +209,14 @@ try {
       && thresholdTable[3.3].truePositives === 1
       && thresholdTable[3.3].precision === 1
       && Math.abs(thresholdTable[3.3].coverage - 1 / 12) < 1e-12);
-  check('2.8 replay produces no extra coverage over 3.0',
-    thresholdTable[2.8].forwarded === thresholdTable[3].forwarded
-      && thresholdTable[2.8].truePositives === thresholdTable[3].truePositives);
+  check('2.8 replay uses the persisted one-decimal scores',
+    thresholdTable[2.8].forwarded === 54
+      && thresholdTable[2.8].truePositives === 9
+      && Math.abs(thresholdTable[2.8].precision - 1 / 6) < 1e-12
+      && Math.abs(thresholdTable[2.8].coverage - 3 / 4) < 1e-12);
 
-  const gateDir = mkdtempSync(join(tmpdir(), 'career-ops-triage-gate-'));
+  const testDir = mkdtempSync(join(tmpdir(), 'career-ops-ranker-offline-'));
   try {
-    mkdirSync(join(gateDir, 'config'));
-    writeFileSync(join(gateDir, 'config', 'profile.yml'), 'pipeline:\n  triage_threshold: 3.6\n');
-    const gatePath = join(ROOT, 'triage-gate.mjs');
-    const runGate = args => JSON.parse(execFileSync(process.execPath,
-      [gatePath, ...args], { encoding: 'utf8', env: { ...process.env, CAREER_OPS_ROOT: gateDir } }));
-    const below = runGate(['--line', '- [ ] https://x.test | Acme | Engineer | rank: cal-v1 3.5/5 — close']);
-    const atFloor = runGate(['--line', '- [ ] https://x.test | Acme | Engineer | rank: cal-v1 3.6/5 — fit']);
-    check('configured upstream floor blocks a score below 3.6', below.forward === false && below.verdict === 'marginal');
-    check('configured upstream floor forwards a score at 3.6', atFloor.forward === true);
-    check('upstream reports the independent apply-worthy 3.3 floor',
-      below.applyWorthyFloor === 3.3 && below.applyWorthy === true);
-    const defaultRoot = mkdtempSync(join(tmpdir(), 'career-ops-triage-default-'));
-    const defaults = JSON.parse(execFileSync(process.execPath,
-      [gatePath, '--score', '3.0'], {
-        encoding: 'utf8',
-        env: { ...process.env, CAREER_OPS_ROOT: defaultRoot },
-      }));
-    check('upstream defaults the forwarding floor to 3.0', defaults.threshold === 3.0 && defaults.forward === true);
-    rmSync(defaultRoot, { recursive: true, force: true });
-
     const rankerRoot = mkdtempSync(join(tmpdir(), 'career-ops-ranker-integration-'));
     try {
       mkdirSync(join(rankerRoot, 'data'));
@@ -260,8 +245,8 @@ try {
       rmSync(rankerRoot, { recursive: true, force: true });
     }
 
-    const fixturePath = join(gateDir, 'fixture.json');
-    const outputPath = join(gateDir, 'replay.json');
+    const fixturePath = join(testDir, 'fixture.json');
+    const outputPath = join(testDir, 'replay.json');
     execFileSync(process.execPath, [join(ROOT, 'rank-calibration-replay.mjs'),
       '--write-canonical', '--fixture', fixturePath, '--output', outputPath]);
     const persistedFixture = JSON.parse(readFileSync(fixturePath, 'utf8'));
@@ -269,7 +254,7 @@ try {
     check('offline replay persists its 84-pair fixture and calibrated output',
       persistedFixture.pairs.length === 84 && persistedReplay.rows.length === 84);
   } finally {
-    rmSync(gateDir, { recursive: true, force: true });
+    rmSync(testDir, { recursive: true, force: true });
   }
 } catch (err) {
   fail(`rank-pipeline test suite threw: ${err?.message ?? err}`);

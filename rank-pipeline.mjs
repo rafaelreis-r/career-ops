@@ -109,6 +109,13 @@ function withoutLegacyRank(rawLine) {
   return rawLine.replace(LEGACY_RANK_AT_END, '');
 }
 
+function publicPostingContext(cells) {
+  const isLabeled = value => /^(?:posted|trust|note|rank):/i.test(value);
+  const location = cells[3] && !isLabeled(cells[3]) ? `location: ${cells[3]}` : '';
+  const compensation = cells[4] && !isLabeled(cells[4]) ? `compensation: ${cells[4]}` : '';
+  return [location, compensation].filter(Boolean).join(' | ');
+}
+
 /**
  * Pending rows without the current calibration version, in file order.
  */
@@ -125,7 +132,7 @@ export function parsePendingEntries(text) {
       url: cells[0] ?? '',
       company: cells[1] ?? '',
       title: cells[2] ?? '',
-      postingContext: cells.slice(3).join(' | ').trim(),
+      postingContext: publicPostingContext(cells),
     });
   });
   return out;
