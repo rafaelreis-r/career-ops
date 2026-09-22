@@ -68,7 +68,7 @@ batch-input.tsv    →  batch-runner.sh  →  N × headless CLI workers
                     (tracks progress)
 ```
 
-Each worker is a headless AI CLI instance — the bundled `batch-runner.sh` currently runs `claude -p` workers only. See the Headless / Batch Mode table in `AGENTS.md`. Workers produce:
+Each worker is a headless AI CLI instance selected with `batch-runner.sh --cli`. See [`batch/README.md`](../batch/README.md) for the supported runner CLIs and parallelism rules. Workers produce:
 - Report .md
 - PDF
 - Tracker TSV line

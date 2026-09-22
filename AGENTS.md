@@ -400,6 +400,7 @@ Headless worker command per CLI:
 | CLI | Command |
 |-----|---------|
 | Claude Code | `claude -p "prompt"` |
+| OMP | `PROJECT_DIR="$PWD"; (cd / && omp -p --cwd "$PROJECT_DIR" "prompt") </dev/null` |
 | **OpenCode** | `opencode run "prompt"` (falls back to `ollama launch opencode -y -- run "prompt"` if `opencode` binary is not in PATH) |
 | Copilot CLI | `copilot -p "prompt"` |
 | Codex | `codex exec "prompt"` |

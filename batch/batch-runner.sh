@@ -7,12 +7,13 @@ set -euo pipefail
 #
 # Supported CLIs (--cli flag):
 #   claude    — claude -p with --dangerously-skip-permissions (default)
+#   omp       — omp -p (remote router)
 #   opencode  — opencode run (falls back to ollama launch opencode if not in PATH)
 #   gemini    — gemini -p
 #   qwen      — qwen -p
 #
-# Only claude supports --strict-mcp-config, the rate-limit/session retry loop,
-# and --parallel > 1; other CLIs run sequentially with a single attempt.
+# Only claude supports --strict-mcp-config and the rate-limit/session retry loop.
+# omp is remote and keeps parallel dispatch; other non-claude CLIs run sequentially.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -66,12 +67,12 @@ spend_tier in config/profile.yml unless --model overrides it.
 Usage: batch-runner.sh [OPTIONS]
 
 Options:
-  --cli NAME           Agent CLI to use: claude (default), opencode, gemini, qwen
+  --cli NAME           Agent CLI to use: claude (default), omp, opencode, gemini, qwen
   --model NAME         Model for the CLI (e.g. qwen2.5:32b for opencode/ollama).
                        For claude, overrides the tier-resolved model (otherwise
                        config/profile.yml spend_tier: economy/standard/premium;
                        default standard).
-  --parallel N         Number of parallel workers (default: 1; claude only)
+  --parallel N         Number of parallel workers (default: 1; claude and omp)
   --dry-run            Show what would be processed, don't execute
   --retry-failed       Only retry offers marked as "failed" in state
   --resume-paused      Resume offers paused by a Claude session/rate limit
@@ -103,7 +104,7 @@ Examples:
   # Retry only failed offers
   ./batch-runner.sh --retry-failed
 
-  # Process 2 at a time starting from ID 10 (claude only)
+  # Process 2 at a time starting from ID 10 (claude or omp)
   ./batch-runner.sh --parallel 2 --start-from 10
 
   # Local LLM via OpenCode (free, runs sequentially)
@@ -195,10 +196,11 @@ check_prerequisites() {
   local cli_cmd
   case "$CLI" in
     claude)   cli_cmd="claude" ;;
+    omp)      cli_cmd="omp" ;;
     opencode) command -v opencode &>/dev/null && cli_cmd="opencode" || cli_cmd="ollama" ;;
     gemini)   cli_cmd="gemini" ;;
     qwen)     cli_cmd="qwen" ;;
-    *) echo "ERROR: Unknown --cli '$CLI'. Supported: claude, opencode, gemini, qwen"; exit 1 ;;
+    *) echo "ERROR: Unknown --cli '$CLI'. Supported: claude, omp, opencode, gemini, qwen"; exit 1 ;;
   esac
 
   if ! command -v "$cli_cmd" &>/dev/null; then
@@ -209,9 +211,11 @@ check_prerequisites() {
     exit 1
   fi
 
-  # Parallelism, the rate-limit retry loop, and --strict-mcp-config are
-  # claude-only; local models run one at a time.
-  if [[ "$CLI" != "claude" && "$PARALLEL" -gt 1 ]]; then
+  # Parallelism and the rate-limit retry loop are claude-only because the other
+  # supported CLIs drive local models, which run one at a time. omp is a remote
+  # router, not a local model, so it keeps parallelism; it stays out of the
+  # claude retry loop because that loop greps claude's own rate-limit wording.
+  if [[ "$CLI" != "claude" && "$CLI" != "omp" && "$PARALLEL" -gt 1 ]]; then
     echo "WARN: --parallel >1 is not supported for --cli $CLI (local models run sequentially). Resetting to 1."
     PARALLEL=1
   fi
@@ -1023,6 +1027,18 @@ process_offer() {
         ;;
       qwen)
         qwen ${model_args[@]+"${model_args[@]}"} -p "$full_prompt" > "$log_file" 2>&1 || exit_code=$?
+        ;;
+      omp)
+        # --cwd: omp loads the .env of the directory it is LAUNCHED from, before
+        # applying --cwd. A career-ops install whose .env points ANTHROPIC_BASE_URL
+        # at a local relay would otherwise poison every worker, so launch from a
+        # neutral directory and re-enter the project.
+        # < /dev/null: the runner does not redirect stdin. omp sees an open,
+        # non-TTY stdin, decides the prompt is being piped, and waits for an EOF
+        # that never arrives - the worker hangs forever in readPipedInput.
+        ( cd / && omp -p ${model_args[@]+"${model_args[@]}"} \
+            --cwd "$PROJECT_DIR" \
+            "$full_prompt" ) > "$log_file" 2>&1 < /dev/null || exit_code=$?
         ;;
     esac
 

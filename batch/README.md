@@ -30,14 +30,17 @@ Process multiple job offers in parallel via headless workers. Each worker runs t
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--parallel N` | `1` | Number of concurrent headless workers |
+| `--cli NAME` | `claude` | Worker CLI: `claude`, `omp`, `opencode`, `gemini`, or `qwen` |
+| `--parallel N` | `1` | Number of concurrent workers; values above 1 are supported by `claude` and the remote `omp` router, while local-model CLIs are reset to 1 |
 | `--dry-run` | off | Preview pending offers without processing |
 | `--retry-failed` | off | Only retry offers marked as `failed` in state |
 | `--resume-paused` | off | Resume offers paused after a Claude session/rate limit |
 | `--start-from N` | `0` | Skip offers with ID below N |
 | `--limit N` | `0` | Max number of offers to process in this run (0 = no limit) |
-| `--max-retries N` | `2` | Max retry attempts per offer before giving up |
-| `--rate-limit-sleep N` | `300` | Seconds to wait before retrying a transient rate-limited worker; use `0` to pause the batch immediately |
+| `--max-retries N` | `2` | Claude-only retry attempts per offer before giving up; other CLIs make one attempt |
+| `--rate-limit-sleep N` | `300` | Claude-only delay before retrying a transient rate-limited worker; use `0` to pause the batch immediately |
+
+OMP is launched from a neutral directory and sent back to this checkout with `--cwd`, so a project `.env` cannot alter the router before `--cwd` takes effect. Its stdin is closed to prevent OMP from waiting for piped input. OMP does not use Claude's retry loop because that loop detects Claude-specific usage-limit messages.
 
 ## Directory Layout
 
