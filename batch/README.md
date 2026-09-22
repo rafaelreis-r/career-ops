@@ -30,7 +30,8 @@ Process multiple job offers in parallel via headless workers. Each worker runs t
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--parallel N` | `1` | Number of concurrent headless workers |
+| `--cli NAME` | `claude` | Worker CLI: `claude`, `omp`, `opencode`, `gemini`, or `qwen` |
+| `--parallel N` | `1` | Number of concurrent workers; values above 1 are supported by `claude` and the remote `omp` router, while local-model CLIs are reset to 1 |
 | `--dry-run` | off | Preview pending offers without processing |
 | `--retry-failed` | off | Only retry offers marked as `failed` in state |
 | `--resume-paused` | off | Resume offers paused after a Claude session/rate limit |
@@ -62,6 +63,8 @@ including in serial mode. `--max-retries` still bounds retries; once exhausted,
 the existing failure path applies. `--rate-limit-sleep 0` and session-limit
 pauses retain their existing behavior. Actual waits appear in the console and
 the `rate_limited` state note; the TSV schema is unchanged.
+
+OMP is launched from a neutral directory and sent back to this checkout with `--cwd`, so a project `.env` cannot alter the router before `--cwd` takes effect. Its stdin is closed to prevent OMP from waiting for piped input. OMP does not use Claude's retry loop because that loop detects Claude-specific usage-limit messages.
 
 ## Directory Layout
 
