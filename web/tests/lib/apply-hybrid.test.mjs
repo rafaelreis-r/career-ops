@@ -48,8 +48,8 @@ test('report entries that record an open question are not canonical values', () 
   assert.equal(isNonAnswer('left blank: candidate confirmation required; no current base value was used'), true);
   assert.equal(isNonAnswer('14 days'), false);
   const answers = buildAnswers(
-    [{ label: 'Current base salary', value: 'left blank: candidate confirmation required; no current base value was used' }, { label: 'Phone', value: '+55 31 98427-7956' }],
-    [{ label: 'Phone', value: '31 98427-7956' }, { label: 'Email', value: 'someone@example.com' }],
+    [{ label: 'Current base salary', value: 'left blank: candidate confirmation required; no current base value was used' }, { label: 'Phone', value: '+1 202 555 01001' }],
+    [{ label: 'Phone', value: '202 555 01001' }, { label: 'Email', value: 'candidate@example.test' }],
   );
   assert.deepEqual(answers.map((a) => [a.label, a.source]), [['Phone', 'report'], ['Email', 'profile']], 'the open entry is dropped and the report answer wins its label');
 });
@@ -65,17 +65,18 @@ test('a money answer never lands in a field that names another currency', () => 
 
 test('semantic compatibility rejects known cross-question matches before typing', () => {
   const mismatch = (question, label, value) => lockFor({ label: question }, { label, value })?.reason;
-  assert.equal(mismatch('Full Legal Name', 'Last Name', 'Reis'), 'semantic-mismatch');
-  assert.equal(mismatch('Current Company', 'Full Name', 'Rafael Reis'), 'semantic-mismatch');
+  assert.equal(mismatch('Full Legal Name', 'Last Name', 'Example'), 'semantic-mismatch');
+  assert.equal(mismatch('Current Company', 'Full Name', 'Casey Example'), 'semantic-mismatch');
   assert.equal(mismatch('Current base salary', 'Expected Salary', '80000'), 'semantic-mismatch');
   assert.equal(mismatch('Expected base salary', 'Current Salary', '80000'), 'semantic-mismatch');
   assert.equal(mismatch('Average monthly commission', 'Base Salary', '8000/month'), 'semantic-mismatch');
   assert.equal(mismatch('Base Salary', 'Commission', '8000/month'), 'semantic-mismatch');
-  assert.equal(mismatch('LinkedIn profile URL', 'First Name', 'Rafael'), 'type-mismatch');
-  assert.equal(mismatch('Phone Number', 'First Name', 'Rafael'), 'type-mismatch');
+  assert.equal(mismatch('LinkedIn profile URL', 'First Name', 'Casey'), 'type-mismatch');
+  assert.equal(mismatch('Phone Number', 'First Name', 'Casey'), 'type-mismatch');
   assert.equal(mismatch('Do you consent to recording?', 'Generic Yes', 'Yes'), 'semantic-mismatch');
   assert.equal(lockFor({ label: 'Do you consent to recording?' }, { label: 'Do you consent to recording?', value: 'Yes' }), null);
   assert.match(lockFor({ label: 'Yearly Salary Expectations' }, { label: 'Monthly Salary', value: '8000' }).text, /monthly amount in a field that asks for annual/);
+  assert.equal(lockFor({ label: 'GitHub URL' }, { label: 'GitHub URL', value: 'github.com/example-candidate' }), null);
 });
 
 test('duplicate labels never share a fallback outcome after rerender', () => {
@@ -139,7 +140,7 @@ test('an option is chosen only when it represents the canonical value uniquely',
 test('exact labels skip Jev; the report is asked before the profile; below-threshold is no answer', async () => {
   const answers = buildAnswers(
     [{ label: 'Country Phone Code', value: 'BRA (+55)' }, { label: 'Expected base salary for this role (reais)', value: '28000' }],
-    [{ label: 'First Name', value: 'Rafael' }, { label: 'Desired Salary', value: 'USD 8000/month' }, { label: 'LinkedIn', value: 'https://linkedin.com/in/example' }],
+    [{ label: 'First Name', value: 'Casey' }, { label: 'Desired Salary', value: 'USD 8000/month' }, { label: 'LinkedIn', value: 'https://linkedin.com/in/example-candidate' }],
   );
   const questions = [
     { key: 'q0', label: 'First Name*', kind: 'text' },
@@ -156,7 +157,7 @@ test('exact labels skip Jev; the report is asked before the profile; below-thres
     for (const key of Object.keys(spec)) {
       if (requests.length === 1 && key === 'q1') out[key] = { choice: idOf('BRA (+55)'), confidence: 0.9 };
       else if (requests.length === 2 && key === 'q2') out[key] = { choice: idOf('USD 8000/month'), confidence: 0.95 };
-      else if (requests.length === 2 && key === 'q3') out[key] = { choice: idOf('https://linkedin.com/in/example'), confidence: 0.4 };
+      else if (requests.length === 2 && key === 'q3') out[key] = { choice: idOf('https://linkedin.com/in/example-candidate'), confidence: 0.4 };
       else out[key] = { choice: 'NONE', confidence: 0.9 };
     }
     return { enabled: true, answers: out };
@@ -235,10 +236,10 @@ test('Storyteller: the gate blocks the required checkbox group that no input mar
 
   const outcomes = new Map();
   for (const q of before.questions.filter((x) => x.kind === 'text' || x.kind === 'textarea')) {
-    const value = q.inputType === 'email' ? 'fixture@example.com' : /phone/i.test(q.label) ? '+1 202 555 0100' : 'fixture value';
+    const value = q.inputType === 'email' ? 'applicant@example.test' : /phone/i.test(q.label) ? '+1 202 555 0100' : 'fixture value';
     const r = await fillText(page.mainFrame(), q, value);
     assert.equal(r.status, 'verified', `${q.label}: one fill, verified from the DOM`);
-    outcomes.set(q.key, r);
+    outcomes.set(q.key, { ...r, canonicalValue: value });
   }
   const gate = evaluateGate(await scan(page), outcomes);
   assert.equal(gate.ready, false);
@@ -258,10 +259,10 @@ test('Storyteller: a Yes/No checkbox group is not verified while both answers ar
 });
 
 test('CPF, CNPJ, RG and matrícula values are not classified as phone numbers', () => {
-  for (const [label, value] of [['CPF', '123.456.789-09'], ['CNPJ', '12.345.678/0001-90'], ['RG', '12.345.678-9'], ['Matrícula', '12345678901']]) {
+  for (const [label, value] of [['CPF', '000.000.000-00'], ['CNPJ', '00.000.000/0000-00'], ['RG', '00.000.000-0'], ['Matrícula', '00000000000']]) {
     assert.equal(lockFor({ label }, { label, value }), null, label);
   }
-  assert.match(lockFor({ label: 'Address' }, { label: 'Phone', value: '+55 31 98427-7956' }).text, /phone number/);
+  assert.match(lockFor({ label: 'Address' }, { label: 'Phone', value: '+1 202 555 01001' }).text, /phone number/);
 });
 
 test('the form reacher never clicks Apply inside a form with one hidden CV input', async (t) => {
@@ -295,9 +296,9 @@ test('Wellhub: a filled First Name is done the moment the DOM shows it', async (
   const page = await openFixture(t, 'hybrid-greenhouse-wellhub.html');
   if (!page) return;
   const first = byLabel(await scan(page), 'First Name*');
-  const r = await fillText(page.mainFrame(), first, 'Rafael');
-  assert.deepEqual(r, { status: 'verified', observed: 'Rafael' });
-  const gate = evaluateGate(await scan(page), new Map([[first.key, r]]));
+  const r = await fillText(page.mainFrame(), first, 'Casey');
+  assert.deepEqual(r, { status: 'verified', observed: 'Casey' });
+  const gate = evaluateGate(await scan(page), new Map([[first.key, { ...r, canonicalValue: 'Casey' }]]));
   assert.equal(gate.blockers.some((b) => b.label === 'First Name*'), false);
 });
 
@@ -308,7 +309,7 @@ test('Wellhub: browser autofill cannot satisfy a required field without canonica
   await page.locator(`[data-hyb-c="${first.key}"]`).fill('Browser Autofill');
   const unverified = evaluateGate(await scan(page), new Map());
   assert.equal(unverified.blockers.find((b) => b.label === 'First Name*').kind, 'required-unverified');
-  const verified = evaluateGate(await scan(page), new Map([[first.key, { status: 'verified' }]]));
+  const verified = evaluateGate(await scan(page), new Map([[first.key, { status: 'verified', canonicalValue: 'Browser Autofill', observed: 'Browser Autofill' }]]));
   assert.equal(verified.blockers.some((b) => b.label === 'First Name*'), false);
 });
 
@@ -401,9 +402,9 @@ test('iTRTech: a phone the page truncates is cleared and blocks, never kept as a
   const phone = byLabel(await scan(page), 'Celular de contato*');
   assert.equal(phone.required, true);
   // The profile's full international number against the real maxlength="15".
-  const r = await fillText(page.mainFrame(), phone, '+55 31 98427-7956');
+  const r = await fillText(page.mainFrame(), phone, '+1 202 555 01001');
   assert.equal(r.status, 'mismatch');
-  assert.equal(r.observed, '+55 31 98427-79');
+  assert.equal(r.observed, '+1 202 555 0100');
   assert.equal(await page.inputValue('#inputMobilePhone'), '');
   const gate = evaluateGate(await scan(page), new Map([[phone.key, r]]));
   assert.match(gate.blockers.find((b) => b.label === 'Celular de contato*').reason, /lacks a verified canonical answer \(mismatch/);
@@ -466,25 +467,25 @@ test('Wellhub: the citizenship dropdown is a yes/no question judged with the pos
 test('profile address, nationality and salary anchor become canonical answers; real labels bind to them exactly', () => {
   // Same shape as config/profile.yml in the tracks; the values are made up.
   const profile = {
-    candidate: { full_name: 'Ana Souza Lima' },
+    candidate: { full_name: 'Taylor Example Person' },
     compensation: { target_range: 'USD 7.5K/month international contractor anchor (floor, not ceiling); BRL 25K/month Brazil (CLT)' },
     application_answers: { salary: 'use_profile_compensation', relatives_or_close_friends_at_hiring_company: false },
     us_ats_answers: {
-      address: { street: 'Rua das Flores, 45', district: 'Centro', state: 'SP', postal_code: '01000-000' },
-      identity: { nationality: 'Brazilian', passport_country: 'Brazil' },
-      employment: { work_authorization_country: 'Brazil', current_compensation: 'BRL 20000/month' },
+      address: { street: 'Example Street, 123', district: 'Example District', state: 'EX', postal_code: '00000-000' },
+      identity: { nationality: 'Exampleland', passport_country: 'Exampleland' },
+      employment: { work_authorization_country: 'Exampleland', current_compensation: 'BRL 20000/month' },
     },
   };
   const answers = buildAnswers([], answersFromProfileFacts(profile));
   const exact = (label) => matchExact({ label }, answers)?.value ?? null;
   // iTRTech (recrut.ai) and Camunda (Ashby) labels, verbatim.
-  assert.equal(exact('CEP*'), '01000-000');
-  assert.equal(exact('Post Code'), '01000-000');
-  assert.equal(exact('State/Region'), 'SP');
-  assert.equal(exact('Número'), '45');
-  assert.equal(exact('Bairro'), 'Centro');
-  assert.equal(exact('Address'), 'Rua das Flores, 45');
-  assert.equal(answers.find((a) => a.label === 'Preferred Name').value, 'Ana');
+  assert.equal(exact('CEP*'), '00000-000');
+  assert.equal(exact('Post Code'), '00000-000');
+  assert.equal(exact('State/Region'), 'EX');
+  assert.equal(exact('Número'), '123');
+  assert.equal(exact('Bairro'), 'Example District');
+  assert.equal(exact('Address'), 'Example Street, 123');
+  assert.equal(answers.find((a) => a.label === 'Preferred Name').value, 'Taylor');
   assert.equal(answers.find((a) => a.label === 'Salary Expectations').value, 'USD 7500/month');
   assert.equal(answers.find((a) => /20000/.test(a.value)), undefined, 'current pay is not a canonical answer here');
   // The anchor never lands in a field that names another currency.
@@ -505,11 +506,11 @@ test('SMG: the e-mail never goes into Address and a monthly amount never into th
   assert.equal(address.kind, 'text');
   assert.equal(salary.required, true);
   // Before typing: both canonical values are locked out of these fields.
-  assert.equal(lockFor(address, { label: 'Email Address', value: 'someone@example.com' }).reason, 'type-mismatch');
+  assert.equal(lockFor(address, { label: 'Email Address', value: 'candidate@example.test' }).reason, 'type-mismatch');
   assert.match(lockFor(salary, { label: 'Desired Salary', value: 'USD 8000/month' }).text, /monthly amount in a field that asks for annual/);
   assert.equal(lockFor(salary, { label: 'Yearly salary (USD)', value: '96000' }), null, 'an annual USD figure fits');
   // After the fact: whatever put them there, the gate refuses them from the DOM.
-  await page.fill('#resumator-address-value', 'someone@example.com');
+  await page.fill('#resumator-address-value', 'candidate@example.test');
   await page.fill('#resumator-questionnaire-q3022689', 'USD 8000/month');
   const gate = evaluateGate(await scan(page), new Map());
   const blocked = gate.blockers.map((b) => b.label);
@@ -523,17 +524,17 @@ test("SMG: another posting's CV is refused; the posting's own PDF is used, or no
     for (const d of ['reports', 'output', 'data']) fs.mkdirSync(path.join(root, d));
     const report = path.join(root, 'reports', '617-service-management-group-smg-2026-09-14.md');
     fs.writeFileSync(report, '# SMG\n\n**PDF:** not generated in this evaluation-only batch pass (captain override)\n');
-    const other = path.join(root, 'output', 'cv-candidate-fingerprint-2026-09-17.pdf');
+    const other = path.join(root, 'output', 'cv-other-posting-2026-09-17.pdf');
     fs.writeFileSync(other, '%PDF-1.4 another posting\n');
-    fs.writeFileSync(path.join(root, 'data', 'pdf-index.tsv'), '# report\tpdf\thtml\tformat\tdate\n601\toutput/cv-candidate-fingerprint-2026-09-17.pdf\toutput/x.html\ta4\t2026-09-17\n');
+    fs.writeFileSync(path.join(root, 'data', 'pdf-index.tsv'), '# report\tpdf\thtml\tformat\tdate\n601\toutput/cv-other-posting-2026-09-17.pdf\toutput/x.html\ta4\t2026-09-17\n');
 
     const refused = resolvePostingCv({ root, reportPath: report, explicitCv: other });
     assert.equal(refused.path, null, 'the file the SMG round attached is not this posting\'s CV');
     assert.match(refused.rejected[0].reason, /made for report 601, not 617/);
 
-    const own = path.join(root, 'output', 'cv-rafael-reis-service-management-group-smg-2026-09-22.pdf');
+    const own = path.join(root, 'output', 'cv-example-candidate-service-management-group-smg-2026-09-22.pdf');
     fs.writeFileSync(own, '%PDF-1.4 this posting\n');
-    fs.appendFileSync(path.join(root, 'data', 'pdf-index.tsv'), '617\toutput/cv-rafael-reis-service-management-group-smg-2026-09-22.pdf\toutput/y.html\tletter\t2026-09-22\n');
+    fs.appendFileSync(path.join(root, 'data', 'pdf-index.tsv'), '617\toutput/cv-example-candidate-service-management-group-smg-2026-09-22.pdf\toutput/y.html\tletter\t2026-09-22\n');
     const found = resolvePostingCv({ root, reportPath: report, explicitCv: other });
     assert.deepEqual([found.path, found.source], [own, 'pdf-index']);
   } finally {
@@ -563,13 +564,13 @@ test('a CV the report links and names by report number (not by company) is this 
     for (const d of ['reports', 'output', 'data']) fs.mkdirSync(path.join(root, d));
     const report = path.join(root, 'reports', '2003-itrtech-2026-09-21.md');
     fs.writeFileSync(report, '# iTRTech\n');
-    const byRole = path.join(root, 'output', 'cv-rafael-reis-2003-desenvolvedor-backend-2026-09-22.pdf');
+    const byRole = path.join(root, 'output', 'cv-example-candidate-2003-desenvolvedor-backend-2026-09-22.pdf');
     fs.writeFileSync(byRole, '%PDF-1.4\n');
 
     const unlinked = resolvePostingCv({ root, reportPath: report, explicitCv: byRole });
     assert.equal(unlinked.path, null, 'a file nothing links to this report never passes on a number alone');
 
-    fs.writeFileSync(path.join(root, 'data', 'pdf-index.tsv'), '2003\toutput/cv-rafael-reis-2003-desenvolvedor-backend-2026-09-22.pdf\toutput/x.html\ta4\t2026-09-22\n');
+    fs.writeFileSync(path.join(root, 'data', 'pdf-index.tsv'), '2003\toutput/cv-example-candidate-2003-desenvolvedor-backend-2026-09-22.pdf\toutput/x.html\ta4\t2026-09-22\n');
     const linked = resolvePostingCv({ root, reportPath: report });
     assert.deepEqual([linked.path, linked.source], [byRole, 'pdf-index']);
   } finally {
@@ -582,7 +583,7 @@ test('a report number never matches a date segment in another posting CV', () =>
   try {
     for (const d of ['reports', 'output', 'data']) fs.mkdirSync(path.join(root, d));
     const report = path.join(root, 'reports', '022-acme-2026-09-22.md');
-    const other = path.join(root, 'output', 'cv-rafael-reis-othercorp-2026-09-22.pdf');
+    const other = path.join(root, 'output', 'cv-example-candidate-othercorp-2026-09-22.pdf');
     fs.writeFileSync(report, `# Acme\n\n**PDF:** output/${path.basename(other)}\n`);
     fs.writeFileSync(other, '%PDF-1.4 unrelated\n');
     const found = resolvePostingCv({ root, reportPath: report });

@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { chromium } from 'playwright-core';
 import { holdSubmitLock, submitApplication, chooseSubmitControl } from '../../src/lib/apply/hybrid/submit.mjs';
 import { reachApplicationForm } from '../../src/lib/apply/hybrid/adapters.mjs';
@@ -45,13 +46,13 @@ test('with the lock on, a form holding applicant fields never submits: typeless 
   );
   if (!page) return;
   const lock = await holdSubmitLock(page);
-  await page.fill('input[name=inputEmail]', 'fixture@example.com');
+  await page.fill('input[name=inputEmail]', 'applicant@example.test');
   await page.click('button');
   await page.press('input[name=inputEmail]', 'Enter');
   await page.evaluate(() => document.getElementById('f').requestSubmit());
   await page.evaluate(() => document.getElementById('f').submit());
   assert.equal(await page.evaluate(() => window.__sent ?? 0), 0, 'no submit event reached the form');
-  assert.equal(await page.inputValue('input[name=inputEmail]'), 'fixture@example.com', 'the page did not navigate away');
+  assert.equal(await page.inputValue('input[name=inputEmail]'), 'applicant@example.test', 'the page did not navigate away');
   assert.ok((await lock.blocked()) >= 4);
   // The probe never takes that button as the "open the application" trigger.
   const reach = await reachApplicationForm(page);
@@ -91,7 +92,7 @@ test('the final step submits once, only when armed, and counts it only on the co
   );
   if (!page) return;
   await holdSubmitLock(page);
-  await page.fill('input[type=email]', 'fixture@example.com');
+  await page.fill('input[type=email]', 'applicant@example.test');
   await page.click('button');
   assert.equal(await page.evaluate(() => window.__sent ?? 0), 0, 'a plain click is blocked');
   const r = await submitApplication(page, { timeoutMs: 5000 });
@@ -112,7 +113,7 @@ test("Camunda's refusal is not a submission", async (t) => {
   );
   if (!page) return;
   await holdSubmitLock(page);
-  await page.fill('input[type=email]', 'fixture@example.com');
+  await page.fill('input[type=email]', 'applicant@example.test');
   const r = await submitApplication(page, { timeoutMs: 5000 });
   assert.equal(r.status, 'refused');
   assert.match(r.reason, /We limit submissions/);
@@ -126,7 +127,7 @@ test('upload wording is neither blocked as submission nor selected as the final 
   );
   if (!page) return;
   await holdSubmitLock(page);
-  await page.fill('input', 'fixture@example.com');
+  await page.fill('input', 'applicant@example.test');
   await page.click('#upload');
   assert.equal(await page.evaluate(() => window.__upload), 1);
   assert.equal(await page.evaluate(() => window.__submit || 0), 0);
@@ -136,7 +137,7 @@ test('upload wording is neither blocked as submission nor selected as the final 
 });
 
 test('a detached submit control is returned as an unconfirmed outcome', async (t) => {
-  const page = await openPage(t, '<form><label>Email<input type="email" value="fixture@example.com"></label><button type="button">Apply</button></form>');
+  const page = await openPage(t, '<form><label>Email<input type="email" value="applicant@example.test"></label><button type="button">Apply</button></form>');
   if (!page) return;
   const r = await submitApplication(page, {
     timeoutMs: 20,
@@ -166,7 +167,7 @@ test('the final step ignores an unrelated host control and submits the applicati
     `<form><input placeholder="Search"><button id="filter" type="button">Apply filters</button></form><iframe></iframe><script>
       filter.onclick=()=>window.__filtered=(window.__filtered||0)+1;
       const d=document.querySelector('iframe').contentDocument;
-      d.open();d.write('<form><input name=email value="fixture@example.com"><button type=submit>Submit Application</button></form>');d.close();
+      d.open();d.write('<form><input name=email value="applicant@example.test"><button type=submit>Submit Application</button></form>');d.close();
       d.forms[0].onsubmit=(e)=>{e.preventDefault();d.defaultView.__sent=(d.defaultView.__sent||0)+1;d.body.innerHTML='<h1>Application submitted</h1>';};
     </script>`,
   );
@@ -180,7 +181,7 @@ test('the final step ignores an unrelated host control and submits the applicati
 test('an upload-labeled submit button remains locked before the final step', async (t) => {
   const page = await openPage(
     t,
-    `<form id="f"><input name=email value="fixture@example.com"><button type="submit">Upload & Submit Application</button></form>
+    `<form id="f"><input name=email value="applicant@example.test"><button type="submit">Upload & Submit Application</button></form>
      <script>f.onsubmit=(e)=>{e.preventDefault();window.__sent=(window.__sent||0)+1;};</script>`,
   );
   if (!page) return;
@@ -195,24 +196,45 @@ test('an upload-labeled submit button remains locked before the final step', asy
 test('the gate reads the CV and consents from the final DOM', () => {
   const brightHire =
     "Do you consent to BrightHire's Interview Integrity feature analyzing your interview for potential fraud signals—including deepfake detection, device consistency, and location checks—to help our team review interview authenticity? (This is separate from interview recording consent.)?";
-  const cvName = 'cv-rafael-reis-camunda-senior-site-reliability-engineer-1164-2026-09-22.pdf';
-  const scan = (files) => ({
+  const cvName = 'cv-example-candidate-camunda-senior-site-reliability-engineer-1164-2026-09-22.pdf';
+  const scan = (files, selected = []) => ({
     captcha: { present: false },
     questions: [
       { key: 'q2', kind: 'file', label: 'Resume', required: false, visible: true, state: { files } },
-      { key: 'q22', kind: 'toggle', label: brightHire, required: false, visible: true, state: { selected: [] } },
+      { key: 'q22', kind: 'toggle', label: brightHire, required: false, visible: true, state: { selected } },
     ],
   });
   const outcomes = new Map([['q2', { status: 'verified' }]]);
   const cleared = evaluateGate(scan([]), outcomes, { cvName });
   assert.deepEqual(cleared.blockers.map((b) => b.kind).sort(), ['consent', 'resume'], 'a CV attached earlier but gone from the page blocks; an unanswered consent blocks');
-  const answered = evaluateGate(scan([cvName]), new Map([...outcomes, ['q22', { status: 'verified' }]]), { cvName });
+  const consentOutcome = { status: 'verified', canonicalValue: 'Yes', observed: 'Yes' };
+  const answered = evaluateGate(scan([cvName], ['Yes']), new Map([...outcomes, ['q22', consentOutcome]]), { cvName });
   assert.equal(answered.ready, false, 'a file is not accepted until its chosen resume key is supplied');
-  assert.equal(evaluateGate(scan([cvName]), new Map([...outcomes, ['q22', { status: 'verified' }]]), { cvName, resumeQuestion: { key: 'q2', kind: 'file', label: 'Resume' } }).ready, true);
+  assert.equal(evaluateGate(scan([cvName], ['Yes']), new Map([...outcomes, ['q22', consentOutcome]]), { cvName, resumeQuestion: { key: 'q2', kind: 'file', label: 'Resume' } }).ready, true);
+});
+
+test('the final gate rechecks verified canonical values after later page changes', () => {
+  const finalScan = {
+    captcha: { present: false },
+    questions: [
+      { key: 'name', kind: 'text', label: 'First Name*', inputType: 'text', required: true, visible: true, state: { value: 'Changed' } },
+      { key: 'eligible', kind: 'toggle', label: 'Are you eligible?*', required: true, visible: true, state: { selected: ['No'] } },
+    ],
+  };
+  const outcomes = new Map([
+    ['name', { status: 'verified', canonicalValue: 'Casey', observed: 'Casey' }],
+    ['eligible', { status: 'verified', canonicalValue: 'Yes', observed: 'Yes' }],
+  ]);
+  const gate = evaluateGate(finalScan, outcomes);
+  assert.deepEqual(gate.blockers.filter((b) => b.key).map((b) => b.key).sort(), ['eligible', 'name']);
+  finalScan.questions[0].state.value = 'Casey';
+  finalScan.questions[1].state.selected = ['Yes'];
+  const corrected = evaluateGate(finalScan, outcomes);
+  assert.equal(corrected.blockers.some((b) => b.key === 'name' || b.key === 'eligible'), false);
 });
 
 test('a filename in supporting text or the wrong file input is not CV proof', () => {
-  const cvName = 'cv-candidate-acme.pdf';
+  const cvName = 'cv-example-candidate.pdf';
   const finalScan = {
     captcha: { present: false },
     questions: [
@@ -231,7 +253,7 @@ test('a filename in supporting text or the wrong file input is not CV proof', ()
 test('the captured applytojob submit anchor is locked until the final step', async (t) => {
   const page = await openPage(
     t,
-    `<form id="f"><input name="email" value="fixture@example.com"><div id="resumator-submit" class="form-group"><a href="#" id="resumator-submit-resume" class="btn">Submit Application</a></div></form>
+    `<form id="f"><input name="email" value="applicant@example.test"><div id="resumator-submit" class="form-group"><a href="#" id="resumator-submit-resume" class="btn">Submit Application</a></div></form>
      <script>document.getElementById('resumator-submit-resume').onclick=(e)=>{e.preventDefault();window.__sent=(window.__sent||0)+1;document.body.innerHTML='<h1>Application submitted</h1>';};</script>`,
   );
   if (!page) return;
@@ -278,5 +300,39 @@ test('a company whose submission limit is used up across the tracks never enters
     assert.match(canonical.reasons[0], /Canonical is on the blacklist/);
   } finally {
     fs.rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('a confirmed prior attempt reconciles the tracker and exits successfully without another click', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-reconcile-'));
+  const stateDir = path.join(root, 'state');
+  const out = path.join(root, 'reconciled.json');
+  const url = 'https://jobs.example.test/acme/42';
+  try {
+    fs.mkdirSync(path.join(root, 'data'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'reports'));
+    fs.mkdirSync(stateDir);
+    fs.writeFileSync(path.join(root, 'reports', '042-acme-2026-09-22.md'), '# Acme\n');
+    fs.writeFileSync(
+      path.join(root, 'data', 'applications.md'),
+      '# Applications Tracker\n\n| # | Date | Company | Role | Score | Status | PDF | Report | Notes |\n|---|------|---------|------|-------|--------|-----|--------|-------|\n| 42 | 2026-09-22 | Acme | Engineer | 4.2/5 | Evaluated | ✅ | [42](../reports/042-acme-2026-09-22.md) | |\n',
+    );
+    fs.writeFileSync(
+      path.join(stateDir, 'hybrid-round.json'),
+      `${JSON.stringify({ submissionAttempts: [{ dataRoot: root, postingUrl: url, reportNumber: 42, status: 'confirmed', attemptedAt: '2026-09-23T00:00:00.000Z', evidence: 'Application submitted' }] })}\n`,
+    );
+    const result = spawnSync(process.execPath, [path.join(import.meta.dirname, '..', '..', 'scripts', 'apply-hybrid.mjs'), '--url', url, '--row', '42', '--out', out], {
+      cwd: path.join(import.meta.dirname, '..', '..'),
+      encoding: 'utf8',
+      env: { ...process.env, CAREER_OPS_ROOT: root, CAREER_OPS_HYBRID_STATE_DIR: stateDir },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /no submit click was repeated/);
+    assert.match(fs.readFileSync(path.join(root, 'data', 'applications.md'), 'utf8'), /\| Applied \|/);
+    const metrics = JSON.parse(fs.readFileSync(out, 'utf8'));
+    assert.equal(metrics.reconciled, true);
+    assert.equal(metrics.submitted, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

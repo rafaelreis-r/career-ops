@@ -10,7 +10,8 @@
 // not answer blocks, required or not. A captcha is a human step and always
 // blocks. `ready` (no blocker at all) is the only state the driver submits in.
 
-import { findQuestionByIdentity, questionSignature, valueFitsField } from './answers.mjs';
+import { findQuestionByIdentity, matchOption, questionSignature, truthyAnswer, valueFitsField } from './answers.mjs';
+import { sameChoice, sameValue } from './adapters.mjs';
 
 const CONSENT_RX = /consent|\bi agree\b|\bagree to\b|concordo|aceito|autorizo|privacy policy|pol[ií]tica de privacidade|termos de uso|terms of (use|service)/i;
 
@@ -60,6 +61,21 @@ export function alignOutcomes(finalQuestions, outcomes) {
   );
 }
 
+export function verifiedOutcomeMatchesQuestion(question, outcome) {
+  if (outcome?.status !== 'verified') return false;
+  if (question.kind === 'file') return true;
+  const expected = String(outcome.canonicalValue ?? '');
+  if (!expected) return false;
+  if (question.kind === 'text' || question.kind === 'textarea') {
+    return !valueFitsField(question, question.state?.value) && sameValue(question.state?.value, expected, question.inputType);
+  }
+  const selected = question.state?.selected || [];
+  if (question.kind === 'checkbox' && truthyAnswer(expected) === false) return selected.length === 0;
+  if (selected.length !== 1) return false;
+  const representations = [expected, outcome.observed].filter(Boolean);
+  return representations.some((value) => sameChoice(selected[0], value) || matchOption([selected[0]], value));
+}
+
 /**
  * @param {{questions: object[], captcha: {present: boolean}}} finalScan
  * @param {Map<string, {status: string, reason?: string}>} outcomes - per-question fill outcome, by key.
@@ -73,9 +89,12 @@ export function evaluateGate(finalScan, outcomes, { cvName = '', cvReason = null
     if (!q.visible) continue;
     const o = outcomes.get(q.key);
     const empty = isEmptyState(q, cvName);
-    if (q.required && (empty || o?.status !== 'verified')) {
-      const why = o?.status === 'locked' ? `locked: ${o.reason}` : o?.status === 'no-answer' ? 'no canonical answer' : o?.status ? `${o.status}: ${o.reason ?? ''}`.trim() : 'empty';
+    const changedAfterVerification = o?.status === 'verified' && !verifiedOutcomeMatchesQuestion(q, o);
+    if (q.required && (empty || o?.status !== 'verified' || changedAfterVerification)) {
+      const why = changedAfterVerification ? 'final value changed after canonical verification' : o?.status === 'locked' ? `locked: ${o.reason}` : o?.status === 'no-answer' ? 'no canonical answer' : o?.status ? `${o.status}: ${o.reason ?? ''}`.trim() : 'empty';
       blockers.push({ kind: empty ? 'required-empty' : 'required-unverified', key: q.key, label: q.label, reason: `required field lacks a verified canonical answer (${why})` });
+    } else if (changedAfterVerification) {
+      blockers.push({ kind: 'mismatch', key: q.key, label: q.label, reason: 'the final value differs from the verified canonical answer' });
     } else if (o?.status === 'mismatch' && !empty) {
       blockers.push({ kind: 'mismatch', key: q.key, label: q.label, reason: `value on the page differs from the canonical answer (${o.reason ?? ''})` });
     } else if (q.kind !== 'file' && CONSENT_RX.test(q.label ?? '') && o?.status !== 'verified') {

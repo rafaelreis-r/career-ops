@@ -93,7 +93,7 @@ export function currencyLock(question, answer) {
 }
 
 const EMAIL_VALUE_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const URL_VALUE_RX = /^(https?:\/\/|www\.)|^[\w.-]*linkedin\.com\//i;
+const URL_VALUE_RX = /^(?:https?:\/\/|www\.)|^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?:[/:?#][^\s]*)?$/i;
 const PHONE_VALUE_RX = /^\+[\d\s().-]+$|^[\d\s().-]{8,}$/;
 const periodOf = (text) => {
   const t = String(text ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();

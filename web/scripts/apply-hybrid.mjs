@@ -66,7 +66,7 @@ import {
   valueFitsField,
 } from '../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../src/lib/apply/hybrid/files.mjs';
-import { alignOutcomes, cvInFinalDom, evaluateGate, isEmptyState, tabStatus } from '../src/lib/apply/hybrid/gate.mjs';
+import { alignOutcomes, cvInFinalDom, evaluateGate, isEmptyState, tabStatus, verifiedOutcomeMatchesQuestion } from '../src/lib/apply/hybrid/gate.mjs';
 import { holdSubmitLock, submitApplication } from '../src/lib/apply/hybrid/submit.mjs';
 import {
   attachFile,
@@ -136,6 +136,13 @@ function findReport(root, { row, report }) {
   if (report) return path.resolve(report);
   if (row == null) return null;
   return findReportForRow(root, row);
+}
+
+function writeMetrics(root, args, metrics) {
+  const outPath = args.out ? path.resolve(args.out) : path.join(root, 'data', 'ab-test', 'hybrid.json');
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, `${JSON.stringify(metrics, null, 2)}\n`);
+  return outPath;
 }
 
 const STATIC_CHOICE = new Set(['select', 'radio', 'checkbox-group', 'toggle']);
@@ -221,6 +228,21 @@ async function main() {
         process.exit(1);
       }
       console.log('[hybrid] reconciled the confirmed submission into the tracker; no submit click was repeated');
+      const outPath = writeMetrics(root, args, {
+        driver: 'hybrid (deterministic first, model for gaps)',
+        url: args.url,
+        row: args.row ?? null,
+        report: reportPath,
+        startedAt: new Date(t0).toISOString(),
+        canonicalSources: loaded.sources,
+        submission: priorSubmission,
+        tracker,
+        reconciled: true,
+        submitted: true,
+        stoppedAt: 'confirmed submission reconciled into the tracker; no submit click repeated',
+      });
+      console.log(`[hybrid] metrics: ${outPath}`);
+      process.exit(0);
     }
     console.log(`[hybrid] not opened: submit was already attempted at ${priorSubmission.attemptedAt} (${priorSubmission.status}); check the employer and tracker before any retry`);
     process.exit(5);
@@ -384,7 +406,7 @@ async function main() {
           continue;
         }
         const r = await run(q, (live) => fillQuestion(frameOf(q), live, exact.value));
-        record(q, r, { via: 'deterministic', source: 'exact', answerLabel: exact.label });
+        record(q, r, { via: 'deterministic', source: 'exact', answerLabel: exact.label, canonicalValue: exact.value });
       }
     };
     await phase('deterministic', () => deterministicPass(targets));
@@ -463,7 +485,7 @@ async function main() {
           r = { ...v, how: 'stagehand-act', act: act.ok ? 'ok' : act.error || act.message, prior: r.reason ?? r.status };
         }
         const modelHow = ['stagehand-act', 'jev-pick', 'jev', 'model-equivalent'].includes(r.how);
-        record(q, r, { via: d.source === 'exact' && !modelHow ? 'deterministic' : 'model', source: d.source, confidence: d.confidence ?? null, answerLabel: d.answer.label });
+        record(q, r, { via: d.source === 'exact' && !modelHow ? 'deterministic' : 'model', source: d.source, confidence: d.confidence ?? null, answerLabel: d.answer.label, canonicalValue: d.answer.value });
       }
     };
     await phase('model', async () => {
@@ -524,15 +546,17 @@ async function main() {
       const revealed = live.filter((q) => !wasHandled(q));
       const liveOutcomes = alignOutcomes(live, outcomes);
       const cleared = live.filter((q) => liveOutcomes.get(q.key)?.status === 'verified' && isEmptyState(q));
-      if (!revealed.length && !cleared.length) break;
+      const changed = live.filter((q) => liveOutcomes.get(q.key)?.status === 'verified' && !isEmptyState(q) && !verifiedOutcomeMatchesQuestion(q, liveOutcomes.get(q.key)));
+      if (!revealed.length && !cleared.length && !changed.length) break;
       if (revealed.length) console.log(`[hybrid] ${revealed.length} question(s) appeared after filling: ${revealed.map((q) => q.label).join(' | ')}`);
       if (cleared.length) console.log(`[hybrid] the page cleared ${cleared.length} verified field(s), refilling: ${cleared.map((q) => q.label).join(' | ')}`);
+      if (changed.length) console.log(`[hybrid] the page changed ${changed.length} verified field(s), refilling: ${changed.map((q) => q.label).join(' | ')}`);
       for (const q of revealed) handled.push({ key: q.key, kind: q.kind, label: q.label });
-      for (const q of cleared) {
+      for (const q of [...cleared, ...changed]) {
         const direct = outcomes.get(q.key);
         if (direct && questionSignature(direct) === questionSignature(q)) outcomes.delete(q.key);
       }
-      const redo = [...revealed, ...cleared];
+      const redo = [...revealed, ...cleared, ...changed];
       await phase('deterministic', () => deterministicPass(redo));
       await phase('model', () => modelPass(redo));
     }
@@ -612,9 +636,7 @@ async function main() {
     (standing?.status === 'submitted' ? `submitted: ${submission.evidence}` : submission && submission.status !== 'confirmed' ? `submit ${submission.status}: ${submission.reason}` : standing?.status === 'incomplete' ? `pre-submit gate: ${standing.pending.length} pending` : 'left for the human (captcha)');
   metrics.submitted = standing?.status === 'submitted';
 
-  const outPath = args.out ? path.resolve(args.out) : path.join(root, 'data', 'ab-test', 'hybrid.json');
-  fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  fs.writeFileSync(outPath, `${JSON.stringify(metrics, null, 2)}\n`);
+  const outPath = writeMetrics(root, args, metrics);
 
   for (const q of metrics.questions || []) {
     if (q.outcome) console.log(`[hybrid]   ${q.outcome.status.padEnd(10)} ${(q.outcome.via || '').padEnd(13)} ${q.label}${q.outcome.status !== 'verified' && q.outcome.reason ? ` — ${q.outcome.reason}` : ''}`);

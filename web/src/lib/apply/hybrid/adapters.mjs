@@ -266,7 +266,7 @@ export async function selectCombobox(frame, q, desired, { pick = null } = {}) {
     after = await reread(frame, q);
     got = after?.state?.selected ?? [];
     const shown = got.find((g) => sameChoice(g, chosen));
-    if (shown) return { status: 'verified', observed: shown === chosen ? chosen : `${chosen} (shown as "${shown}")`, how, steps };
+    if (shown) return { status: 'verified', observed: shown, chosen, how, steps };
   }
   await clearCombobox(after ? control(frame, after.key) : input);
   return { status: 'failed', reason: `clicked "${chosen}" but the widget shows "${got.join(', ') || 'nothing'}"`, how, steps };
