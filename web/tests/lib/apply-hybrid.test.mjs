@@ -21,9 +21,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
-import { buildAnswers, currencyLock, isNonAnswer, matchAnswers, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
+import { buildAnswers, currencyLock, isNonAnswer, lockFor, matchAnswers, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
-import { evaluateGate } from '../../src/lib/apply/hybrid/gate.mjs';
+import { evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
+import { resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
 import { attachFile, chooseOption, fillText, selectCombobox } from '../../src/lib/apply/hybrid/adapters.mjs';
 import { mapActionsToQuestions } from '../../src/lib/apply/hybrid/stagehand.mjs';
 
@@ -120,8 +121,16 @@ test('the CV goes only to an input identified as the resume that accepts the fil
     'cv.pdf',
   );
   assert.equal(wellhub.target.key, 'q6');
-  const unlabeled = selectResumeTarget([{ key: 'q1', kind: 'file', ownLabel: 'Anexo', label: 'Anexo', accept: '.pdf' }], 'cv.pdf');
-  assert.equal(unlabeled.target, null, 'no evidence, no attachment');
+  const sole = selectResumeTarget([{ key: 'q1', kind: 'file', ownLabel: 'Anexo', label: 'Anexo', accept: '.pdf' }], 'cv.pdf');
+  assert.equal(sole.target.key, 'q1', 'the one unnamed document input is the upload slot: the CV is never left off');
+  const two = selectResumeTarget(
+    [
+      { key: 'q1', kind: 'file', ownLabel: 'Anexo', label: 'Anexo', accept: '.pdf' },
+      { key: 'q2', kind: 'file', ownLabel: 'Anexo 2', label: 'Anexo 2', accept: '.pdf' },
+    ],
+    'cv.pdf',
+  );
+  assert.equal(two.target, null, 'two unnamed document inputs: the model decides, not the first one');
   assert.equal(selectResumeTarget([{ key: 'q1', kind: 'file', ownLabel: 'Resume', label: 'Resume', accept: 'image/*' }], 'cv.pdf').reason, 'the resume input does not accept this file type');
 });
 
@@ -158,7 +167,7 @@ test('Storyteller: the gate blocks the required checkbox group that no input mar
 
   const outcomes = new Map();
   for (const q of before.questions.filter((x) => x.kind === 'text' || x.kind === 'textarea')) {
-    const r = await fillText(page.mainFrame(), q, 'fixture value');
+    const r = await fillText(page.mainFrame(), q, q.inputType === 'email' ? 'fixture@example.com' : 'fixture value');
     assert.equal(r.status, 'verified', `${q.label}: one fill, verified from the DOM`);
     outcomes.set(q.key, r);
   }
@@ -288,4 +297,68 @@ test('Camunda: autofill is not the resume, and a yes/no toggle is verified by ar
   const status = byLabel(s, 'If you are eligible, please select the status that allows you to work and live in that Country');
   assert.equal(status.kind, 'radio');
   assert.equal(status.options.length, 3);
+});
+
+// --- SMG (applytojob, 2026-09-22): the three errors the live round shipped ---
+
+const SMG_ADDRESS = 'Address';
+const SMG_SALARY = 'What are your annual salary requirements in $USD*';
+
+test('SMG: the e-mail never goes into Address and a monthly amount never into the annual salary', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-smg.html');
+  if (!page) return;
+  const s = await scan(page);
+  const address = byLabel(s, SMG_ADDRESS);
+  const salary = byLabel(s, SMG_SALARY);
+  assert.equal(address.kind, 'text');
+  assert.equal(salary.required, true);
+  // Before typing: both canonical values are locked out of these fields.
+  assert.equal(lockFor(address, { label: 'Email Address', value: 'someone@example.com' }).reason, 'type-mismatch');
+  assert.match(lockFor(salary, { label: 'Desired Salary', value: 'USD 8000/month' }).text, /monthly amount in a field that asks for annual/);
+  assert.equal(lockFor(salary, { label: 'Yearly salary (USD)', value: '96000' }), null, 'an annual USD figure fits');
+  // After the fact: whatever put them there, the gate refuses them from the DOM.
+  await page.fill('#resumator-address-value', 'someone@example.com');
+  await page.fill('#resumator-questionnaire-q3022689', 'USD 8000/month');
+  const gate = evaluateGate(await scan(page), new Map());
+  const misfits = gate.blockers.filter((b) => b.kind === 'type-mismatch').map((b) => b.label);
+  assert.deepEqual(misfits.sort(), [SMG_ADDRESS, SMG_SALARY].sort());
+});
+
+test("SMG: another posting's CV is refused; the posting's own PDF is used, or none so it gets generated", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-cv-'));
+  try {
+    for (const d of ['reports', 'output', 'data']) fs.mkdirSync(path.join(root, d));
+    const report = path.join(root, 'reports', '617-service-management-group-smg-2026-09-14.md');
+    fs.writeFileSync(report, '# SMG\n\n**PDF:** not generated in this evaluation-only batch pass (captain override)\n');
+    const other = path.join(root, 'output', 'cv-candidate-fingerprint-2026-09-17.pdf');
+    fs.writeFileSync(other, '%PDF-1.4 another posting\n');
+    fs.writeFileSync(path.join(root, 'data', 'pdf-index.tsv'), '# report\tpdf\thtml\tformat\tdate\n601\toutput/cv-candidate-fingerprint-2026-09-17.pdf\toutput/x.html\ta4\t2026-09-17\n');
+
+    const refused = resolvePostingCv({ root, reportPath: report, explicitCv: other });
+    assert.equal(refused.path, null, 'the file the SMG round attached is not this posting\'s CV');
+    assert.match(refused.rejected[0].reason, /made for report 601, not 617/);
+
+    const own = path.join(root, 'output', 'cv-rafael-reis-service-management-group-smg-2026-09-22.pdf');
+    fs.writeFileSync(own, '%PDF-1.4 this posting\n');
+    fs.appendFileSync(path.join(root, 'data', 'pdf-index.tsv'), '617\toutput/cv-rafael-reis-service-management-group-smg-2026-09-22.pdf\toutput/y.html\tletter\t2026-09-22\n');
+    const found = resolvePostingCv({ root, reportPath: report, explicitCv: other });
+    assert.deepEqual([found.path, found.source], [own, 'pdf-index']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the round leaves forms that only need the human first, then the fewest pending items', () => {
+  const tab = (url, blockers) => ({ url, ...tabStatus({ ready: !blockers.length, blockers }) });
+  const captcha = { kind: 'captcha', key: null, label: 'captcha', reason: '' };
+  const req = (label) => ({ kind: 'required-empty', key: label, label, reason: '' });
+  const tabs = [
+    tab('camunda', [req('Post Code'), req('What is your Legal first and last name?'), captcha]),
+    tab('storyteller', [req(STORY_SCHEDULE)]),
+    tab('wellhub', [captcha]),
+    { url: 'opened-by-hand', status: 'unknown', pending: [] },
+  ];
+  assert.deepEqual(tabs[2], { url: 'wellhub', status: 'ready-captcha', pending: [] });
+  assert.deepEqual(tabs[0].pending, ['Post Code', 'What is your Legal first and last name?'], 'the captcha is not a pending field');
+  assert.deepEqual(orderTabs(tabs).map((x) => x.url), ['wellhub', 'storyteller', 'camunda', 'opened-by-hand']);
 });

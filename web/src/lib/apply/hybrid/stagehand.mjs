@@ -1,20 +1,16 @@
-// stagehand.mjs — the one model call per form: Stagehand observe().
+// stagehand.mjs — the model side of the hybrid filler, through Stagehand 4 (MIT).
 //
-// Stagehand 4 (MIT) launches the local Chrome with its extension and a CDP
-// port; Playwright connects to the same browser over that port for every
-// deterministic action. Stagehand's model is a client-side `generate`
-// callback backed by the locally authenticated `codex exec` (no provider key,
-// account or service is added). Its action cache is not used: it returned
-// DISABLED on local browsers in the 2026-09-22 measurement, so nothing here
-// relies on a selector surviving between runs.
+// Stagehand's model is a client-side `generate` callback backed by the locally
+// authenticated `codex exec` (no provider key, account or service is added).
+// Its action cache is not used: it returned DISABLED on local browsers in the
+// 2026-09-22 measurement, so nothing here relies on a selector surviving
+// between runs.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import net from 'node:net';
 import { spawn } from 'node:child_process';
-import { Stagehand, localBrowser } from '@browserbasehq/stagehand';
-import { chromium } from 'playwright-core';
+import { Stagehand } from '@browserbasehq/stagehand';
 
 const CODEX_TIMEOUT_MS = 180_000;
 
@@ -90,53 +86,51 @@ export function createCodexGenerate({ onCall = () => {}, bin = process.env.CODEX
   };
 }
 
-const freePort = () =>
-  new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.on('error', reject);
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address();
-      srv.close(() => resolve(port));
-    });
-  });
-
-/** Launch Chrome through Stagehand and attach Playwright to the same browser. */
-export async function launchBrowser({ headless = true } = {}) {
-  const port = await freePort();
-  const shBrowser = await localBrowser.launch({ port, headless, viewport: { width: 1280, height: 900 } });
-  const pw = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-  const context = pw.contexts()[0];
-  const page = context.pages().find((p) => !p.url().startsWith('chrome-extension://')) || (await context.newPage());
-  return { shBrowser, pw, page };
-}
-
-/**
- * ONE Stagehand observe() on the page at `pageUrl`, bounded by `timeoutMs`
- * (the 2026-09-22 lab saw Stagehand stall on recrut.ai; a stall ends here as
- * an error instead of eating the form's budget). The page is named
- * explicitly: Stagehand's default is the most recently opened tab, which is
- * not the form when the site opened another one (recrut.ai's privacy page).
- */
-export async function observeOnce(shBrowser, generate, { pageUrl, timeoutMs = 150_000, instruction = OBSERVE_INSTRUCTION } = {}) {
+/** A stalled Stagehand call ends as an error after `ms`, never as a hang. */
+async function bounded(promise, ms, what) {
   let timer;
-  const t0 = Date.now();
   try {
-    const work = (async () => {
-      const stagehand = await Stagehand.create({ browser: shBrowser, model: { generate } });
-      let page;
-      for (const p of await shBrowser.context.pages()) {
-        if ((await p.url()) === pageUrl) page = p;
-      }
-      if (!page) throw new Error(`Stagehand does not see the form page ${pageUrl}`);
-      return stagehand.observe(instruction, { timeout: timeoutMs, page });
-    })();
-    const res = await Promise.race([work, new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`observe exceeded ${timeoutMs} ms`)), timeoutMs + 5000)))]);
-    return { ok: true, ms: Date.now() - t0, actions: res.data, cache: res.metadata?.cache?.status ?? null };
-  } catch (e) {
-    return { ok: false, ms: Date.now() - t0, actions: [], error: e instanceof Error ? e.message : String(e) };
+    return await Promise.race([promise, new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`${what} exceeded ${ms} ms`)), ms)))]);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * The model side of one form: a Stagehand instance bound to the form's tab.
+ * `observe()` runs once per form to discover the controls; `act()` is the
+ * fallback for a field the deterministic adapter could not fill or verify.
+ * The tab is named explicitly: Stagehand's default is the most recently
+ * opened tab, which is not the form when the site opened another one
+ * (recrut.ai's privacy page) or when the round already holds other forms.
+ */
+export async function createFormAgent(shBrowser, generate, pageUrl) {
+  const stagehand = await bounded(Stagehand.create({ browser: shBrowser, model: { generate } }), 60_000, 'Stagehand.create');
+  let page = null;
+  for (const p of await shBrowser.context.pages()) {
+    if ((await p.url()) === pageUrl) page = p;
+  }
+  if (!page) throw new Error(`Stagehand does not see the form tab ${pageUrl}`);
+  return {
+    async observe({ timeoutMs = 150_000, instruction = OBSERVE_INSTRUCTION } = {}) {
+      const t0 = Date.now();
+      try {
+        const res = await bounded(stagehand.observe(instruction, { timeout: timeoutMs, page }), timeoutMs + 5000, 'observe');
+        return { ok: true, ms: Date.now() - t0, actions: res.data, cache: res.metadata?.cache?.status ?? null };
+      } catch (e) {
+        return { ok: false, ms: Date.now() - t0, actions: [], error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+    async act(instruction, { timeoutMs = 120_000 } = {}) {
+      const t0 = Date.now();
+      try {
+        const res = await bounded(stagehand.act(instruction, { timeout: timeoutMs, page }), timeoutMs + 5000, 'act');
+        return { ok: res.data?.success !== false, ms: Date.now() - t0, message: res.data?.message ?? null };
+      } catch (e) {
+        return { ok: false, ms: Date.now() - t0, error: e instanceof Error ? e.message : String(e) };
+      }
+    },
+  };
 }
 
 /** Candidate selectors for one observed XPath: the path itself, then its

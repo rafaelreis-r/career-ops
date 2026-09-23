@@ -62,6 +62,38 @@ export async function fillText(frame, q, value) {
   return { status: 'mismatch', reason: `the page altered the value to "${got.slice(0, 60)}"; field cleared`, observed: got };
 }
 
+/**
+ * Verify, from the DOM, what a model action left in a question. Text must be
+ * the canonical value (a phone may be re-formatted, never re-numbered: its
+ * digits must be the tail of the canonical digits) and must fit the field; a
+ * choice must show an option that represents the value, literally or, when
+ * `equivalent` (a typed model check) says so, semantically. A text value that
+ * fails is cleared, so no wrong value is left looking like an answer.
+ */
+export async function verifyQuestion(frame, q, value, { equivalent = null, fits = null } = {}) {
+  const after = await reread(frame, q);
+  if (!after) return { status: 'failed', reason: 'the question left the page' };
+  if (after.kind === 'text' || after.kind === 'textarea') {
+    const got = after.state?.value ?? '';
+    if (!got) return { status: 'failed', reason: 'the field is still empty' };
+    const misfit = fits ? fits(after, got) : null;
+    const phoneLike = /tel/i.test(after.inputType || '') || /phone|telefone|celular|mobile|whatsapp/i.test(after.label || '');
+    const dg = digits(got);
+    const ok = !misfit && (sameValue(got, value, after.inputType) || (phoneLike && dg.length >= 8 && digits(value).endsWith(dg)));
+    if (ok) return { status: 'verified', observed: got };
+    await control(frame, after.key).fill('', { timeout: 2000 }).catch(() => {});
+    return { status: 'mismatch', reason: `the page held "${got.slice(0, 60)}"${misfit ? ` (${misfit.reason})` : ''}; field cleared`, observed: got };
+  }
+  if (after.kind === 'file') return { status: 'failed', reason: 'not a value question' };
+  const shown = after.state?.selected ?? [];
+  if (!shown.length) return { status: 'failed', reason: 'nothing selected' };
+  if (shown.some((s) => sameChoice(s, value) || matchOption([s], value))) return { status: 'verified', observed: shown.join(', ') };
+  if (equivalent) {
+    for (const s of shown) if (await equivalent(s, value, after.label)) return { status: 'verified', observed: s, how: 'model-equivalent' };
+  }
+  return { status: 'mismatch', reason: `the page shows "${shown.join(', ')}"`, observed: shown.join(', ') };
+}
+
 export async function selectNative(frame, q, index) {
   await control(frame, q.key).selectOption({ index }, { timeout: ACTION_TIMEOUT_MS });
   const after = await reread(frame, q);
@@ -156,7 +188,8 @@ async function clearCombobox(input) {
 /**
  * Custom dropdown (react-select, Ashby "Start typing...", async location
  * search): type the canonical value, read the options the widget offers,
- * choose deterministically (else ONE Jev pick among the offered texts), click
+ * choose one deterministically — or, when no option matches literally and a
+ * `pick` (Jev) is given, let the model choose among the OFFERED texts — click
  * it, and re-read the widget's selected value. At most two queries (the full
  * value, then its first segment when the full one returns nothing). On any
  * failure the search text is cleared so no typed-but-unselected text is left
@@ -212,19 +245,86 @@ export async function selectCombobox(frame, q, desired, { pick = null } = {}) {
   return { status: 'failed', reason: `clicked "${chosen}" but the widget shows "${got.join(', ') || 'nothing'}"`, how, steps };
 }
 
-/** Attach the CV and wait (bounded) for the page to show it: the input holds
- *  the file, or the ATS consumed it and displays the filename. */
-export async function attachFile(frame, q, cvPath, cvName) {
-  await control(frame, q.key).setInputFiles(cvPath, { timeout: ACTION_TIMEOUT_MS });
-  const end = Date.now() + 8000;
+async function waitForFile(frame, q, cvName, ms) {
+  const end = Date.now() + ms;
   let after = null;
   while (Date.now() < end) {
     after = await reread(frame, q);
     const s = after?.state || {};
-    if ((s.files || []).includes(cvName) || String(s.text || '').includes(cvName)) return { status: 'verified', observed: cvName };
+    if ((s.files || []).includes(cvName) || String(s.text || '').includes(cvName)) return { ok: true, after };
     await sleep(400);
   }
-  return { status: 'unverified', reason: 'the page does not show the attached file', observed: JSON.stringify(after?.state ?? null).slice(0, 160) };
+  return { ok: false, after };
+}
+
+/** Attach the CV and wait (bounded) for the page to show it: the input holds
+ *  the file, or the ATS consumed it and displays the filename. When setting
+ *  the input does not register, the question's own upload control is clicked
+ *  and the browser's file chooser receives the CV (the path a person takes). */
+export async function attachFile(frame, q, cvPath, cvName) {
+  await control(frame, q.key).setInputFiles(cvPath, { timeout: ACTION_TIMEOUT_MS }).catch(() => {});
+  let w = await waitForFile(frame, q, cvName, 8000);
+  if (w.ok) return { status: 'verified', observed: cvName, how: 'setInputFiles' };
+  const trigger = frame
+    .locator(`[data-hyb-q="${q.key}"]`)
+    .locator('button, a, [role=button], label')
+    .filter({ hasText: /attach|upload|browse|choose|select|anexar|enviar|carregar|selecionar|resume|résumé|\bcv\b|curr[ií]culo/i })
+    .first();
+  if (await trigger.isVisible().catch(() => false)) {
+    const chooser = frame.page().waitForEvent('filechooser', { timeout: 6000 }).catch(() => null);
+    await trigger.click({ timeout: ACTION_TIMEOUT_MS }).catch(() => {});
+    const fc = await chooser;
+    if (fc) {
+      await fc.setFiles(cvPath).catch(() => {});
+      w = await waitForFile(frame, q, cvName, 8000);
+      if (w.ok) return { status: 'verified', observed: cvName, how: 'file-chooser' };
+    }
+  }
+  return { status: 'unverified', reason: 'the page does not show the attached file', observed: JSON.stringify(w.after?.state ?? null).slice(0, 160) };
+}
+
+/** While a model acts on the page, block any submit: a capture-phase listener
+ *  on every frame cancels `submit` events and clicks on submit-like buttons.
+ *  The guard expires by itself (`ms`), so a crashed run cannot leave the
+ *  human's own Submit disabled; `on: false` removes it at once. */
+export async function setSubmitGuard(page, on, ms = 180_000) {
+  for (const frame of page.frames()) {
+    await frame
+      .evaluate(
+        ({ on: enable, until }) => {
+          const w = window;
+          if (!enable) {
+            if (w.__hybGuard) {
+              window.removeEventListener('submit', w.__hybGuard, true);
+              window.removeEventListener('click', w.__hybGuard, true);
+              delete w.__hybGuard;
+            }
+            return;
+          }
+          w.__hybGuardUntil = until;
+          if (w.__hybGuard) return;
+          const submitLike = (el) => {
+            const b = el && el.closest ? el.closest('button, input[type=submit], input[type=image], [role=button]') : null;
+            if (!b) return false;
+            const text = (b.textContent || b.value || b.getAttribute('aria-label') || '').trim();
+            if ((b.getAttribute('type') || '').toLowerCase() === 'submit') return !/^(attach|upload|anexar|enviar arquivo)/i.test(text);
+            return /^(submit|send|apply|enviar|finalizar|concluir|candidatar)|submit application|enviar candidatura/i.test(text);
+          };
+          w.__hybGuard = (e) => {
+            if (Date.now() > w.__hybGuardUntil) return;
+            if (e.type === 'submit' || submitLike(e.target)) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              w.__hybBlockedSubmits = (w.__hybBlockedSubmits || 0) + 1;
+            }
+          };
+          window.addEventListener('submit', w.__hybGuard, true);
+          window.addEventListener('click', w.__hybGuard, true);
+        },
+        { on, until: Date.now() + ms },
+      )
+      .catch(() => {});
+  }
 }
 
 // In-page: count controls an applicant fills (not search boxes), and find the

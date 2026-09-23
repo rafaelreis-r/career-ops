@@ -75,5 +75,9 @@ export function selectResumeTarget(fileQuestions, cvPath) {
     return { target: null, reason: 'ambiguous: more than one input identifies as the resume', considered: considered.map(strip) };
   }
   if (resumes.length) return { target: null, reason: 'the resume input does not accept this file type', considered: considered.map(strip) };
+  // No input names itself: the ONE input that accepts the CV and is not
+  // identified as a photo, cover letter or autofill pane is the upload slot.
+  const unnamed = considered.filter((c) => c.kind === 'unknown' && c.acceptsCv && c.accept);
+  if (unnamed.length === 1) return { target: unnamed[0].q, reason: null, considered: considered.map(strip), evidence: 'only-document-input' };
   return { target: null, reason: considered.length ? 'no file input identifies as the resume' : 'no file input on the form', considered: considered.map(strip) };
 }
