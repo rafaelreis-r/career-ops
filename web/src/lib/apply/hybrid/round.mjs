@@ -89,6 +89,8 @@ async function alive(cdpUrl) {
   }
 }
 
+const isFormTab = (url) => !/^(chrome-extension|chrome|devtools|about):/.test(url);
+
 /** The Stagehand extension's service worker, woken through its own wake page
  *  when Chrome has put the idle MV3 worker to sleep. */
 async function extensionWorker(context, extensionId = null) {

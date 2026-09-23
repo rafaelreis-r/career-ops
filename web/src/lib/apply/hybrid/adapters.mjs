@@ -360,7 +360,13 @@ function applyProbeInPage() {
     return vis(el) && inBanner && /\b(dismiss|accept|accept all|agree|ok|got it|entendi|aceitar|aceito|fechar|close)\b/i.test(text) && !/learn more|saiba mais|more info|settings|prefer[eê]ncias|configura/i.test(text);
   });
   if (cookie) cookie.setAttribute('data-hyb-cookie', '1');
-  return { fillable: fillable.length, trigger: trigger ? (trigger.textContent || trigger.value || trigger.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80) : null, cookie: !!cookie };
+  const text = (document.body?.innerText || '').slice(0, 20000);
+  // A human-verification wall (Cloudflare, hCaptcha interstitial) is a step
+  // for the captain, not a missing form; a closed/removed posting is the only
+  // page with nothing to fill.
+  const challenge = !!document.querySelector('iframe[src*="challenges.cloudflare"], .cf-turnstile, #challenge-form, #cf-challenge-running') || /verify you are human|confirme que [eé] humano|checking your browser|verificando (seu|o) navegador/i.test(text);
+  const closed = /no longer (available|accepting applications|open)|job (is )?(closed|expired|no longer)|(position|job) has been (filled|closed|removed)|posting (has been )?(closed|removed)|this job (has )?expired|vaga (foi )?(encerrada|expirada|fechada)|n[aã]o est[aá] mais dispon[ií]vel|page (was )?not found|p[aá]gina n[aã]o encontrada/i.test(text);
+  return { fillable: fillable.length, trigger: trigger ? (trigger.textContent || trigger.value || trigger.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80) : null, cookie: !!cookie, challenge, closed };
 }
 
 /**
@@ -372,9 +378,12 @@ function applyProbeInPage() {
 export async function reachApplicationForm(page) {
   const log = [];
   for (let attempt = 0; attempt < 3; attempt++) {
-    const probe = await page.evaluate(applyProbeInPage).catch(() => ({ fillable: 0, trigger: null, cookie: false }));
+    const probe = await page.evaluate(applyProbeInPage).catch(() => ({ fillable: 0, trigger: null, cookie: false, challenge: false, closed: false }));
     if (probe.fillable >= 2) return { reached: true, url: page.url(), log };
-    if (attempt === 2 || !probe.trigger) return { reached: false, url: page.url(), log, reason: probe.trigger ? 'no applicant fields after the apply click' : 'no applicant fields and no apply trigger' };
+    if (probe.challenge) return { reached: false, challenge: true, url: page.url(), log, reason: 'a human-verification challenge stands before the form' };
+    if (attempt === 2 || !probe.trigger) {
+      return { reached: false, closed: probe.closed, url: page.url(), log, reason: probe.closed ? 'the posting is closed or removed' : probe.trigger ? 'no applicant fields after the apply click' : 'no applicant fields and no apply trigger' };
+    }
     if (probe.cookie) await page.locator('[data-hyb-cookie]').first().click({ timeout: 3000 }).catch(() => {});
     const before = page.url();
     await page.locator('[data-hyb-apply]').first().click({ timeout: ACTION_TIMEOUT_MS });

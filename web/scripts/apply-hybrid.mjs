@@ -218,6 +218,7 @@ async function main() {
   let stoppedAt = null;
   let failed = false;
   let noForm = false;
+  let formBlock = null;
   let cvStatus = { attached: false, reason: cv.path ? 'not attempted' : metrics.cv.generation?.error || 'no CV for this posting' };
 
   try {
@@ -231,8 +232,11 @@ async function main() {
     metrics.reach = reach;
     console.log(`[hybrid] form ${reach.reached ? 'reached' : 'NOT reached'} at ${reach.url}${reach.log.length ? ` after ${reach.log.map((l) => `"${l.clicked}"`).join(', ')}` : ''}`);
     if (!reach.reached) {
-      noForm = true;
-      throw new Error(`no application form on the page: ${reach.reason}`);
+      // Only a closed or removed posting is closed; a challenge or an
+      // unrecognised page stays as a tab for the human.
+      noForm = !!reach.closed;
+      formBlock = reach.reason;
+      throw new Error(`form not reached: ${reach.reason}`);
     }
 
     const scan = await phase('scan', () => scanPage(page));
@@ -386,9 +390,9 @@ async function main() {
       }
     });
   } catch (e) {
-    failed = !noForm;
+    failed = !noForm && !formBlock;
     stoppedAt = errText(e);
-    console.error(`[hybrid] ${noForm ? 'no form' : 'error'}: ${stoppedAt}`);
+    console.error(`[hybrid] ${noForm ? 'no form' : formBlock ? 'form not reached' : 'error'}: ${stoppedAt}`);
   }
 
   // 7. Gate, tab standing, round order. The tab stays open unless there was no form.
@@ -401,7 +405,8 @@ async function main() {
       metrics.questions = finalScan.questions.map((q) => ({ key: q.key, kind: q.kind, label: q.label, required: q.required, requiredBy: q.requiredBy, visible: q.visible, outcome: finalOutcomes.get(q.key) ?? null }));
       metrics.captcha = finalScan.captcha;
       standing = tabStatus(gate);
-      if (failed) standing = { ...standing, status: 'incomplete', pending: [...standing.pending, `run error: ${stoppedAt}`] };
+      if (formBlock) standing = { ...standing, status: 'incomplete', pending: [formBlock, ...standing.pending] };
+      else if (failed) standing = { ...standing, status: 'incomplete', pending: [...standing.pending, `run error: ${stoppedAt}`] };
     }
     if (round) settle = await settleFormTab(round, noForm ? null : standing, { note: stoppedAt });
   } catch (e) {
