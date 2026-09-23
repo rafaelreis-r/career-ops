@@ -115,8 +115,29 @@ Keep these across rebases; each exists for a reason.
   and `FAST_HOSTS` (initially only `applytojob.com`); a dispatched worker on
   `apply-llm-owned` submits once after the ready gate. Interactive `apply` still
   never submits.
-- **`agent-browser` and `jev-agent-browser` are declared in `web/package.json`.**
-  Installed with `--no-save`, the next `npm install` pruned them.
+- **Hybrid apply filler.** `web/scripts/apply-hybrid.mjs` with
+  `web/src/lib/apply/hybrid/`: one Stagehand `observe()` per form (its model is
+  a local `codex exec` callback, no provider key), deterministic Playwright
+  adapters that re-read the DOM after each action, Jev only for label matches
+  that are not exact (one batched call per answer source, `NONE` allowed), the
+  CV only on an input identified as the résumé, and a pre-submit gate computed
+  from the final DOM scan. It never submits: exit 0 means ready for a human,
+  3 means the gate blocks and lists why. It runs beside
+  `arm1-jev-agentbrowser.mjs`; routing in `lib/apply-route.mjs` is unchanged
+  until it proves it replaces arm1. To compare both on one form, run each with
+  the same URL and a distinct `--out`:
+
+  ```sh
+  cd ~/dev/career-ops-product/web   # the track that owns the posting
+  node scripts/arm1-jev-agentbrowser.mjs --url <url> --row <n> --cv <pdf> --no-submit --out /tmp/arm1.json
+  node scripts/apply-hybrid.mjs          --url <url> --row <n> --cv <pdf> --out /tmp/hybrid.json
+  ```
+
+  A track gets Stagehand from `web/package.json`: after `update-system.mjs
+  apply`, run `npm install` once in that track's `web/`.
+- **`agent-browser`, `jev-agent-browser` and `@browserbasehq/stagehand` are
+  declared in `web/package.json`.** Installed with `--no-save`, the next
+  `npm install` pruned them.
 - **`import * as yaml from "js-yaml"`** in the Jev scripts. js-yaml 5 is ESM with
   no default export; upstream already uses the namespace form everywhere.
 - **Templates:** `templates/cv-template.ops.{html,tex}`,

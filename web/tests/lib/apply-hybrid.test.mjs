@@ -25,6 +25,7 @@ import { buildAnswers, currencyLock, isNonAnswer, matchAnswers, matchOption } fr
 import { selectResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
 import { evaluateGate } from '../../src/lib/apply/hybrid/gate.mjs';
 import { attachFile, chooseOption, fillText, selectCombobox } from '../../src/lib/apply/hybrid/adapters.mjs';
+import { mapActionsToQuestions } from '../../src/lib/apply/hybrid/stagehand.mjs';
 
 const FIXTURES = path.join(import.meta.dirname, '..', '..', 'src', 'lib', 'apply', '__fixtures__');
 
@@ -244,6 +245,31 @@ test('iTRTech: a phone the page truncates is cleared and blocks, never kept as a
   assert.equal(await page.inputValue('#inputMobilePhone'), '');
   const gate = evaluateGate(await scan(page), new Map([[phone.key, r]]));
   assert.match(gate.blockers.find((b) => b.label === 'Celular de contato*').reason, /required and empty \(mismatch/);
+});
+
+test('iTRTech: an observed XPath still finds its question after the page prepends a node to <body>', async (t) => {
+  const page = await openFixture(t, 'hybrid-recrutai-itrtech.html');
+  if (!page) return;
+  const cv = (await scan(page)).questions.find((q) => q.id === 'inputCV');
+  // Positional XPath as Stagehand builds it from the document it read.
+  const xpath = await page.$eval('#inputCV', (el) => {
+    const seg = [];
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      let i = 1;
+      for (let p = n.previousElementSibling; p; p = p.previousElementSibling) if (p.tagName === n.tagName) i++;
+      seg.unshift(`${n.tagName.toLowerCase()}[${i}]`);
+    }
+    return `/${seg.join('/')}`;
+  });
+  // recrut.ai injects its video-player sprite at the top of <body> after load.
+  await page.evaluate(() => {
+    const d = document.createElement('div');
+    d.id = 'sprite-plyr';
+    document.body.prepend(d);
+  });
+  assert.equal(await page.locator(`xpath=${xpath}`).count(), 0, 'the observed path no longer resolves as written');
+  const { keys } = await mapActionsToQuestions(page, [{ selector: `xpath=${xpath}`, description: 'Currículo' }]);
+  assert.deepEqual([...keys], [cv.key]);
 });
 
 test('Camunda: autofill is not the resume, and a yes/no toggle is verified by aria-pressed', async (t) => {

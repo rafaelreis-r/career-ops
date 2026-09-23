@@ -139,24 +139,51 @@ export async function observeOnce(shBrowser, generate, { pageUrl, timeoutMs = 15
   }
 }
 
+/** Candidate selectors for one observed XPath: the path itself, then its
+ *  suffixes as `//…`, longest first. Stagehand's XPaths are positional from
+ *  the document root, so a node the page inserts near the top AFTER the
+ *  snapshot (recrut.ai prepends a video-player sprite to <body>) shifts every
+ *  index above the form. The form's own subtree keeps its positions, so the
+ *  longest suffix that matches exactly ONE element is the same element. */
+export function xpathCandidates(selector) {
+  const m = /^xpath=(\/[^>]*)$/.exec(String(selector).trim());
+  if (!m) return [selector];
+  const steps = m[1].split('/').filter(Boolean);
+  const out = [selector];
+  for (let k = 1; k < steps.length - 2; k++) out.push(`xpath=//${steps.slice(k).join('/')}`);
+  return out;
+}
+
 /** Map each observed action's selector to the scanned question it belongs to
- *  (the element itself, its question container, or a control inside it). */
+ *  (the element itself, its question container, or a control inside it). A
+ *  suffix candidate counts only when it matches exactly one element. Child
+ *  frames are asked only when the selector already matches there (a waiting
+ *  lookup in each of recrut.ai's nine iframes cost 54 s, 2026-09-22). */
 export async function mapActionsToQuestions(page, actions) {
+  const keyOf = (loc) =>
+    loc
+      .evaluate((el) => {
+        const own = el.closest('[data-hyb-q]');
+        if (own) return own.getAttribute('data-hyb-q');
+        const inner = el.querySelector('[data-hyb-c], [data-hyb-q]');
+        return inner ? inner.getAttribute('data-hyb-c') || inner.getAttribute('data-hyb-q') : null;
+      }, null, { timeout: 1000 })
+      .catch(() => null);
   const keys = new Set();
   const unmapped = [];
   for (const a of actions) {
     let key = null;
+    const candidates = xpathCandidates(a.selector);
     for (const frame of page.frames()) {
-      key = await frame
-        .locator(a.selector)
-        .first()
-        .evaluate((el) => {
-          const own = el.closest('[data-hyb-q]');
-          if (own) return own.getAttribute('data-hyb-q');
-          const inner = el.querySelector('[data-hyb-c], [data-hyb-q]');
-          return inner ? inner.getAttribute('data-hyb-c') || inner.getAttribute('data-hyb-q') : null;
-        }, null, { timeout: 1500 })
-        .catch(() => null);
+      // Suffix candidates only in the main frame; a child frame gets the path as observed.
+      const list = frame === page.mainFrame() ? candidates : candidates.slice(0, 1);
+      for (const [i, sel] of list.entries()) {
+        const n = await frame.locator(sel).count().catch(() => 0);
+        if (n === 1 || (i === 0 && n > 0)) {
+          key = await keyOf(frame.locator(sel).first());
+          break;
+        }
+      }
       if (key) break;
     }
     if (key) keys.add(key);
