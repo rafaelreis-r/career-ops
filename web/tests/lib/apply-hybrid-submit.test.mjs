@@ -18,6 +18,8 @@ import { holdSubmitLock, submitApplication, chooseSubmitControl } from '../../sr
 import { reachApplicationForm } from '../../src/lib/apply/hybrid/adapters.mjs';
 import { evaluateGate } from '../../src/lib/apply/hybrid/gate.mjs';
 import { postingEligibility } from '../../src/lib/apply/hybrid/tracker-row.mjs';
+import { isSubmitLikeText } from '../../src/lib/apply/hybrid/submit-policy.mjs';
+import { scanPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
 
 async function openPage(t, html) {
   let browser;
@@ -265,6 +267,44 @@ test('the captured applytojob submit anchor is locked until the final step', asy
   assert.equal(result.control, 'Submit Application');
 });
 
+test('one submit classifier protects finalize variants in the probe, lock and final step', async (t) => {
+  for (const text of ['Finalize application', 'Finalise application', 'Finish application', 'Complete application', 'Confirm application']) assert.equal(isSubmitLikeText(text), true, text);
+  const page = await openPage(
+    t,
+    `<form><input name="email" value="applicant@example.test"><a href="/apply/complete" role="link" id="finalize">Finalize application</a></form>
+     <script>finalize.onclick=(e)=>{e.preventDefault();window.__sent=(window.__sent||0)+1;document.body.innerHTML='<h1>Application submitted</h1>';};</script>`,
+  );
+  if (!page) return;
+  const lock = await holdSubmitLock(page);
+  await page.click('#finalize');
+  assert.equal(await page.evaluate(() => window.__sent || 0), 0);
+  const result = await submitApplication(page, { timeoutMs: 3000 });
+  assert.equal(result.status, 'confirmed');
+  assert.equal(result.control, 'Finalize application');
+  await lock.release();
+
+  const probePage = await openPage(t, '<label>Email<input type="email"></label><a href="/apply/complete" role="link" onclick="window.clicked=1">Finalize application</a>');
+  if (!probePage) return;
+  const reached = await reachApplicationForm(probePage);
+  assert.equal(reached.reached, false);
+  assert.equal(await probePage.evaluate(() => window.clicked || 0), 0);
+});
+
+test('native HTML validity blocks before the durable submit claim', async (t) => {
+  const page = await openPage(
+    t,
+    `<form><label>Phone<input name="phone" pattern="[0-9]{10}" value="202 555 0100"></label><button type="submit">Submit Application</button></form>`,
+  );
+  if (!page) return;
+  let claimed = false;
+  const result = await submitApplication(page, { beforeClick: async () => { claimed = true; return { ok: true }; } });
+  assert.equal(result.status, 'invalid');
+  assert.equal(claimed, false);
+  assert.match(result.reason, /Phone/);
+  const gate = evaluateGate(await scanPage(page), new Map());
+  assert.ok(gate.blockers.some((blocker) => blocker.kind === 'native-invalid' && blocker.label === 'Phone'));
+});
+
 test('a company whose submission limit is used up across the tracks never enters the round, and the report says when it reopens', () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-limits-'));
   try {
@@ -292,9 +332,9 @@ test('a company whose submission limit is used up across the tracks never enters
     const blocked = postingEligibility({ root: a, reportNumber: 1164, today: '2026-09-23', shared });
     assert.equal(blocked.eligible, false);
     assert.deepEqual(blocked.limit.submissions.map((s) => [s.row, s.date]), [[1068, '2026-08-26'], [1087, '2026-08-31']]);
-    assert.equal(blocked.limit.reopensOn, '2026-09-26');
-    assert.match(blocked.reasons[0], /reopens on 2026-09-26/);
-    assert.equal(postingEligibility({ root: a, reportNumber: 1164, today: '2026-09-26', shared }).eligible, true, 'the oldest submission has left the window');
+    assert.equal(blocked.limit.reopensOn, '2026-09-25');
+    assert.match(blocked.reasons[0], /reopens on 2026-09-25/);
+    assert.equal(postingEligibility({ root: a, reportNumber: 1164, today: '2026-09-25', shared }).eligible, true, 'the oldest submission leaves the window exactly 30 days later');
     const canonical = postingEligibility({ root: a, reportNumber: 1165, today: '2026-09-23', shared });
     assert.equal(canonical.eligible, false);
     assert.match(canonical.reasons[0], /Canonical is on the blacklist/);

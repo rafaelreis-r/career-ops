@@ -24,11 +24,12 @@ import { scanPage, scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-s
 import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, lockFor, matchAnswers, matchExact, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
 import { alignOutcomes, evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
-import { generatePostingCv, resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
+import { fileNamesCompany, generatePostingCv, resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
 import { attachFile, chooseOption, fillText, reachApplicationForm, reread, sameChoice, selectCombobox, verifyQuestion } from '../../src/lib/apply/hybrid/adapters.mjs';
 import { trackerStanding } from '../../src/lib/apply/hybrid/tracker-row.mjs';
 import { claimSubmissionAttempt, recordSubmissionResult, rememberFormTab, submissionAttemptFor } from '../../src/lib/apply/hybrid/round.mjs';
 import { findReportForRow, loadCanonicalData } from '../../scripts/ab-jev-apply.mjs';
+import { LOCAL_TELEMETRY } from '../../src/lib/apply/hybrid/stagehand.mjs';
 
 const FIXTURES = path.join(import.meta.dirname, '..', '..', 'src', 'lib', 'apply', '__fixtures__');
 
@@ -113,18 +114,24 @@ test('numeric report lookup treats padded and unpadded selectors identically', (
   try {
     fs.mkdirSync(path.join(root, 'reports'));
     const report = path.join(root, 'reports', '022-acme-2026-09-22.md');
+    fs.writeFileSync(path.join(root, 'cv.md'), '# Example Candidate\n\n**Years of Experience:** 7\n');
     fs.writeFileSync(
       report,
-      '# Acme\n\n## Application Answers\n\n**Date:** 2026-09-22\n**State:** filled\n\n### Free-text answers\n\n1. **Email**\n\n> padded@example.com\n\n### Selections made\n\n- None captured.\n\n### Other field values\n\n- None captured.\n\n### Files used\n\n- None captured.\n',
+      '# Acme\n\n## Application Answers\n\n**Date:** 2026-09-22\n**State:** filled\n\n### Free-text answers\n\n1. **Why this role?**\n\n> I enjoy solving example problems.\n\n2. **Email**\n\n> report@example.test\n\n### Selections made\n\n1. **Visa sponsorship:** Yes\n\n### Other field values\n\n1. **Years of experience:** 99\n\n### Files used\n\n- None captured.\n',
     );
     assert.equal(findReportForRow(root, 22), report);
     assert.equal(findReportForRow(root, '022'), report);
     const loaded = loadCanonicalData(root, { row: 22 });
     assert.equal(loaded.sources.report, report);
-    assert.deepEqual(loaded.reportAnswers, [{ label: 'Email', value: 'padded@example.com' }]);
+    assert.deepEqual(loaded.reportAnswers, [{ label: 'Why this role?', value: 'I enjoy solving example problems.' }]);
+    assert.ok(loaded.cvAnswers.some((answer) => answer.label === 'Years of Experience' && answer.value === '7'));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('Stagehand telemetry is restricted to loopback', () => {
+  assert.equal(new URL(LOCAL_TELEMETRY.traces.endpoint).hostname, '127.0.0.1');
 });
 
 test('an option is chosen only when it represents the canonical value uniquely', () => {
@@ -594,6 +601,38 @@ test('a report number never matches a date segment in another posting CV', () =>
   }
 });
 
+test('the hybrid CV resolver honors the canonical PDF-index override and rejects cover filenames', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-cv-'));
+  const previous = process.env.CAREER_OPS_PDF_INDEX;
+  try {
+    for (const dir of ['reports', 'output', 'data']) fs.mkdirSync(path.join(root, dir));
+    const report = path.join(root, 'reports', '042-acme-2026-09-22.md');
+    const cv = path.join(root, 'output', 'cv-example-candidate-acme-2026-09-22.pdf');
+    const cover = path.join(root, 'output', 'acme-cover.pdf');
+    const override = path.join(root, 'authoritative-index.tsv');
+    fs.writeFileSync(report, '# Acme\n');
+    fs.writeFileSync(cv, '%PDF-1.4 cv\n');
+    fs.writeFileSync(cover, '%PDF-1.4 cover\n');
+    fs.writeFileSync(path.join(root, 'data', 'pdf-index.tsv'), '42\toutput/missing-stale.pdf\n');
+    fs.writeFileSync(override, '42\toutput/cv-example-candidate-acme-2026-09-22.pdf\n');
+    process.env.CAREER_OPS_PDF_INDEX = override;
+    assert.equal(resolvePostingCv({ root, reportPath: report }).path, cv);
+    assert.equal(fileNamesCompany(cover, 'acme'), false);
+    assert.equal(fileNamesCompany(cv, 'acme'), true);
+    const secondReport = path.join(root, 'reports', '043-acme-2026-09-22.md');
+    fs.writeFileSync(secondReport, '# Acme\n');
+    const rejectedCover = resolvePostingCv({ root, reportPath: secondReport, explicitCv: cover });
+    assert.equal(rejectedCover.path, null);
+    assert.match(rejectedCover.rejected[0].reason, /does not name/);
+    process.env.CAREER_OPS_PDF_INDEX = path.join(root, 'data');
+    assert.throws(() => resolvePostingCv({ root, reportPath: report }));
+  } finally {
+    if (previous === undefined) delete process.env.CAREER_OPS_PDF_INDEX;
+    else process.env.CAREER_OPS_PDF_INDEX = previous;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('CV generation stops before launching an agent when the report has no archived JD', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-cv-'));
   try {
@@ -657,6 +696,20 @@ test('a durable submit claim blocks both the eligibility lookup and a second sub
     assert.deepEqual(submissionAttemptFor(rootA, url, 42).tracker, { ok: false, error: 'write failed' });
     assert.equal(submissionAttemptFor(rootA, 'https://jobs.example.test/changed', 42).status, 'unconfirmed', 'the report number survives a URL change within one track');
     assert.deepEqual(fs.readdirSync(stateDir), ['hybrid-round.json'], 'the serialized state is atomically renamed into place');
+  } finally {
+    if (previous === undefined) delete process.env.CAREER_OPS_HYBRID_STATE_DIR;
+    else process.env.CAREER_OPS_HYBRID_STATE_DIR = previous;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a malformed round state fails closed instead of forgetting prior submissions', () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-round-'));
+  const previous = process.env.CAREER_OPS_HYBRID_STATE_DIR;
+  process.env.CAREER_OPS_HYBRID_STATE_DIR = stateDir;
+  try {
+    fs.writeFileSync(path.join(stateDir, 'hybrid-round.json'), '{"submissionAttempts":');
+    assert.throws(() => submissionAttemptFor(stateDir, 'https://jobs.example.test/42', 42), SyntaxError);
   } finally {
     if (previous === undefined) delete process.env.CAREER_OPS_HYBRID_STATE_DIR;
     else process.env.CAREER_OPS_HYBRID_STATE_DIR = previous;

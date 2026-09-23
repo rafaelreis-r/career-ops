@@ -85,6 +85,7 @@ export function verifiedOutcomeMatchesQuestion(question, outcome) {
 export function evaluateGate(finalScan, outcomes, { cvName = '', cvReason = null, resumeQuestion = null } = {}) {
   const blockers = [];
   for (const frame of finalScan.frameErrors || []) blockers.push({ kind: 'frame-scan', key: null, label: frame.url || 'embedded application frame', reason: `frame could not be scanned: ${frame.reason}` });
+  for (const invalid of finalScan.nativeInvalid || []) blockers.push({ kind: 'native-invalid', key: invalid.key ?? null, label: invalid.label, reason: invalid.message });
   for (const q of finalScan.questions) {
     if (!q.visible) continue;
     const o = outcomes.get(q.key);

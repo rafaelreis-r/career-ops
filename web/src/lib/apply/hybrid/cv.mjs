@@ -14,6 +14,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { findCaptureForReport } from '../../../../../jd-capture.mjs';
+import { resolvePdfIndexPath, resolveTrackerPath } from '../../../../../tracker-utils.mjs';
+import { matchesTailoredCv } from '../cv-match.mjs';
 
 const slugOf = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
@@ -28,12 +30,12 @@ export function parseReportName(reportPath) {
 export function fileNamesCompany(file, companySlug, { linked = false, reportNumber = null } = {}) {
   const slug = slugOf(companySlug);
   if (!slug) return false;
-  const name = `-${slugOf(path.basename(String(file ?? '')))}-`;
-  if (name.includes(`-${slug}-`)) return true;
+  const name = path.basename(String(file ?? '')).toLowerCase();
+  if (matchesTailoredCv(name, slug)) return true;
   if (!linked) return false;
   if (reportNumber != null) {
-    const withoutDate = slugOf(path.basename(String(file ?? '')).replace(/\.pdf$/i, '')).replace(/-\d{4}-\d{2}-\d{2}$/, '');
-    if (withoutDate.split('-').includes(String(Number(reportNumber)))) return true;
+    const withoutDate = name.replace(/-\d{4}-\d{2}-\d{2}\.pdf$/, '.pdf');
+    if (matchesTailoredCv(withoutDate, String(Number(reportNumber)))) return true;
   }
   return false;
 }
@@ -42,8 +44,9 @@ function hasArchivedJobDescription(root, reportPath, reportNumber, companySlug) 
   let report = '';
   try {
     report = fs.readFileSync(reportPath, 'utf8');
-  } catch {
-    return false;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
   }
   const heading = /^##\s+Job Description\b.*$/im.exec(report);
   if (heading) {
@@ -56,10 +59,12 @@ function hasArchivedJobDescription(root, reportPath, reportNumber, companySlug) 
 /** Rows of data/pdf-index.tsv as `{num, pdf}` (pdf relative to the root). */
 function readIndex(root) {
   let text;
+  const indexPath = resolvePdfIndexPath(resolveTrackerPath(root));
   try {
-    text = fs.readFileSync(path.join(root, 'data', 'pdf-index.tsv'), 'utf8');
-  } catch {
-    return [];
+    text = fs.readFileSync(indexPath, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
   }
   return text
     .split('\n')

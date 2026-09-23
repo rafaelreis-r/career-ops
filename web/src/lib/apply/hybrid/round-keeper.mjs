@@ -32,8 +32,9 @@ function write(state) {
 function priorAttempts() {
   try {
     return JSON.parse(fs.readFileSync(stateFile, 'utf8')).submissionAttempts || [];
-  } catch {
-    return [];
+  } catch (error) {
+    if (error?.code === 'ENOENT') return [];
+    throw error;
   }
 }
 
@@ -43,6 +44,13 @@ async function alive() {
   } catch {
     return false;
   }
+}
+
+let submissionAttempts;
+try {
+  submissionAttempts = priorAttempts();
+} catch {
+  process.exit(1);
 }
 
 try {
@@ -60,11 +68,11 @@ try {
     keeperPid: process.pid,
     startedAt: new Date().toISOString(),
     tabs: {},
-    submissionAttempts: priorAttempts(),
+    submissionAttempts,
   });
   while (await alive()) await sleep(5000);
   process.exit(0);
 } catch (e) {
-  write({ cdpUrl: null, error: e instanceof Error ? e.message : String(e), keeperPid: process.pid, tabs: {}, submissionAttempts: priorAttempts() });
+  write({ cdpUrl: null, error: e instanceof Error ? e.message : String(e), keeperPid: process.pid, tabs: {}, submissionAttempts });
   process.exit(1);
 }

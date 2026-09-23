@@ -194,9 +194,29 @@ export function findReportForRow(root, row) {
   return hit ? path.join(dir, hit) : null;
 }
 
+const REPORT_OPEN_TEXT_RX = /\bwhy\b.*\b(company|role|position|team)\b|\b(motivation|cover note|cover letter|what interests you|why are you interested|fit)\b/i;
+
+export function answersFromCvMarkdown(text) {
+  const answers = [];
+  const push = (label, value) => {
+    const cleanLabel = String(label ?? '').replace(/[*_`#]/g, '').trim();
+    const cleanValue = String(value ?? '').replace(/[*_`]/g, '').trim();
+    if (cleanLabel && cleanValue && cleanValue.length <= 300) answers.push({ label: cleanLabel, value: cleanValue });
+  };
+  const lines = String(text ?? '').split(/\r?\n/);
+  const heading = lines.find((line) => /^#\s+\S/.test(line));
+  if (heading) push('Full Name', heading.replace(/^#\s+/, ''));
+  for (const line of lines) {
+    const match = /^\s*(?:[-*]\s*)?(?:\*\*)?([^:*]{2,60})(?:\*\*)?\s*:\s*(.+?)\s*$/.exec(line);
+    if (match) push(match[1], match[2]);
+  }
+  return answers;
+}
+
 export function loadCanonicalData(root, { row, reportPath } = {}) {
   const sources = { profileYml: null, cvFactsJson: null, cvMd: null, report: null };
   const profileAnswers = [];
+  const cvAnswers = [];
   const reportAnswers = [];
 
   const profilePath = path.join(root, "config", "profile.yml");
@@ -228,7 +248,11 @@ export function loadCanonicalData(root, { row, reportPath } = {}) {
     }
   }
 
-  sources.cvMd = fs.existsSync(path.join(root, "cv.md")) ? path.join(root, "cv.md") : null;
+  const cvPath = path.join(root, "cv.md");
+  if (fs.existsSync(cvPath)) {
+    cvAnswers.push(...answersFromCvMarkdown(fs.readFileSync(cvPath, "utf8")));
+    sources.cvMd = cvPath;
+  }
 
   let resolvedReportPath = reportPath ? path.resolve(reportPath) : null;
   if (!resolvedReportPath && row != null) {
@@ -238,9 +262,7 @@ export function loadCanonicalData(root, { row, reportPath } = {}) {
     const text = fs.readFileSync(resolvedReportPath, "utf8");
     const snap = parseApplicationAnswersSection(text);
     if (snap) {
-      for (const e of snap.freeText) if (e.answer?.trim()) reportAnswers.push({ label: e.question, value: e.answer.trim() });
-      for (const e of snap.selections) if (e.selection?.trim()) reportAnswers.push({ label: e.question, value: e.selection.trim() });
-      for (const e of snap.fieldValues) if (e.answer?.trim()) reportAnswers.push({ label: e.question, value: e.answer.trim() });
+      for (const e of snap.freeText) if (e.answer?.trim() && REPORT_OPEN_TEXT_RX.test(e.question || '')) reportAnswers.push({ label: e.question, value: e.answer.trim() });
       sources.report = resolvedReportPath;
     }
   }
@@ -248,7 +270,7 @@ export function loadCanonicalData(root, { row, reportPath } = {}) {
   // `answers` keeps the merged, report-first order every existing caller reads;
   // the two halves are exposed for callers that match them in that precedence
   // as separate stages (web/scripts/apply-hybrid.mjs).
-  return { answers: [...reportAnswers, ...profileAnswers], reportAnswers, profileAnswers, sources };
+  return { answers: [...reportAnswers, ...profileAnswers, ...cvAnswers], reportAnswers, profileAnswers, cvAnswers, sources };
 }
 
 // ── résumé/CV attachment (deterministic — never routed through the Jev

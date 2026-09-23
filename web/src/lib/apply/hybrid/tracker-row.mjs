@@ -145,13 +145,13 @@ export function postingEligibility({ root, reportNumber = null, company = null, 
       for (const row of rows) {
         if (normalizeCompany(row.company) !== key || !SENT_STATES.has(row.canonical)) continue;
         const sent = sentDate(r, tracker, row);
-        if (sent.date >= since) submissions.push({ track: r, row: row.num, role: row.role, date: sent.date, dateSource: sent.source });
+        if (sent.date > since) submissions.push({ track: r, row: row.num, role: row.role, date: sent.date, dateSource: sent.source });
       }
     }
     submissions.sort((a, b) => a.date.localeCompare(b.date));
     const reached = submissions.length >= rule.max;
     // The window reopens the day the oldest counted submission falls out of it.
-    const reopensOn = reached ? addDays(submissions[submissions.length - rule.max].date, rule.days + 1) : null;
+    const reopensOn = reached ? addDays(submissions[submissions.length - rule.max].date, rule.days) : null;
     limit = { ...rule, count: submissions.length, submissions, reached, reopensOn };
     if (reached) reasons.push(`${rule.company} allows ${rule.max} submissions per ${rule.days} days and ${submissions.length} were sent since ${since} (${submissions.map((s) => `#${s.row} on ${s.date}`).join(', ')}); the window reopens on ${reopensOn}`);
   }

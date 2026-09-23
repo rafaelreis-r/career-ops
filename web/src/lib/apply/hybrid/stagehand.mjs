@@ -13,6 +13,7 @@ import { spawn } from 'node:child_process';
 import { Stagehand } from '@browserbasehq/stagehand';
 
 const CODEX_TIMEOUT_MS = 180_000;
+export const LOCAL_TELEMETRY = Object.freeze({ traces: { endpoint: 'http://127.0.0.1:9/v1/traces', headers: {} } });
 
 /** OpenAI-style strict structured output: every object closed and every
  *  property required (codex --output-schema rejects open objects). */
@@ -102,7 +103,7 @@ async function bounded(promise, ms, what) {
  * when the site opened another one or when the round holds other forms.
  */
 export async function createFormAgent(shBrowser, generate, pageUrl) {
-  const stagehand = await bounded(Stagehand.create({ browser: shBrowser, model: { generate } }), 60_000, 'Stagehand.create');
+  const stagehand = await bounded(Stagehand.create({ browser: shBrowser, model: { generate }, telemetry: LOCAL_TELEMETRY }), 60_000, 'Stagehand.create');
   let page = null;
   for (const p of await shBrowser.context.pages()) {
     if ((await p.url()) === pageUrl) page = p;

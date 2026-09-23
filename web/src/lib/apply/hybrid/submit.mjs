@@ -20,11 +20,14 @@
 // the form's submit control and counts the application as sent only when the
 // employer's confirmation shows.
 
+import { SUBMISSION_POLICY } from './submit-policy.mjs';
+
 const LOCK_TTL_MS = 45_000;
 const HEARTBEAT_MS = 15_000;
 
 /** In-page (every frame): install the lock once, then extend it by `ttl`. */
-function lockInPage(ttl) {
+function lockInPage(config) {
+  const { ttl, policy } = config;
   const w = window;
   if (!w.__hybLock) {
     const L = { until: 0, armed: false, blocked: [] };
@@ -61,13 +64,13 @@ function lockInPage(ttl) {
       if (guardsForm(this)) return void note('form.requestSubmit()');
       return nativeRequestSubmit.apply(this, args);
     };
-    const FINAL_RX = /^(submit|send|apply|enviar|finalizar|concluir|candidatar|postular|aplicar|bewerben|confirmar)\b|submit application|send application|enviar candidatura|finalizar candidatura/i;
-    const UPLOAD_RX = /\b(attach|upload|anexar|carregar|choose file|browse)\b|^(send|enviar)\b.*\b(resume|résumé|cv|curr[ií]culo|file|arquivo|documento)\b/i;
+    const FINAL_RX = new RegExp(policy.submitSource, 'i');
+    const UPLOAD_RX = new RegExp(policy.uploadSource, 'i');
     w.addEventListener(
       'click',
       (e) => {
         if (!locked()) return;
-        const c = e.target && e.target.closest ? e.target.closest('button, input[type=submit], input[type=image], [role=button], a') : null;
+        const c = e.target && e.target.closest ? e.target.closest('button, input[type=submit], input[type=image], [role=button], [role=link], a') : null;
         if (!c) return;
         const text = `${c.textContent || ''} ${c.value || ''} ${c.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
         const formSubmit = (c.type === 'submit' || c.type === 'image') && c.form && applicantControls(c.form).length > 0;
@@ -106,10 +109,11 @@ async function eachFrame(page, fn, arg) {
  * @returns {Promise<{release: () => Promise<void>, blocked: () => Promise<number>}>}
  */
 export async function holdSubmitLock(page) {
-  await page.addInitScript(lockInPage, LOCK_TTL_MS);
-  await eachFrame(page, lockInPage, LOCK_TTL_MS);
+  const config = { ttl: LOCK_TTL_MS, policy: SUBMISSION_POLICY };
+  await page.addInitScript(lockInPage, config);
+  await eachFrame(page, lockInPage, config);
   const timer = setInterval(() => {
-    eachFrame(page, lockInPage, LOCK_TTL_MS).catch(() => {});
+    eachFrame(page, lockInPage, config).catch(() => {});
   }, HEARTBEAT_MS);
   timer.unref?.();
   return {
@@ -118,14 +122,14 @@ export async function holdSubmitLock(page) {
       await eachFrame(page, releaseInPage);
     },
     async blocked() {
-      return (await eachFrame(page, lockInPage, LOCK_TTL_MS)).reduce((n, x) => n + (x || 0), 0);
+      return (await eachFrame(page, lockInPage, config)).reduce((n, x) => n + (x || 0), 0);
     },
   };
 }
 
 // In-page: the controls that would send this application. Tagged
 // `data-hyb-submit` for one exact click.
-function submitControlsInPage() {
+function submitControlsInPage(policy) {
   const vis = (el) => {
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
@@ -135,11 +139,11 @@ function submitControlsInPage() {
     [...root.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]), textarea, select')].filter(
       (el) => !/search|busca|pesquis/i.test(`${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.name || ''}`),
     ).length;
-  const FINAL_RX = /^(submit|send|apply|enviar|finalizar|concluir|candidatar|postular|aplicar|bewerben|confirmar)\b|submit application|send application|enviar candidatura|finalizar candidatura/i;
-  const UPLOAD_RX = /\b(attach|upload|anexar|carregar|choose file|browse)\b|^(send|enviar)\b.*\b(resume|résumé|cv|curr[ií]culo|file|arquivo|documento)\b/i;
+  const FINAL_RX = new RegExp(policy.submitSource, 'i');
+  const UPLOAD_RX = new RegExp(policy.uploadSource, 'i');
   document.querySelectorAll('[data-hyb-submit]').forEach((n) => n.removeAttribute('data-hyb-submit'));
   const found = [];
-  for (const c of document.querySelectorAll('button, input[type=submit], input[type=image], [role=button], a')) {
+  for (const c of document.querySelectorAll('button, input[type=submit], input[type=image], [role=button], [role=link], a')) {
     if (!vis(c) || c.disabled) continue;
     const text = `${c.textContent || ''} ${c.value || ''} ${c.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
     const form = c.form || c.closest('form');
@@ -178,6 +182,18 @@ async function pageText(page) {
   return parts.filter(Boolean).join('\n');
 }
 
+function nativeValidityInPage(submitIndex) {
+  const submit = document.querySelector(`[data-hyb-submit="${submitIndex}"]`);
+  const form = submit?.form || submit?.closest('form');
+  if (!form) return [{ label: 'application form', message: 'submit control is no longer associated with a form' }];
+  return [...form.querySelectorAll('input, select, textarea')]
+    .filter((control) => control.willValidate && !control.checkValidity())
+    .map((control) => ({
+      label: control.labels?.[0]?.textContent?.replace(/\s+/g, ' ').trim() || control.getAttribute('aria-label') || control.name || control.id || control.tagName,
+      message: control.validationMessage || 'invalid value',
+    }));
+}
+
 /** First match of `rx` in `after` that `before` did not already contain. */
 function newMatch(rx, before, after) {
   const g = new RegExp(rx.source, 'gi');
@@ -197,12 +213,14 @@ export async function submitApplication(page, { timeoutMs = 30_000, beforeClick 
   const frames = page.frames();
   const foundAcrossFrames = [];
   for (const [frameIndex, frame] of frames.entries()) {
-    const found = await frame.evaluate(submitControlsInPage).catch(() => []);
+    const found = await frame.evaluate(submitControlsInPage, SUBMISSION_POLICY).catch(() => []);
     foundAcrossFrames.push(...found.map((control) => ({ ...control, frameIndex })));
   }
   const pick = chooseSubmitControl(foundAcrossFrames);
   if (!pick.control) return { status: 'no-control', reason: pick.reason };
   const target = { frame: frames[pick.control.frameIndex], control: pick.control };
+  const invalid = await target.frame.evaluate(nativeValidityInPage, target.control.index).catch(() => [{ label: target.frame.url(), message: 'form validity could not be checked' }]);
+  if (invalid.length) return { status: 'invalid', reason: `native form validation failed: ${invalid.map((item) => `${item.label}: ${item.message}`).join(' | ')}` };
   const before = page.url();
   const beforeText = await pageText(page);
   if (beforeClick) {

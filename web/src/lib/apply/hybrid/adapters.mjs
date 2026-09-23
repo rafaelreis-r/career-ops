@@ -7,6 +7,7 @@
 
 import { scanQuestionsInPage } from './page-scan.mjs';
 import { findQuestionByIdentity, matchOption, normalizeText } from './answers.mjs';
+import { SUBMISSION_POLICY } from './submit-policy.mjs';
 
 const ACTION_TIMEOUT_MS = 8000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -315,7 +316,7 @@ export async function attachFile(frame, q, cvPath, cvName) {
 // applicant controls is never the trigger, whatever it says; a submit button
 // of a form with no applicant control only navigates (recrut.ai's
 // "Inscrever-se na vaga" posts to /job-apply/ to open the form).
-function applyProbeInPage() {
+function applyProbeInPage(policy) {
   const vis = (el) => {
     const r = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
@@ -326,9 +327,9 @@ function applyProbeInPage() {
   const applicantFile = fillable.some((el) => el.type === 'file');
   const applicantControls = (form) => form.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]), textarea, select').length;
   document.querySelectorAll('[data-hyb-apply]').forEach((n) => n.removeAttribute('data-hyb-apply'));
-  const SUBMIT_RX = /^(submit|send|apply|enviar|finalizar|concluir|candidatar|postular|aplicar|bewerben)\b|submit application|send application|enviar candidatura/i;
+  const SUBMIT_RX = new RegExp(policy.submitSource, 'i');
   const REVEAL_RX = /^inscrever-se na vaga$/i;
-  const trigger = [...document.querySelectorAll('button, a, [role=button], input[type=submit], input[type=button]')].find((el) => {
+  const trigger = [...document.querySelectorAll('button, a, [role=button], [role=link], input[type=submit], input[type=button]')].find((el) => {
     if (!vis(el)) return false;
     const text = `${el.textContent || ''} ${el.value || ''} ${el.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
     const href = el.getAttribute('href') || el.getAttribute('formaction') || el.form?.getAttribute('action') || '';
@@ -367,7 +368,7 @@ function applyProbeInPage() {
 export async function reachApplicationForm(page) {
   const log = [];
   for (let attempt = 0; attempt < 3; attempt++) {
-    const probe = await page.evaluate(applyProbeInPage).catch(() => ({ fillable: 0, applicantFile: false, trigger: null, cookie: false, challenge: false, closed: false }));
+    const probe = await page.evaluate(applyProbeInPage, SUBMISSION_POLICY).catch(() => ({ fillable: 0, applicantFile: false, trigger: null, cookie: false, challenge: false, closed: false }));
     if (probe.fillable >= 2 || probe.applicantFile) return { reached: true, url: page.url(), log };
     if (probe.challenge) return { reached: false, challenge: true, url: page.url(), log, reason: 'a human-verification challenge stands before the form' };
     if (attempt === 2 || !probe.trigger) {
@@ -379,7 +380,7 @@ export async function reachApplicationForm(page) {
     await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {});
     for (let i = 0; i < 20; i++) {
       await sleep(500);
-      const p = await page.evaluate(applyProbeInPage).catch(() => null);
+      const p = await page.evaluate(applyProbeInPage, SUBMISSION_POLICY).catch(() => null);
       if (p && (p.fillable >= 2 || p.applicantFile)) break;
     }
     log.push({ clicked: probe.trigger, from: before, to: page.url() });

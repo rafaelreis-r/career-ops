@@ -281,9 +281,17 @@ export function scanQuestionsInPage() {
 
   const frames = [...document.querySelectorAll('iframe')];
   const captchaFrames = frames.filter((f) => /recaptcha|hcaptcha|turnstile|challenges\.cloudflare/i.test(`${f.src} ${f.title}`));
+  const nativeInvalid = [...document.querySelectorAll('input[data-hyb-c], select[data-hyb-c], textarea[data-hyb-c]')]
+    .filter((control) => control.willValidate && !control.checkValidity())
+    .map((control) => ({
+      key: control.getAttribute('data-hyb-c'),
+      label: questions.find((question) => question.key === control.getAttribute('data-hyb-c'))?.label || control.name || control.id || control.tagName,
+      message: control.validationMessage || 'invalid value',
+    }));
   return {
     url: location.href,
     questions,
+    nativeInvalid,
     captcha: {
       present: captchaFrames.length > 0 || !!document.querySelector('.g-recaptcha, .h-captcha, .cf-turnstile, textarea[name=g-recaptcha-response]'),
       visibleWidgets: captchaFrames.filter(visible).map((f) => f.title || f.src.slice(0, 80)),
@@ -300,7 +308,7 @@ const CAPTCHA_FRAME_RX = /recaptcha|hcaptcha|turnstile|challenges\.cloudflare|ar
  *  on 2026-09-22) or its own document title. Each question carries `frame` (an
  *  index into `frameObjs`) so the adapters act in the frame it lives in. */
 export async function scanPage(page) {
-  const out = { url: page.url(), questions: [], captcha: { present: false, visibleWidgets: [] }, frameObjs: [], frameErrors: [] };
+  const out = { url: page.url(), questions: [], captcha: { present: false, visibleWidgets: [] }, frameObjs: [], frameErrors: [], nativeInvalid: [] };
   for (const f of page.frames()) {
     let tag = f.url();
     if (f !== page.mainFrame()) {
@@ -322,6 +330,7 @@ export async function scanPage(page) {
     const idx = out.frameObjs.push(f) - 1;
     if (res.captcha.present) out.captcha.present = true;
     out.captcha.visibleWidgets.push(...res.captcha.visibleWidgets);
+    out.nativeInvalid.push(...(res.nativeInvalid || []).map((invalid) => ({ ...invalid, frame: idx })));
     for (const q of res.questions) out.questions.push({ ...q, frame: idx });
   }
   return out;

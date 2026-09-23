@@ -40,8 +40,9 @@ const stateFile = () => path.join(stateDir(), 'hybrid-round.json');
 function readState() {
   try {
     return JSON.parse(fs.readFileSync(stateFile(), 'utf8'));
-  } catch {
-    return null;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
   }
 }
 function writeState(s) {

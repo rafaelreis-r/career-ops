@@ -209,7 +209,7 @@ async function main() {
 
   const loaded = loadCanonicalData(root, { row: args.row, reportPath: args.report });
   const profile = loaded.sources.profileYml ? yaml.load(fs.readFileSync(loaded.sources.profileYml, 'utf8')) : null;
-  const answers = buildAnswers(loaded.reportAnswers, [...loaded.profileAnswers, ...answersFromProfileFacts(profile)]);
+  const answers = buildAnswers(loaded.reportAnswers, [...loaded.profileAnswers, ...loaded.cvAnswers, ...answersFromProfileFacts(profile)]);
   const reportPath = findReport(root, args);
   const reportNumber = parseReportName(reportPath).number ?? args.row;
   const companySlug = parseReportName(reportPath).slug || deriveCompanySlug({ url: args.url });
@@ -650,7 +650,7 @@ async function main() {
     settle.tabs.forEach((t, i) => console.log(`[hybrid]   ${i + 1}. [${t.status}] ${t.url}${t.pending?.length ? ` — missing: ${t.pending.join(' | ')}` : ''}`));
   }
   console.log(`[hybrid] metrics: ${outPath}`);
-  const submitAttempted = submission && submission.status !== 'no-control';
+  const submitAttempted = submission && submission.status !== 'no-control' && submission.status !== 'invalid';
   process.exit(failed ? 1 : noForm ? 4 : standing?.status === 'submitted' ? 0 : submitAttempted ? 6 : 3);
 }
 
