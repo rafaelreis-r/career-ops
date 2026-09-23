@@ -121,8 +121,9 @@ Keep these across rebases; each exists for a reason.
   provider key), then deterministic Playwright adapters for exact-label
   canonical answers, each re-reading the DOM after it acts. Every field they
   miss, misfill or cannot verify goes to the model: Jev matching (report
-  answers, then profile answers), a second codex judge, Jev option picks, and
-  a Stagehand `act()` on that field, followed by the same DOM check. A value
+  answers, then profile answers), a second codex judge, Jev's yes/no judgment
+  over the canonical facts (never for a consent question), Jev option picks,
+  and a Stagehand `act()` on that field, followed by the same DOM check. A value
   that does not fit the field (an e-mail in "Address", a monthly amount in an
   annual field, another currency) is never typed. The CV is always this
   posting's PDF (`data/pdf-index.tsv`, the report's `**PDF:**` line, `--cv`),
@@ -133,7 +134,8 @@ Keep these across rebases; each exists for a reason.
   `~/.cache/career-ops/hybrid-round.json`). A detached keeper process
   (`round-keeper.mjs`) launches it and holds the CDP connection that loaded
   Stagehand's runtime extension, because Chrome disables that extension when
-  the connection closes. Each form is a tab and stays open. After each form the
+  the connection closes. Each form is a tab and stays open; running a posting
+  again reuses its tab as it stands. After each form the
   tabs are re-ordered: forms that only need the captcha first, then the rest
   from fewest to most pending items. Only a posting with no form (closed or
   removed ad) is closed. A posting whose tracker row is Applied or later is
