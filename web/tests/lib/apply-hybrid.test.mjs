@@ -20,8 +20,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
-import { scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
-import { answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, lockFor, matchAnswers, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
+import { scanPage, scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
+import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, lockFor, matchAnswers, matchExact, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
 import { evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
 import { resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
@@ -216,6 +216,33 @@ test('Wellhub: a dropdown that ignores the click fails after one attempt and lea
   assert.ok(gate.blockers.some((b) => b.label === 'Please select your Country Phone Code*'));
 });
 
+test("iTRTech: the reCAPTCHA frame's checkbox is never a question, and keys do not collide across frames", async (t) => {
+  const page = await openFixture(t, 'hybrid-recrutai-itrtech.html');
+  if (!page) return;
+  // recrut.ai's reCAPTCHA reached over CDP reported an empty frame URL on
+  // 2026-09-22: only its <iframe title="reCAPTCHA"> said what it was.
+  await page.evaluate(() => {
+    const frame = (title, body) => {
+      const f = document.createElement('iframe');
+      if (title) f.title = title;
+      f.srcdoc = `<html><body>${body}</body></html>`;
+      document.body.append(f);
+      return new Promise((resolve) => f.addEventListener('load', resolve));
+    };
+    return Promise.all([
+      frame('reCAPTCHA', '<label><input type="checkbox" id="recaptcha-anchor">Não sou um robô</label>'),
+      frame(null, '<label>Número*<input name="inputAddressNumber" required></label>'),
+    ]);
+  });
+  const s = await scanPage(page);
+  assert.equal(s.captcha.present, true);
+  assert.equal(s.questions.some((q) => /rob[oô]/i.test(q.label)), false, 'the captcha checkbox is the human\'s');
+  assert.ok(s.questions.some((q) => q.label === 'Número*' && q.frame > 0), 'a plain subframe is still scanned');
+  const keys = s.questions.map((q) => q.key);
+  assert.equal(new Set(keys).size, keys.length, 'one key per question across frames');
+  assert.deepEqual((await scanPage(page)).questions.map((q) => q.key), keys, 'a rescan keeps every key');
+});
+
 test('Wellhub: the salary fields in reais keep their real labels and currency', async (t) => {
   const page = await openFixture(t, 'hybrid-greenhouse-wellhub.html');
   if (!page) return;
@@ -318,6 +345,50 @@ test('Camunda: a yes/no toggle no answer names is judged from the facts; a conse
   assert.deepEqual(asked, [eligible.label]);
   assert.equal(out.get(eligible.key).answer.value, 'Yes');
   assert.equal(matchOption(eligible.options, out.get(eligible.key).answer.value)?.index, eligible.options.indexOf('Yes'));
+});
+
+test('Wellhub: the citizenship dropdown is a yes/no question judged with the posting head; the disability dropdown never is', async () => {
+  // Labels verbatim from the live Wellhub form (Greenhouse React-select, options load on open).
+  const citizen = { key: 'q18', kind: 'combobox', label: 'Are you a citizen or permanent resident of the country where this position is based?*', options: null };
+  const disability = { key: 'q30', kind: 'combobox', label: 'Are you a person with a disability?', options: null };
+  const salary = { key: 'q15', kind: 'text', label: 'What is your current base salary? (in reais) *' };
+  const seen = [];
+  const bool = async (question, facts) => {
+    seen.push({ question, posting: facts['Job posting (title and location, page text)'] });
+    return { bool: true, confidence: 0.8 };
+  };
+  const facts = buildAnswers([], [{ label: 'Nationality', value: 'Brazilian' }]);
+  const out = await answerYesNoFromFacts([citizen, disability, salary], facts, { bool, posting: 'Staff Product Manager - Occupational Health (New Ventures)\nBrazil, Remote' });
+  assert.deepEqual(seen, [{ question: citizen.label, posting: 'Staff Product Manager - Occupational Health (New Ventures)\nBrazil, Remote' }]);
+  assert.equal(out.get('q18').answer.value, 'Yes');
+});
+
+test('profile address, nationality and salary anchor become canonical answers; real labels bind to them exactly', () => {
+  // Same shape as config/profile.yml in the tracks; the values are made up.
+  const profile = {
+    candidate: { full_name: 'Ana Souza Lima' },
+    compensation: { target_range: 'USD 7.5K/month international contractor anchor (floor, not ceiling); BRL 25K/month Brazil (CLT)' },
+    application_answers: { salary: 'use_profile_compensation', relatives_or_close_friends_at_hiring_company: false },
+    us_ats_answers: {
+      address: { street: 'Rua das Flores, 45', district: 'Centro', state: 'SP', postal_code: '01000-000' },
+      identity: { nationality: 'Brazilian', passport_country: 'Brazil' },
+      employment: { work_authorization_country: 'Brazil', current_compensation: 'BRL 20000/month' },
+    },
+  };
+  const answers = buildAnswers([], answersFromProfileFacts(profile));
+  const exact = (label) => matchExact({ label }, answers)?.value ?? null;
+  // iTRTech (recrut.ai) and Camunda (Ashby) labels, verbatim.
+  assert.equal(exact('CEP*'), '01000-000');
+  assert.equal(exact('Post Code'), '01000-000');
+  assert.equal(exact('State/Region'), 'SP');
+  assert.equal(exact('Número'), '45');
+  assert.equal(exact('Bairro'), 'Centro');
+  assert.equal(exact('Address'), 'Rua das Flores, 45');
+  assert.equal(answers.find((a) => a.label === 'Preferred Name').value, 'Ana');
+  assert.equal(answers.find((a) => a.label === 'Salary Expectations').value, 'USD 7500/month');
+  assert.equal(answers.find((a) => /20000/.test(a.value)), undefined, 'current pay is not a canonical answer here');
+  // The anchor never lands in a field that names another currency.
+  assert.equal(lockFor({ label: 'What is your expected base salary for this role? (in reais)*' }, answers.find((a) => a.label === 'Salary Expectations'))?.reason, 'currency-mismatch');
 });
 
 // --- SMG (applytojob, 2026-09-22): the three errors the live round shipped ---

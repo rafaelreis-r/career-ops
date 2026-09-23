@@ -110,15 +110,22 @@ export function scanQuestionsInPage() {
 
   const seen = new Set();
   const questions = [];
+  // Keys are unique across the frames of a page: the top document uses q0,
+  // q1...; a subframe prefixes its own random id, kept on its root element so
+  // it survives rescans (two frames once both tagged a "q0").
+  const root = document.documentElement;
+  if (window !== window.top && !root.getAttribute('data-hyb-frame')) root.setAttribute('data-hyb-frame', Math.random().toString(36).slice(2, 8));
+  const prefix = window === window.top ? 'q' : `f${root.getAttribute('data-hyb-frame')}q`;
   let nextKey = 0;
   for (const el of document.querySelectorAll('[data-hyb-q]')) {
-    const n = Number(String(el.getAttribute('data-hyb-q')).replace(/^q/, ''));
+    const k = String(el.getAttribute('data-hyb-q'));
+    const n = k.startsWith(prefix) ? Number(k.slice(prefix.length)) : NaN;
     if (Number.isFinite(n) && n >= nextKey) nextKey = n + 1;
   }
   const keyFor = (host) => {
     let k = host.getAttribute('data-hyb-q');
     if (!k) {
-      k = `q${nextKey++}`;
+      k = `${prefix}${nextKey++}`;
       host.setAttribute('data-hyb-q', k);
     }
     return k;
@@ -284,13 +291,24 @@ export function scanQuestionsInPage() {
   };
 }
 
-/** Run the scan in every frame that can hold form fields (captcha frames are
- *  only recorded). Each question carries `frame` (an index into `frameObjs`)
- *  so the adapters act in the frame the question lives in. */
+const CAPTCHA_FRAME_RX = /recaptcha|hcaptcha|turnstile|challenges\.cloudflare|arkoselabs|funcaptcha/i;
+
+/** Run the scan in every frame that can hold form fields. A captcha frame is
+ *  only recorded, never scanned: its checkbox is the human's. It is recognised
+ *  by the frame's URL, its <iframe> element (title/src/name: a cross-origin
+ *  frame reached over CDP can report an empty URL, as recrut.ai's reCAPTCHA did
+ *  on 2026-09-22) or its own document title. Each question carries `frame` (an
+ *  index into `frameObjs`) so the adapters act in the frame it lives in. */
 export async function scanPage(page) {
   const out = { url: page.url(), questions: [], captcha: { present: false, visibleWidgets: [] }, frameObjs: [] };
   for (const f of page.frames()) {
-    if (/recaptcha|hcaptcha|turnstile|challenges\.cloudflare/i.test(f.url())) {
+    let tag = f.url();
+    if (f !== page.mainFrame()) {
+      const el = await f.frameElement().catch(() => null);
+      tag += ` ${(await el?.evaluate((e) => `${e.getAttribute('title') || ''} ${e.getAttribute('src') || ''} ${e.getAttribute('name') || ''}`).catch(() => '')) || ''}`;
+      tag += ` ${await f.title().catch(() => '')}`;
+    }
+    if (CAPTCHA_FRAME_RX.test(tag)) {
       out.captcha.present = true;
       continue;
     }

@@ -363,33 +363,116 @@ export function truthyAnswer(value) {
   return null;
 }
 
-/** A choice question whose two offered options are a yes and a no. */
+const YES_NO_LABEL_RX = /^(are|is|do|does|did|have|has|will|would|can|could|were|was)\b[^?]*\?[\s*]*$/i;
+
+/** A question answered by yes or no: a choice whose two offered options are a
+ *  yes and a no, or a dropdown whose options load on open and whose label is a
+ *  yes/no question ("Are you a citizen or permanent resident of ...?*"). */
 export function isYesNoQuestion(q) {
-  if (!STATIC_CHOICE_KINDS.has(q.kind) || q.options?.length !== 2) return false;
-  const t = q.options.map(truthyAnswer);
-  return t.includes(true) && t.includes(false);
+  if (STATIC_CHOICE_KINDS.has(q.kind)) {
+    if (q.options?.length !== 2) return false;
+    const t = q.options.map(truthyAnswer);
+    return t.includes(true) && t.includes(false);
+  }
+  return q.kind === 'combobox' && !q.options?.length && YES_NO_LABEL_RX.test(String(q.label ?? '').trim());
 }
 
-const CONSENT_RX = /consent|i agree|concordo|aceito|autorizo/i;
+// Agreeing is the candidate's act, and self-identification is disclosed per
+// application by the candidate: neither is ever inferred from facts.
+const NOT_INFERRED_RX = /consent|i agree|concordo|aceito|autorizo|disab|defici|gender|g[eê]nero|race|ra[cç]a|ethnic|etnia|hispanic|latino|veteran|lgbt|sexual|transgender|underrepresented|pronoun/i;
 
 /**
  * Yes/no questions that no canonical answer names ("Are you able and willing
  * to work remotely?" against "Work Authorization: Brazil-based, remote only"),
  * answered from the canonical facts by Jev's typed yes/no judgment, one call
  * per question (answerBool: no answer when the facts do not determine it).
- * Consent questions are never answered here: agreeing is the candidate's act.
+ * `posting` is the head of the posting page (title, location), for questions
+ * about "the country where this position is based"; it is page text, handed
+ * to Jev as data. Consent and self-identification are never answered here.
  *
  * @returns {Promise<Map<string, {answer: object, confidence: number}>>}
  */
-export async function answerYesNoFromFacts(questions, answers, { bool = answerBool } = {}) {
+export async function answerYesNoFromFacts(questions, answers, { bool = answerBool, posting = '' } = {}) {
   const out = new Map();
-  const facts = Object.fromEntries(answers.map((a) => [a.label, a.value]));
+  // Short facts, one per distinct value: with every alias and the report's
+  // essay answers in the state, Jev stayed below threshold on Wellhub's
+  // citizenship question (P 0.70) that the same facts decide at 0.96 alone.
+  const facts = {};
+  const values = new Set();
+  for (const a of answers) {
+    if (a.value.length > 200 || values.has(a.value)) continue;
+    values.add(a.value);
+    facts[a.label] = a.value;
+  }
+  if (posting) facts['Job posting (title and location, page text)'] = posting.slice(0, 300);
   for (const q of questions) {
-    if (!isYesNoQuestion(q) || CONSENT_RX.test(q.label)) continue;
+    if (!isYesNoQuestion(q) || NOT_INFERRED_RX.test(q.label)) continue;
     const r = await bool(q.label, facts);
     if (r?.bool === true || r?.bool === false) {
       out.set(q.key, { answer: { id: `yes-no:${q.key}`, label: 'yes/no from the canonical facts', value: r.bool ? 'Yes' : 'No' }, confidence: r.confidence });
     }
   }
+  return out;
+}
+
+/**
+ * Canonical answers from the profile blocks the shared `answersFromProfile`
+ * (web/scripts/ab-jev-apply.mjs) does not read: `us_ats_answers` (address,
+ * nationality, employment, education, the captain's 2026-09-21 answers), the
+ * form answers the captain gave in `application_answers`, and the
+ * compensation anchor. Every value is copied from the profile or split from
+ * one by a fixed rule; nothing is looked up or guessed. Current pay is left
+ * out: the captain treats it as a question, not a canonical answer. Kept apart
+ * from that function because arm1 binds labels by substring, where "Address"
+ * would also catch "Email Address".
+ *
+ * @returns {Array<{label: string, value: string}>}
+ */
+export function answersFromProfileFacts(profile) {
+  const out = [];
+  const push = (labels, value) => {
+    const v = value == null ? '' : typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value).trim();
+    if (v) for (const label of labels) out.push({ label, value: v });
+  };
+  const c = profile?.candidate || {};
+  const aa = profile?.application_answers || {};
+  const ats = profile?.us_ats_answers || {};
+  const addr = ats.address || {};
+  const id = ats.identity || {};
+  const emp = ats.employment || {};
+  const edu = ats.education || {};
+  const told = ats.answered_2026_09_21 || {};
+  push(['Preferred Name', 'Preferred First Name'], String(c.full_name ?? '').trim().split(/\s+/)[0]);
+  push(['Address', 'Street Address', 'Address Line 1', 'Endereço'], addr.street);
+  const streetNumber = /^(.*\S),\s*(\d+[a-z]?)$/i.exec(String(addr.street ?? '').trim());
+  if (streetNumber) {
+    push(['Logradouro', 'Rua'], streetNumber[1]);
+    push(['Número', 'Street Number'], streetNumber[2]);
+  }
+  push(['Neighborhood', 'District', 'Bairro'], addr.district);
+  push(['State', 'State/Region', 'State/Province', 'Estado', 'UF'], addr.state);
+  push(['Postal Code', 'Post Code', 'ZIP Code', 'CEP'], addr.postal_code);
+  push(['Nationality', 'Nacionalidade'], id.nationality);
+  push(['Citizenship'], id.passport_country ? `Citizen of ${id.passport_country} (nationality ${id.nationality ?? id.passport_country})` : null);
+  push(['Work Authorization Country', 'Country of work authorization'], emp.work_authorization_country);
+  push(['Visa Type'], emp.visa_type);
+  push(['Notice Period'], emp.notice_period_days != null ? `${emp.notice_period_days} days` : null);
+  push(['Earliest Start Date', 'When can you start?'], emp.earliest_start);
+  push(['Undergraduate Degree'], edu.undergraduate);
+  push(['Graduate Degree'], edu.graduate);
+  push(['Relatives or close friends at the hiring company'], aa.relatives_or_close_friends_at_hiring_company ?? ats.relationships?.knows_someone_at_hiring_company);
+  push(['Politically exposed person (PEP)'], aa.pep);
+  push(['Sports you follow'], aa.sport_interest);
+  push(['Front-end / back-end split'], aa.front_back_split);
+  push(['Matrícula', 'Student registration number'], aa.student_registration_number);
+  push(['Telegram'], aa.telegram_contact);
+  push(['What have you built with AI that other people use?'], aa.ai_created_used_by_others?.value);
+  push(['Availability during US Eastern hours'], told.est_hours_availability);
+  push(['Veteran Status'], told.veteran_status);
+  push(['Do you need immigration support?'], told.immigration_support_needed);
+  push(['GPA', 'Undergraduate GPA'], told.undergraduate_gpa);
+  // "use_profile_compensation": the international anchor of compensation.target_range.
+  const usd = /USD\s*([\d.]+)\s*K\s*\/\s*month/i.exec(String(profile?.compensation?.target_range ?? ''));
+  if (usd && aa.salary === 'use_profile_compensation') push(['Salary Expectations', 'Expected Salary'], `USD ${Math.round(Number(usd[1]) * 1000)}/month`);
   return out;
 }

@@ -34,14 +34,17 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import * as yaml from 'js-yaml';
 import { isMainModule } from '../../lib/is-main-module.mjs';
 import { jevAsk, jevChoice, jevNoul } from '../../lib/jev-client.mjs';
 import { answerBool, pickOption, resolveApplyThreshold } from '../../lib/jev-apply-helpers.mjs';
 import { loadCanonicalData, deriveCompanySlug } from './ab-jev-apply.mjs';
 import { scanPage } from '../src/lib/apply/hybrid/page-scan.mjs';
 import {
+  answersFromProfileFacts,
   answerYesNoFromFacts,
   buildAnswers,
+  isYesNoQuestion,
   judgeWithModel,
   lockFor,
   matchAnswers,
@@ -53,7 +56,7 @@ import {
   valueFitsField,
 } from '../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget } from '../src/lib/apply/hybrid/files.mjs';
-import { evaluateGate, tabStatus } from '../src/lib/apply/hybrid/gate.mjs';
+import { evaluateGate, isEmptyState, tabStatus } from '../src/lib/apply/hybrid/gate.mjs';
 import {
   attachFile,
   chooseOption,
@@ -148,6 +151,14 @@ async function fillQuestion(frame, q, value, { option = null, pick = null } = {}
 
 const errText = (e) => String(e?.message || e).split('\n')[0].slice(0, 200);
 
+/** Let lookups a fill triggered finish before the DOM is read again: the
+ *  recrut.ai CEP lookup rewrites the address block, emptying the number, about
+ *  a second after the CEP is typed. */
+async function settled(page) {
+  await page.waitForLoadState('networkidle', { timeout: 4000 }).catch(() => {});
+  await new Promise((r) => setTimeout(r, 1200));
+}
+
 async function main() {
   let args;
   try {
@@ -174,7 +185,8 @@ async function main() {
   };
 
   const loaded = loadCanonicalData(root, { row: args.row, reportPath: args.report });
-  const answers = buildAnswers(loaded.reportAnswers, loaded.profileAnswers);
+  const profile = loaded.sources.profileYml ? yaml.load(fs.readFileSync(loaded.sources.profileYml, 'utf8')) : null;
+  const answers = buildAnswers(loaded.reportAnswers, [...loaded.profileAnswers, ...answersFromProfileFacts(profile)]);
   const reportPath = findReport(root, args);
   const companySlug = parseReportName(reportPath).slug || deriveCompanySlug({ url: args.url });
   console.log(`[hybrid] canonical sources: ${JSON.stringify(loaded.sources)}; report: ${reportPath || 'none'}`);
@@ -247,8 +259,12 @@ async function main() {
         await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
       });
     }
-    // The posting page, before any "Apply" click, carries the job description.
-    const jobText = cv.path ? '' : await page.evaluate(() => document.body?.innerText || '').catch(() => '');
+    // The posting page, before any "Apply" click, carries the job description;
+    // its head (title, location) is what "the country where this position is
+    // based" refers to.
+    const pageText = await page.evaluate(() => `${document.title}\n${document.body?.innerText || ''}`).catch(() => '');
+    const jobText = cv.path ? '' : pageText;
+    const postingHeader = pageText.slice(0, 800);
     const reach = await phase('reachForm', () => reachApplicationForm(page));
     metrics.reach = reach;
     console.log(`[hybrid] form ${reach.reached ? 'reached' : 'NOT reached'} at ${reach.url}${reach.log.length ? ` after ${reach.log.map((l) => `"${l.clicked}"`).join(', ')}` : ''}`);
@@ -305,7 +321,8 @@ async function main() {
     const targets = scan.questions.filter((q) => q.kind !== 'file' && q.visible && (!obs.ok || observed.has(q.key) || q.required));
     console.log(`[hybrid] discovery: ${metrics.discovery.method}, ${targets.length} of ${scan.questions.length} scanned question(s) targeted`);
 
-    const frameOf = (q) => scan.frameObjs[q.frame] || page.mainFrame();
+    for (const q of scan.questions) q.frameObj = scan.frameObjs[q.frame];
+    const frameOf = (q) => q.frameObj || scan.frameObjs[q.frame] || page.mainFrame();
     const record = (q, r, extra) => outcomes.set(q.key, { ...r, label: q.label, kind: q.kind, ...extra });
     const run = async (q0, fn) => {
       const q = await reread(frameOf(q0), q0).catch(() => null);
@@ -317,10 +334,10 @@ async function main() {
       }
     };
 
-    // 5. Deterministic pass.
+    // 5. Deterministic pass: exact-label canonical answers.
     const decided = new Map();
-    await phase('deterministic', async () => {
-      for (const q of targets) {
+    const deterministicPass = async (list) => {
+      for (const q of list) {
         const exact = matchExact(q, answers);
         if (!exact) continue;
         const lock = lockFor(q, exact);
@@ -332,7 +349,8 @@ async function main() {
         const r = await run(q, (live) => fillQuestion(frameOf(q), live, exact.value));
         record(q, r, { via: 'deterministic', source: 'exact', answerLabel: exact.label });
       }
-    });
+    };
+    await phase('deterministic', () => deterministicPass(targets));
     const files = scan.questions.filter((q) => q.kind === 'file');
     let target = selectResumeTarget(files, cv.path || 'cv.pdf');
     metrics.cv.target = target.target ? { key: target.target.key, label: target.target.label, evidence: target.evidence ?? null } : null;
@@ -347,8 +365,8 @@ async function main() {
 
     // 6. Model pass: every field the deterministic pass left open.
     const verified = (q) => outcomes.get(q.key)?.status === 'verified';
-    const gaps = targets.filter((q) => !verified(q) && outcomes.get(q.key)?.status !== 'locked');
-    await phase('model', async () => {
+    const modelPass = async (list) => {
+      const gaps = list.filter((q) => !verified(q) && outcomes.get(q.key)?.status !== 'locked');
       const needValue = gaps.filter((q) => !decided.has(q.key));
       if (needValue.length) {
         const { decisions } = await matchAnswers(needValue, answers, { ask });
@@ -367,8 +385,12 @@ async function main() {
             decided.set(key, { answer: a, lock: lockFor(q, a), source: 'model-judge' });
           }
         }
-        const yesNoOpen = needValue.filter((q) => !decided.has(q.key));
-        const yesNo = await answerYesNoFromFacts(yesNoOpen, answers, { bool: (question, facts) => answerBool(question, facts, { jev: noul }) });
+        // A yes/no question needs a yes or a no: a matched fact ("Citizenship:
+        // Citizen of Brazil" on Wellhub's "Are you a citizen or permanent
+        // resident...?") is evidence for the judgment, not a value to type.
+        const notYesNo = (d) => d && d.source !== 'exact' && truthyAnswer(String(d.answer.value).split(/[,(.;]/)[0]) === null;
+        const yesNoOpen = needValue.filter((q) => !decided.has(q.key) || (isYesNoQuestion(q) && notYesNo(decided.get(q.key))));
+        const yesNo = await answerYesNoFromFacts(yesNoOpen, answers, { posting: postingHeader, bool: (question, facts) => answerBool(question, facts, { jev: noul }) });
         for (const [key, d] of yesNo) decided.set(key, { answer: d.answer, lock: null, source: 'jev-yes-no', confidence: d.confidence });
       }
       const optionDecisions = new Map(gaps.filter((q) => decided.has(q.key)).map((q) => [q.key, { answer: decided.get(q.key).answer, lock: decided.get(q.key).lock }]));
@@ -405,6 +427,9 @@ async function main() {
         const modelHow = ['stagehand-act', 'jev-pick', 'jev', 'model-equivalent'].includes(r.how);
         record(q, r, { via: d.source === 'exact' && !modelHow ? 'deterministic' : 'model', source: d.source, confidence: d.confidence ?? null, answerLabel: d.answer.label });
       }
+    };
+    await phase('model', async () => {
+      await modelPass(targets);
 
       // The CV, when the deterministic pass could not attach it.
       if (cv.path && !cvStatus.attached) {
@@ -438,6 +463,28 @@ async function main() {
         }
       }
     });
+
+    // 6b. What the page changed while it was being filled: questions it reveals
+    // only after an answer (recrut.ai shows the address number once the CEP is
+    // in), and verified fields it cleared (recrut.ai empties the CEP when País
+    // is chosen after it). Rescan and run both passes on those, up to 3 times.
+    const handled = new Set(targets.map((q) => q.key));
+    for (let round = 0; round < 3; round++) {
+      await settled(page);
+      const again = await scanPage(page);
+      for (const q of again.questions) q.frameObj = again.frameObjs[q.frame];
+      const live = again.questions.filter((q) => q.kind !== 'file' && q.visible);
+      const revealed = live.filter((q) => !handled.has(q.key) && (q.required || matchExact(q, answers)));
+      const cleared = live.filter((q) => outcomes.get(q.key)?.status === 'verified' && isEmptyState(q));
+      if (!revealed.length && !cleared.length) break;
+      if (revealed.length) console.log(`[hybrid] ${revealed.length} question(s) appeared after filling: ${revealed.map((q) => q.label).join(' | ')}`);
+      if (cleared.length) console.log(`[hybrid] the page cleared ${cleared.length} verified field(s), refilling: ${cleared.map((q) => q.label).join(' | ')}`);
+      for (const q of revealed) handled.add(q.key);
+      for (const q of cleared) outcomes.delete(q.key);
+      const redo = [...revealed, ...cleared];
+      await phase('deterministic', () => deterministicPass(redo));
+      await phase('model', () => modelPass(redo));
+    }
   } catch (e) {
     failed = !noForm && !formBlock;
     stoppedAt = errText(e);
@@ -447,6 +494,7 @@ async function main() {
   // 7. Gate, tab standing, round order. The tab stays open unless there was no form.
   try {
     if (round && !noForm) {
+      await settled(round.page);
       const finalScan = await phase('finalScan', () => scanPage(round.page));
       const byLabel = new Map([...outcomes.values()].map((o) => [`${o.kind}|${normalizeText(o.label)}`, o]));
       const finalOutcomes = new Map(finalScan.questions.map((q) => [q.key, outcomes.get(q.key) ?? byLabel.get(`${q.kind}|${normalizeText(q.label)}`)]).filter(([, o]) => o));
