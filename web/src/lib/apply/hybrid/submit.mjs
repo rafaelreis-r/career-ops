@@ -70,8 +70,8 @@ function lockInPage(ttl) {
         const c = e.target && e.target.closest ? e.target.closest('button, input[type=submit], input[type=image], [role=button], a') : null;
         if (!c) return;
         const text = `${c.textContent || ''} ${c.value || ''} ${c.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
-        if (UPLOAD_RX.test(text)) return;
         const formSubmit = (c.type === 'submit' || c.type === 'image') && c.form && applicantControls(c.form).length > 0;
+        if (UPLOAD_RX.test(text) && !formSubmit) return;
         if (!formSubmit && !(FINAL_RX.test(text) && hasApplicantData(document))) return;
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -131,7 +131,10 @@ function submitControlsInPage() {
     const cs = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none';
   };
-  const applicantControls = (root) => root.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]), textarea, select').length;
+  const applicantControls = (root) =>
+    [...root.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]), textarea, select')].filter(
+      (el) => !/search|busca|pesquis/i.test(`${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.name || ''}`),
+    ).length;
   const FINAL_RX = /^(submit|send|apply|enviar|finalizar|concluir|candidatar|postular|aplicar|bewerben|confirmar)\b|submit application|send application|enviar candidatura|finalizar candidatura/i;
   const UPLOAD_RX = /\b(attach|upload|anexar|carregar|choose file|browse)\b|^(send|enviar)\b.*\b(resume|résumé|cv|curr[ií]culo|file|arquivo|documento)\b/i;
   document.querySelectorAll('[data-hyb-submit]').forEach((n) => n.removeAttribute('data-hyb-submit'));
@@ -139,25 +142,29 @@ function submitControlsInPage() {
   for (const c of document.querySelectorAll('button, input[type=submit], input[type=image], [role=button]')) {
     if (!vis(c) || c.disabled) continue;
     const text = `${c.textContent || ''} ${c.value || ''} ${c.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
-    if (UPLOAD_RX.test(text) || /^(remove|remover|cancel|cancelar|back|voltar|save|salvar)\b/i.test(text)) continue;
-    const formSubmit = (c.type === 'submit' || c.type === 'image') && c.form && applicantControls(c.form) > 0;
+    const form = c.form || c.closest('form');
+    const associated = !!form && applicantControls(form) > 0;
+    if (!associated) continue;
+    const formSubmit = (c.type === 'submit' || c.type === 'image') && associated;
+    if ((UPLOAD_RX.test(text) && !formSubmit) || /^(remove|remover|cancel|cancelar|back|voltar|save|salvar)\b/i.test(text)) continue;
     const finalText = FINAL_RX.test(text);
     if (!formSubmit && !finalText) continue;
     c.setAttribute('data-hyb-submit', String(found.length));
-    found.push({ index: found.length, text: text.slice(0, 80), formSubmit, finalText });
+    found.push({ index: found.length, text: text.slice(0, 80), associated, formSubmit, finalText });
   }
   return found;
 }
 
 /** The one control that submits this application, or why there is none. */
 export function chooseSubmitControl(found) {
-  if (!found.length) return { control: null, reason: 'no submit control on the form' };
-  const both = found.filter((c) => c.formSubmit && c.finalText);
+  const eligible = found.filter((c) => c.associated);
+  if (!eligible.length) return { control: null, reason: 'no submit control associated with applicant fields' };
+  const both = eligible.filter((c) => c.formSubmit && c.finalText);
   if (both.length === 1) return { control: both[0], reason: null };
-  if (found.length === 1) return { control: found[0], reason: null };
-  const forms = found.filter((c) => c.formSubmit);
+  if (eligible.length === 1) return { control: eligible[0], reason: null };
+  const forms = eligible.filter((c) => c.formSubmit);
   if (forms.length === 1) return { control: forms[0], reason: null };
-  return { control: null, reason: `ambiguous: ${found.length} submit-like controls (${found.map((c) => `"${c.text}"`).join(', ')})` };
+  return { control: null, reason: `ambiguous: ${eligible.length} submit-like controls (${eligible.map((c) => `"${c.text}"`).join(', ')})` };
 }
 
 // Confirmation and refusal wording. Counted only when it appears AFTER the
@@ -187,16 +194,15 @@ function newMatch(rx, before, after) {
  * @returns {Promise<{status: 'confirmed'|'refused'|'unconfirmed'|'no-control', control?: string, evidence?: string, url?: string, reason?: string}>}
  */
 export async function submitApplication(page, { timeoutMs = 30_000, beforeClick = null } = {}) {
-  let target = null;
-  for (const frame of page.frames()) {
+  const frames = page.frames();
+  const foundAcrossFrames = [];
+  for (const [frameIndex, frame] of frames.entries()) {
     const found = await frame.evaluate(submitControlsInPage).catch(() => []);
-    if (!found.length) continue;
-    const pick = chooseSubmitControl(found);
-    if (!pick.control) return { status: 'no-control', reason: pick.reason };
-    target = { frame, control: pick.control };
-    break;
+    foundAcrossFrames.push(...found.map((control) => ({ ...control, frameIndex })));
   }
-  if (!target) return { status: 'no-control', reason: 'no submit control on the form' };
+  const pick = chooseSubmitControl(foundAcrossFrames);
+  if (!pick.control) return { status: 'no-control', reason: pick.reason };
+  const target = { frame: frames[pick.control.frameIndex], control: pick.control };
   const before = page.url();
   const beforeText = await pageText(page);
   if (beforeClick) {

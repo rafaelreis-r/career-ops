@@ -121,7 +121,7 @@ test("Camunda's refusal is not a submission", async (t) => {
 test('upload wording is neither blocked as submission nor selected as the final submit control', async (t) => {
   const page = await openPage(
     t,
-    `<label>Email<input type="email"></label><button id="upload" type="button">Enviar currículo</button><button id="submit" type="button">Enviar candidatura</button>
+    `<form><label>Email<input type="email"></label><button id="upload" type="button">Enviar currículo</button><button id="submit" type="button">Enviar candidatura</button></form>
      <script>upload.onclick=()=>window.__upload=(window.__upload||0)+1; submit.onclick=()=>window.__submit=(window.__submit||0)+1;</script>`,
   );
   if (!page) return;
@@ -136,7 +136,7 @@ test('upload wording is neither blocked as submission nor selected as the final 
 });
 
 test('a detached submit control is returned as an unconfirmed outcome', async (t) => {
-  const page = await openPage(t, '<label>Email<input type="email" value="fixture@example.com"></label><button type="button">Apply</button>');
+  const page = await openPage(t, '<form><label>Email<input type="email" value="fixture@example.com"></label><button type="button">Apply</button></form>');
   if (!page) return;
   const r = await submitApplication(page, {
     timeoutMs: 20,
@@ -156,8 +156,40 @@ test('a frame scan failure blocks the final gate', () => {
 });
 
 test('two unrelated submit-like controls are ambiguous: nothing is clicked', () => {
-  assert.equal(chooseSubmitControl([{ index: 0, text: 'Send code', formSubmit: false, finalText: true }, { index: 1, text: 'Apply filters', formSubmit: false, finalText: true }]).control, null);
-  assert.equal(chooseSubmitControl([{ index: 0, text: 'Upload', formSubmit: true, finalText: false }, { index: 1, text: 'Submit Application', formSubmit: true, finalText: true }]).control.index, 1);
+  assert.equal(chooseSubmitControl([{ index: 0, text: 'Send code', associated: false, formSubmit: false, finalText: true }, { index: 1, text: 'Apply filters', associated: false, formSubmit: false, finalText: true }]).control, null);
+  assert.equal(chooseSubmitControl([{ index: 0, text: 'Upload', associated: true, formSubmit: true, finalText: false }, { index: 1, text: 'Submit Application', associated: true, formSubmit: true, finalText: true }]).control.index, 1);
+});
+
+test('the final step ignores an unrelated host control and submits the application iframe', async (t) => {
+  const page = await openPage(
+    t,
+    `<form><input placeholder="Search"><button id="filter" type="button">Apply filters</button></form><iframe></iframe><script>
+      filter.onclick=()=>window.__filtered=(window.__filtered||0)+1;
+      const d=document.querySelector('iframe').contentDocument;
+      d.open();d.write('<form><input name=email value="fixture@example.com"><button type=submit>Submit Application</button></form>');d.close();
+      d.forms[0].onsubmit=(e)=>{e.preventDefault();d.defaultView.__sent=(d.defaultView.__sent||0)+1;d.body.innerHTML='<h1>Application submitted</h1>';};
+    </script>`,
+  );
+  if (!page) return;
+  const r = await submitApplication(page, { timeoutMs: 3000 });
+  assert.equal(r.status, 'confirmed');
+  assert.equal(await page.evaluate(() => window.__filtered || 0), 0);
+  assert.equal(await page.frames()[1].evaluate(() => window.__sent), 1);
+});
+
+test('an upload-labeled submit button remains locked before the final step', async (t) => {
+  const page = await openPage(
+    t,
+    `<form id="f"><input name=email value="fixture@example.com"><button type="submit">Upload & Submit Application</button></form>
+     <script>f.onsubmit=(e)=>{e.preventDefault();window.__sent=(window.__sent||0)+1;};</script>`,
+  );
+  if (!page) return;
+  await holdSubmitLock(page);
+  await page.click('button');
+  assert.equal(await page.evaluate(() => window.__sent || 0), 0);
+  const r = await submitApplication(page, { timeoutMs: 20 });
+  assert.equal(r.control, 'Upload & Submit Application');
+  assert.equal(await page.evaluate(() => window.__sent), 1);
 });
 
 test('the gate reads the CV and consents from the final DOM', () => {

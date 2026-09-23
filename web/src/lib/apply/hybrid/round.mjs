@@ -165,36 +165,38 @@ async function startRound() {
   }
 }
 
-const sameSubmission = (attempt, postingUrl, reportNumber) =>
-  (postingUrl && attempt.postingUrl === postingUrl) || (reportNumber != null && attempt.reportNumber != null && Number(attempt.reportNumber) === Number(reportNumber));
+const sameSubmission = (attempt, dataRoot, postingUrl, reportNumber) =>
+  (postingUrl && attempt.postingUrl === postingUrl) ||
+  (attempt.dataRoot === path.resolve(dataRoot) && reportNumber != null && attempt.reportNumber != null && Number(attempt.reportNumber) === Number(reportNumber));
 
-export function submissionAttemptFor(postingUrl, reportNumber = null) {
-  return (readState()?.submissionAttempts || []).find((attempt) => sameSubmission(attempt, postingUrl, reportNumber)) || null;
+export function submissionAttemptFor(dataRoot, postingUrl, reportNumber = null) {
+  return (readState()?.submissionAttempts || []).find((attempt) => sameSubmission(attempt, dataRoot, postingUrl, reportNumber)) || null;
 }
 
-export async function claimSubmissionAttempt(postingUrl, reportNumber = null) {
+export async function claimSubmissionAttempt(dataRoot, postingUrl, reportNumber = null) {
   return withLock(async () => {
     const st = readState() || { tabs: {} };
     st.submissionAttempts ||= [];
-    const existing = st.submissionAttempts.find((attempt) => sameSubmission(attempt, postingUrl, reportNumber));
+    const existing = st.submissionAttempts.find((attempt) => sameSubmission(attempt, dataRoot, postingUrl, reportNumber));
     if (existing) return { claimed: false, attempt: existing };
-    const attempt = { postingUrl, reportNumber: reportNumber == null ? null : Number(reportNumber), status: 'claimed', attemptedAt: new Date().toISOString() };
+    const attempt = { dataRoot: path.resolve(dataRoot), postingUrl, reportNumber: reportNumber == null ? null : Number(reportNumber), status: 'claimed', attemptedAt: new Date().toISOString() };
     st.submissionAttempts.push(attempt);
     writeState(st);
     return { claimed: true, attempt };
   });
 }
 
-export async function recordSubmissionResult(postingUrl, reportNumber, result) {
+export async function recordSubmissionResult(dataRoot, postingUrl, reportNumber, result) {
   return withLock(async () => {
     const st = readState() || { tabs: {} };
     st.submissionAttempts ||= [];
-    const attempt = st.submissionAttempts.find((entry) => sameSubmission(entry, postingUrl, reportNumber));
+    const attempt = st.submissionAttempts.find((entry) => sameSubmission(entry, dataRoot, postingUrl, reportNumber));
     if (!attempt) return false;
     attempt.status = result.status;
     attempt.control = result.control ?? null;
     attempt.evidence = result.evidence ?? null;
     attempt.reason = result.reason ?? null;
+    if (result.tracker !== undefined) attempt.tracker = result.tracker;
     attempt.updatedAt = new Date().toISOString();
     writeState(st);
     return true;
@@ -209,7 +211,7 @@ export async function recordSubmissionResult(postingUrl, reportNumber, result) {
  * duplicate or reloading away what the human typed.
  * `shBrowser` is null when the round's Stagehand runtime is gone (its keeper
  * was killed while Chrome kept running): the form is then filled without the
- * model's observe/act, and `runtimeError` says why.
+ * model fallback, and `runtimeError` says why.
  * @returns {Promise<{shBrowser, pw, context, page, reused: boolean, shared: boolean, cdpUrl: string, runtimeError?: string}>}
  */
 export async function openFormTab({ postingUrl = null } = {}) {

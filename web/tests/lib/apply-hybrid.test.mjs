@@ -26,7 +26,6 @@ import { selectResumeTarget, validateResumeTarget } from '../../src/lib/apply/hy
 import { evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
 import { generatePostingCv, resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
 import { attachFile, chooseOption, fillText, reachApplicationForm, sameChoice, selectCombobox, verifyQuestion } from '../../src/lib/apply/hybrid/adapters.mjs';
-import { mapActionsToQuestions } from '../../src/lib/apply/hybrid/stagehand.mjs';
 import { trackerStanding } from '../../src/lib/apply/hybrid/tracker-row.mjs';
 import { claimSubmissionAttempt, recordSubmissionResult, rememberFormTab, submissionAttemptFor } from '../../src/lib/apply/hybrid/round.mjs';
 
@@ -345,31 +344,6 @@ test('iTRTech: a phone the page truncates is cleared and blocks, never kept as a
   assert.match(gate.blockers.find((b) => b.label === 'Celular de contato*').reason, /lacks a verified canonical answer \(mismatch/);
 });
 
-test('iTRTech: an observed XPath still finds its question after the page prepends a node to <body>', async (t) => {
-  const page = await openFixture(t, 'hybrid-recrutai-itrtech.html');
-  if (!page) return;
-  const cv = (await scan(page)).questions.find((q) => q.id === 'inputCV');
-  // Positional XPath as Stagehand builds it from the document it read.
-  const xpath = await page.$eval('#inputCV', (el) => {
-    const seg = [];
-    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
-      let i = 1;
-      for (let p = n.previousElementSibling; p; p = p.previousElementSibling) if (p.tagName === n.tagName) i++;
-      seg.unshift(`${n.tagName.toLowerCase()}[${i}]`);
-    }
-    return `/${seg.join('/')}`;
-  });
-  // recrut.ai injects its video-player sprite at the top of <body> after load.
-  await page.evaluate(() => {
-    const d = document.createElement('div');
-    d.id = 'sprite-plyr';
-    document.body.prepend(d);
-  });
-  assert.equal(await page.locator(`xpath=${xpath}`).count(), 0, 'the observed path no longer resolves as written');
-  const { keys } = await mapActionsToQuestions(page, [{ selector: `xpath=${xpath}`, description: 'Currículo' }]);
-  assert.deepEqual([...keys], [cv.key]);
-});
-
 test('Camunda: autofill is not the resume, and a yes/no toggle is verified by aria-pressed', async (t) => {
   const page = await openFixture(t, 'hybrid-ashby-camunda.html');
   if (!page) return;
@@ -605,12 +579,17 @@ test('a durable submit claim blocks both the eligibility lookup and a second sub
   process.env.CAREER_OPS_HYBRID_STATE_DIR = stateDir;
   try {
     const url = 'https://jobs.example.test/apply/42';
-    const first = await claimSubmissionAttempt(url, 42);
+    const rootA = path.join(stateDir, 'track-a');
+    const rootB = path.join(stateDir, 'track-b');
+    const first = await claimSubmissionAttempt(rootA, url, 42);
     assert.equal(first.claimed, true);
-    assert.equal((await claimSubmissionAttempt(url, 42)).claimed, false);
-    await recordSubmissionResult(url, 42, { status: 'unconfirmed', control: 'Submit', reason: 'no confirmation' });
-    assert.equal(submissionAttemptFor(url, 42).status, 'unconfirmed');
-    assert.equal(submissionAttemptFor('https://jobs.example.test/changed', 42).status, 'unconfirmed', 'the report number survives a URL change');
+    assert.equal((await claimSubmissionAttempt(rootA, url, 42)).claimed, false);
+    assert.equal((await claimSubmissionAttempt(rootB, 'https://other.example.test/apply/42', 42)).claimed, true, 'the same report number in another track is independent');
+    assert.equal((await claimSubmissionAttempt(rootB, url, 99)).claimed, false, 'the same posting URL is deduplicated across tracks');
+    await recordSubmissionResult(rootA, url, 42, { status: 'unconfirmed', control: 'Submit', reason: 'no confirmation', tracker: { ok: false, error: 'write failed' } });
+    assert.equal(submissionAttemptFor(rootA, url, 42).status, 'unconfirmed');
+    assert.deepEqual(submissionAttemptFor(rootA, url, 42).tracker, { ok: false, error: 'write failed' });
+    assert.equal(submissionAttemptFor(rootA, 'https://jobs.example.test/changed', 42).status, 'unconfirmed', 'the report number survives a URL change within one track');
   } finally {
     if (previous === undefined) delete process.env.CAREER_OPS_HYBRID_STATE_DIR;
     else process.env.CAREER_OPS_HYBRID_STATE_DIR = previous;

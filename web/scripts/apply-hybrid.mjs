@@ -66,7 +66,7 @@ import {
   valueFitsField,
 } from '../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../src/lib/apply/hybrid/files.mjs';
-import { evaluateGate, isEmptyState, tabStatus } from '../src/lib/apply/hybrid/gate.mjs';
+import { cvInFinalDom, evaluateGate, isEmptyState, tabStatus } from '../src/lib/apply/hybrid/gate.mjs';
 import { holdSubmitLock, submitApplication } from '../src/lib/apply/hybrid/submit.mjs';
 import {
   attachFile,
@@ -213,8 +213,17 @@ async function main() {
 
   // 0. Never a posting already sent, a blacklisted company, or a company whose
   // submission limit is used up across the tracks: no tab is opened for it.
-  const priorSubmission = submissionAttemptFor(args.url, reportNumber);
+  const priorSubmission = submissionAttemptFor(root, args.url, reportNumber);
   if (priorSubmission) {
+    if (priorSubmission.status === 'confirmed') {
+      const tracker = markApplied(root, reportNumber, priorSubmission);
+      await recordSubmissionResult(root, args.url, reportNumber, { ...priorSubmission, tracker });
+      if (!tracker.ok) {
+        console.error(`[hybrid] submission was confirmed but the tracker is still not updated: ${tracker.error}`);
+        process.exit(1);
+      }
+      console.log('[hybrid] reconciled the confirmed submission into the tracker; no submit click was repeated');
+    }
     console.log(`[hybrid] not opened: submit was already attempted at ${priorSubmission.attemptedAt} (${priorSubmission.status}); check the employer and tracker before any retry`);
     process.exit(5);
   }
@@ -224,7 +233,7 @@ async function main() {
     process.exit(5);
   }
 
-  const calls = { observe: 0, act: 0, judge: 0, jev: 0, stagehandSeconds: 0, cvGeneration: 0 };
+  const calls = { act: 0, judge: 0, jev: 0, stagehandSeconds: 0, cvGeneration: 0 };
   const stagehandGenerate = createCodexGenerate({ onCall: ({ ms }) => { calls.act++; calls.stagehandSeconds += ms / 1000; } });
   const judgeGenerate = createCodexGenerate({ onCall: () => { calls.judge++; } });
   const ask = (a) => { calls.jev++; return jevAsk(a); };
@@ -515,6 +524,10 @@ async function main() {
     if (round && !noForm) {
       await settled(round.page);
       const finalScan = await phase('finalScan', () => scanPage(round.page));
+      const finalCvAttached = cvInFinalDom(finalScan, cvName);
+      cvStatus = finalCvAttached
+        ? { ...cvStatus, attached: true, via: cvStatus.via || 'final-dom' }
+        : { attached: false, reason: cvName ? `${cvName} not shown by any file input in the final DOM` : cvStatus.reason || 'no CV for this posting' };
       const byLabel = new Map([...outcomes.values()].map((o) => [`${o.kind}|${normalizeText(o.label)}`, o]));
       const finalOutcomes = new Map(finalScan.questions.map((q) => [q.key, outcomes.get(q.key) ?? byLabel.get(`${q.kind}|${normalizeText(q.label)}`)]).filter(([, o]) => o));
       gate = evaluateGate(finalScan, finalOutcomes, { cvName, cvReason: cvStatus.attached ? null : cvStatus.reason });
@@ -528,21 +541,20 @@ async function main() {
         submission = await phase('submit', () =>
           submitApplication(round.page, {
             beforeClick: async () => {
-              claimed = await claimSubmissionAttempt(args.url, reportNumber);
+              claimed = await claimSubmissionAttempt(root, args.url, reportNumber);
               return claimed.claimed
                 ? { ok: true }
                 : { ok: false, reason: `submit was already attempted at ${claimed.attempt.attemptedAt} (${claimed.attempt.status}); check the employer and tracker before any retry` };
             },
           }),
         );
-        if (claimed?.claimed) {
-          await recordSubmissionResult(args.url, reportNumber, submission);
-        }
         metrics.submission = submission;
         if (submission.status === 'confirmed') {
-          standing = { status: 'submitted', pending: [] };
           metrics.tracker = markApplied(root, reportNumber, submission);
+          await recordSubmissionResult(root, args.url, reportNumber, { ...submission, tracker: metrics.tracker });
+          standing = metrics.tracker.ok ? { status: 'submitted', pending: [] } : { status: 'incomplete', pending: [`tracker: ${metrics.tracker.error}`] };
         } else {
+          if (claimed?.claimed) await recordSubmissionResult(root, args.url, reportNumber, submission);
           standing = { status: 'incomplete', pending: [`submit: ${submission.reason}`] };
         }
       }
@@ -559,7 +571,7 @@ async function main() {
   const all = [...outcomes.values()];
   const closedBy = (via) => all.filter((o) => o.status === 'verified' && o.via === via).length;
   metrics.wallClockSeconds = Number(((Date.now() - t0) / 1000).toFixed(1));
-  metrics.modelCalls = { ...calls, stagehandSeconds: Number(calls.stagehandSeconds.toFixed(1)), total: calls.observe + calls.act + calls.judge + calls.jev + calls.cvGeneration };
+  metrics.modelCalls = { ...calls, stagehandSeconds: Number(calls.stagehandSeconds.toFixed(1)), total: calls.act + calls.judge + calls.jev + calls.cvGeneration };
   metrics.cv.attached = cvStatus;
   metrics.summary = {
     fieldsVerified: closedBy('deterministic') + closedBy('model'),
@@ -584,7 +596,7 @@ async function main() {
   for (const q of metrics.questions || []) {
     if (q.outcome) console.log(`[hybrid]   ${q.outcome.status.padEnd(10)} ${(q.outcome.via || '').padEnd(13)} ${q.label}${q.outcome.status !== 'verified' && q.outcome.reason ? ` — ${q.outcome.reason}` : ''}`);
   }
-  console.log(`[hybrid] verified ${metrics.summary.fieldsVerified} (deterministic ${metrics.summary.closedByDeterministic}, model ${metrics.summary.closedByModel}); model calls ${metrics.modelCalls.total} (observe ${calls.observe}, act ${calls.act}, judge ${calls.judge}, jev ${calls.jev}, cv-generation ${calls.cvGeneration}); ${metrics.wallClockSeconds}s`);
+  console.log(`[hybrid] verified ${metrics.summary.fieldsVerified} (deterministic ${metrics.summary.closedByDeterministic}, model ${metrics.summary.closedByModel}); model calls ${metrics.modelCalls.total} (act ${calls.act}, judge ${calls.judge}, jev ${calls.jev}, cv-generation ${calls.cvGeneration}); ${metrics.wallClockSeconds}s`);
   console.log(`[hybrid] CV: ${cvStatus.attached ? `${cvName} attached to "${metrics.summary.cvAttachedTo}" (${cvStatus.via})` : `NOT attached: ${cvStatus.reason}`}`);
   console.log(`[hybrid] tab: ${metrics.tab.status}${standing?.pending?.length ? ` — pending: ${standing.pending.join(' | ')}` : ''}`);
   if (submission) console.log(`[hybrid] submit: ${submission.status}${submission.evidence ? ` ("${submission.evidence}")` : ''}${submission.reason ? ` — ${submission.reason}` : ''}${metrics.tracker ? `; tracker: ${metrics.tracker.ok ? 'Applied' : `NOT updated (${metrics.tracker.error})`}` : ''}`);
