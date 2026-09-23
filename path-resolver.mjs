@@ -1,4 +1,4 @@
-import { resolve, dirname, join } from 'path';
+import { resolve, dirname, join, basename } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync, readFileSync, realpathSync } from 'fs';
 
@@ -79,6 +79,18 @@ export function rawTrackerPath(rootDir) {
       : join(rootDir, 'applications.md');
 }
 
+/** Resolve the workspace that owns a tracker and its sibling user data. */
+export function resolveWorkspaceRoot(trackerPath) {
+  const trackerDir = dirname(trackerPath);
+  return basename(trackerDir) === 'data' ? dirname(trackerDir) : trackerDir;
+}
+
+/** Resolve the PDF manifest for the workspace that owns a tracker. */
+export function resolvePdfIndexPath(trackerPath) {
+  return process.env.CAREER_OPS_PDF_INDEX
+    || join(resolveWorkspaceRoot(trackerPath), 'data', 'pdf-index.tsv');
+}
+
 /**
  * Returns the resolved path to the tracker applications.md file for writing.
  * Priority: process.env.CAREER_OPS_TRACKER > root/data/applications.md.
@@ -97,4 +109,3 @@ export function resolveTrackerPathForWrite(root) {
   }
   return join(root, 'data/applications.md');
 }
-
