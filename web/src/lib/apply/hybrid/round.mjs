@@ -14,11 +14,19 @@
 // move runs through `chrome.tabs.move` in its service worker.
 //
 // `--headless` runs (tests, CI) get a private browser that is closed at the end.
+//
+// Each round gets a fresh Chrome profile, launched by a detached keeper
+// process (round-keeper.mjs) that holds the CDP connection through which
+// Stagehand loaded its runtime extension: Chrome disables that extension when
+// the connection closes, so the browser must not belong to one form's process.
+// Profiles of rounds whose Chrome is gone are deleted when the next round starts.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import net from 'node:net';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { localBrowser } from '@browserbasehq/stagehand';
 import { chromium } from 'playwright-core';
 import { orderTabs } from './gate.mjs';
@@ -91,22 +99,81 @@ async function alive(cdpUrl) {
 
 const isFormTab = (url) => !/^(chrome-extension|chrome|devtools|about):/.test(url);
 
+/** Delete the profiles of earlier rounds whose Chrome is no longer running
+ *  (Chrome's SingletonLock is a `<host>-<pid>` symlink while it runs). */
+function pruneRoundProfiles(dir) {
+  for (const name of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+    const profile = path.join(dir, name);
+    let pid = null;
+    try {
+      pid = Number(/-(\d+)$/.exec(fs.readlinkSync(path.join(profile, 'SingletonLock')))?.[1]) || null;
+    } catch {
+      /* no lock: that Chrome has exited */
+    }
+    if (pid) {
+      try {
+        process.kill(pid, 0);
+        continue;
+      } catch {
+        /* stale lock */
+      }
+    }
+    fs.rmSync(profile, { recursive: true, force: true });
+  }
+}
+
 /** The Stagehand extension's service worker, woken through its own wake page
  *  when Chrome has put the idle MV3 worker to sleep. */
 async function extensionWorker(context, extensionId = null) {
-  const find = () => context.serviceWorkers().find((w) => w.url().startsWith('chrome-extension://') && w.url().includes('service-worker'));
+  const find = () => context.serviceWorkers().find((w) => w.url().startsWith(extensionId ? `chrome-extension://${extensionId}/` : 'chrome-extension://'));
   const w = find() || (await context.waitForEvent('serviceworker', { timeout: 3000 }).catch(() => null));
-  if (w || !extensionId) return w || find() || null;
+  if (!extensionId) return w || null;
+  if (find()) return find();
   const wake = await context.newPage();
   await wake.goto(`chrome-extension://${extensionId}/wake-service-worker.html`).catch(() => {});
-  const woken = find() || (await context.waitForEvent('serviceworker', { timeout: 5000 }).catch(() => null));
+  await context.waitForEvent('serviceworker', { timeout: 5000 }).catch(() => null);
   await wake.close().catch(() => {});
-  return woken || find() || null;
+  return find() || null;
+}
+
+const keeperAlive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/** Launch the round's browser through a detached keeper (round-keeper.mjs)
+ *  and wait for it to record the round. Called under the lock. */
+async function startRound() {
+  const port = await freePort();
+  const profiles = path.join(stateDir(), 'hybrid-round-profiles');
+  pruneRoundProfiles(profiles);
+  const userDataDir = path.join(profiles, new Date().toISOString().replace(/[:.]/g, '-'));
+  fs.rmSync(stateFile(), { force: true });
+  const keeper = spawn(process.execPath, [fileURLToPath(new URL('./round-keeper.mjs', import.meta.url)), stateFile(), String(port), userDataDir], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  keeper.unref();
+  const end = Date.now() + 120_000;
+  for (;;) {
+    const st = readState();
+    if (st?.keeperPid === keeper.pid && st.error) throw new Error(`the round browser did not start: ${st.error}`);
+    if (st?.keeperPid === keeper.pid && st.cdpUrl) return st;
+    if (Date.now() > end) throw new Error('the round browser did not start within 120 s');
+    await sleep(300);
+  }
 }
 
 /**
  * Join the round's browser (or start it) and open this form's tab.
- * @returns {Promise<{shBrowser, pw, context, page, shared: boolean, cdpUrl: string}>}
+ * `shBrowser` is null when the round's Stagehand runtime is gone (its keeper
+ * was killed while Chrome kept running): the form is then filled without the
+ * model's observe/act, and `runtimeError` says why.
+ * @returns {Promise<{shBrowser, pw, context, page, shared: boolean, cdpUrl: string, runtimeError?: string}>}
  */
 export async function openFormTab({ headless = false } = {}) {
   if (headless) {
@@ -118,43 +185,48 @@ export async function openFormTab({ headless = false } = {}) {
     return { shBrowser, pw, context, page, shared: false, cdpUrl: `http://127.0.0.1:${port}` };
   }
   return withLock(async () => {
-    const st = readState();
-    if (st?.cdpUrl && (await alive(st.cdpUrl))) {
-      const shBrowser = await localBrowser.connect({ cdpUrl: st.cdpUrl, ...(st.extensionId ? { extensionId: st.extensionId } : {}) });
-      const pw = await chromium.connectOverCDP(st.cdpUrl);
-      const context = pw.contexts()[0];
-      const page = await context.newPage();
-      return { shBrowser, pw, context, page, shared: true, cdpUrl: st.cdpUrl };
-    }
-    const port = await freePort();
-    const cdpUrl = `http://127.0.0.1:${port}`;
-    const shBrowser = await localBrowser.launch({
-      port,
-      headless: false,
-      viewport: VIEWPORT,
-      keepAlive: true,
-      userDataDir: path.join(stateDir(), 'hybrid-round-profile'),
-    });
-    const pw = await chromium.connectOverCDP(cdpUrl);
+    let st = readState();
+    const fresh = !(st?.cdpUrl && (await alive(st.cdpUrl)));
+    if (fresh) st = await startRound();
+    const pw = await chromium.connectOverCDP(st.cdpUrl);
     const context = pw.contexts()[0];
-    const worker = await extensionWorker(context);
-    writeState({ cdpUrl, extensionId: worker ? new URL(worker.url()).host : null, startedAt: new Date().toISOString(), tabs: {} });
-    const page = context.pages().find((p) => p.url() === 'about:blank') || (await context.newPage());
-    return { shBrowser, pw, context, page, shared: true, cdpUrl };
+    const blank = fresh ? context.pages().find((p) => p.url() === 'about:blank') : null;
+    const page = blank || (await context.newPage());
+    let shBrowser = null;
+    let runtimeError;
+    if (!st.extensionId || !keeperAlive(st.keeperPid)) {
+      runtimeError = `the round's Stagehand runtime is gone (keeper ${st.keeperPid ?? 'unknown'} not running); close the round browser to start a new round`;
+    } else {
+      shBrowser = await localBrowser.connect({ cdpUrl: st.cdpUrl, extensionId: st.extensionId }).catch((e) => {
+        runtimeError = e instanceof Error ? e.message : String(e);
+        return null;
+      });
+    }
+    return { shBrowser, pw, context, page, shared: true, cdpUrl: st.cdpUrl, runtimeError };
   });
 }
 
 /**
  * Release a Stagehand runtime that an earlier form left initialized (a run
- * that crashed before `close()`): reload the extension, then reconnect. The
- * tabs are untouched; only the extension's worker restarts.
+ * killed before `close()`): stop the extension's service worker, whose
+ * in-memory runtime starts idle again on the next wake, then reconnect. The
+ * extension is not reloaded: Chrome would disable it, since the keeper's
+ * connection loaded it. The tabs are untouched.
  */
 export async function resetStagehandRuntime(round) {
-  const st = readState();
-  const worker = await extensionWorker(round.context, st?.extensionId);
-  await worker?.evaluate(() => chrome.runtime.reload()).catch(() => {});
-  await sleep(2000);
-  round.shBrowser = await localBrowser.connect({ cdpUrl: round.cdpUrl, ...(st?.extensionId ? { extensionId: st.extensionId } : {}) });
+  const { extensionId } = readState() || {};
+  const cdp = await round.pw.newBrowserCDPSession();
+  try {
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    for (const t of targetInfos) {
+      if (t.type === 'service_worker' && t.url.startsWith(`chrome-extension://${extensionId}/`)) await cdp.send('Target.closeTarget', { targetId: t.targetId });
+    }
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
+  await sleep(500);
+  await extensionWorker(round.context, extensionId);
+  round.shBrowser = await localBrowser.connect({ cdpUrl: round.cdpUrl, extensionId });
   return round.shBrowser;
 }
 

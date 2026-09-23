@@ -6,10 +6,11 @@
 // path proves it replaces that one.
 //
 //   0. CV: this posting's PDF (pdf-index, the report's PDF line, --cv), held to
-//      a file-name check against the company; generated with the track's pdf
-//      mode when the posting has none. Another posting's CV is never used.
+//      a file-name check against the company. Another posting's CV is never used.
 //   1. Round: the form opens as a new tab of the round's single browser.
 //   2. Reach the form (click the apply trigger when the page has no fields).
+//      A posting with no PDF of its own gets one now, from the track's pdf
+//      mode and the posting text read before the click.
 //   3. Stagehand observe() once: which controls belong to the application.
 //   4. DOM scan: label, required flag and state of every question.
 //   5. Deterministic pass: exact-label canonical answers through adapters that
@@ -24,9 +25,9 @@
 //   7. Gate from the final DOM scan; the tab is left open and the round's
 //      tabs are re-ordered: ready-but-for-the-captcha first, then incomplete
 //      from fewest to most pending items. Only a posting with no form is closed.
-//
-// It never submits (a guard blocks submit while a model acts). Exit code:
-// 0 ready (or ready but for the captcha), 3 pending items, 4 no form, 1 failure.
+// It never submits (a guard blocks submit while a model acts), and never opens
+// a posting the tracker marks as already applied. Exit code: 0 ready (or ready
+// but for the captcha), 3 pending items, 4 no form, 5 already applied, 1 failure.
 //
 // Run (from web/):
 //   node scripts/apply-hybrid.mjs --url <form-url> [--row N | --report <md>] [--cv <pdf>] [--out <json>] [--headless]
@@ -66,6 +67,7 @@ import {
 import { createCodexGenerate, createFormAgent, mapActionsToQuestions } from '../src/lib/apply/hybrid/stagehand.mjs';
 import { openFormTab, resetStagehandRuntime, settleFormTab } from '../src/lib/apply/hybrid/round.mjs';
 import { generatePostingCv, parseReportName, resolvePostingCv } from '../src/lib/apply/hybrid/cv.mjs';
+import { trackerStanding } from '../src/lib/apply/hybrid/tracker-row.mjs';
 
 function careerOpsRoot() {
   return process.env.CAREER_OPS_ROOT?.trim() || path.resolve(process.cwd(), '..');
@@ -104,7 +106,8 @@ const USAGE = `apply-hybrid.mjs — fill an application form: deterministic firs
   --observe-timeout  cap for the one Stagehand observation (default 150 s).
   --out              metrics JSON (default <root>/data/ab-test/hybrid.json).
 
-Exit: 0 ready (or only the captcha left), 3 pending items, 4 no form, 1 run failure.`;
+Exit: 0 ready (or only the captcha left), 3 pending items, 4 no form,
+5 already applied (the tracker row is Applied or later; no tab opened), 1 run failure.`;
 
 /** The report file for --report / --row, whether or not it has Application Answers. */
 function findReport(root, { row, report }) {
@@ -175,6 +178,13 @@ async function main() {
   const companySlug = parseReportName(reportPath).slug || deriveCompanySlug({ url: args.url });
   console.log(`[hybrid] canonical sources: ${JSON.stringify(loaded.sources)}; report: ${reportPath || 'none'}`);
   console.log(`[hybrid] ${answers.length} canonical answer(s)`);
+
+  // A posting the tracker marks as already sent never enters the round.
+  const standing0 = trackerStanding(root, parseReportName(reportPath).number ?? args.row);
+  if (standing0.sent) {
+    console.log(`[hybrid] not opened: tracker row ${standing0.row} is "${standing0.status}" (${standing0.canonical}), the application was already sent (${standing0.tracker})`);
+    process.exit(5);
+  }
 
   const calls = { observe: 0, act: 0, judge: 0, jev: 0, stagehandSeconds: 0, cvGeneration: 0 };
   let stagehandPurpose = 'observe';
@@ -255,19 +265,23 @@ async function main() {
     if (!cv.path) cvStatus = { attached: false, reason: metrics.cv.generation?.error || 'no CV for this posting' };
 
     const scan = await phase('scan', () => scanPage(page));
-    try {
-      agent = await createFormAgent(round.shBrowser, stagehandGenerate, page.url());
-    } catch (e) {
-      if (/already initialized|initiali[sz]ation timed out|Stagehand\.create exceeded/i.test(String(e?.message)) && round.shared) {
-        // An earlier form left the round's Stagehand runtime claimed or stuck: release it and retry once.
-        try {
-          await resetStagehandRuntime(round);
-          agent = await createFormAgent(round.shBrowser, stagehandGenerate, page.url());
-        } catch (e2) {
-          metrics.agentError = `${errText(e)}; reset failed: ${errText(e2)}`;
+    if (!round.shBrowser) {
+      metrics.agentError = round.runtimeError;
+    } else {
+      try {
+        agent = await createFormAgent(round.shBrowser, stagehandGenerate, page.url());
+      } catch (e) {
+        if (/already initialized|initiali[sz]ation timed out|Stagehand\.create exceeded/i.test(String(e?.message)) && round.shared) {
+          // An earlier form left the round's Stagehand runtime claimed or stuck: release it and retry once.
+          try {
+            await resetStagehandRuntime(round);
+            agent = await createFormAgent(round.shBrowser, stagehandGenerate, page.url());
+          } catch (e2) {
+            metrics.agentError = `${errText(e)}; reset failed: ${errText(e2)}`;
+          }
+        } else {
+          metrics.agentError = errText(e);
         }
-      } else {
-        metrics.agentError = errText(e);
       }
     }
     const obs = agent ? await phase('observe', () => agent.observe({ timeoutMs: args.observeTimeoutSeconds * 1000 })) : { ok: false, ms: 0, actions: [], error: metrics.agentError };

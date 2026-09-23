@@ -27,6 +27,7 @@ import { evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/g
 import { resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
 import { attachFile, chooseOption, fillText, selectCombobox } from '../../src/lib/apply/hybrid/adapters.mjs';
 import { mapActionsToQuestions } from '../../src/lib/apply/hybrid/stagehand.mjs';
+import { trackerStanding } from '../../src/lib/apply/hybrid/tracker-row.mjs';
 
 const FIXTURES = path.join(import.meta.dirname, '..', '..', 'src', 'lib', 'apply', '__fixtures__');
 
@@ -381,4 +382,31 @@ test('the round leaves forms that only need the human first, then the fewest pen
   assert.deepEqual(tabs[2], { url: 'wellhub', status: 'ready-captcha', pending: [] });
   assert.deepEqual(tabs[0].pending, ['Post Code', 'What is your Legal first and last name?'], 'the captcha is not a pending field');
   assert.deepEqual(orderTabs(tabs).map((x) => x.url), ['wellhub', 'storyteller', 'camunda', 'opened-by-hand']);
+});
+
+test('a posting the tracker marks Applied (or an alias of it) never enters the round; Evaluated does', () => {
+  // Header and rows as the track C tracker writes them (2026-09-22: 2010, 2078
+  // and 2170 were already submitted and still got queued for a new round).
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-tracker-'));
+  try {
+    fs.mkdirSync(path.join(root, 'data'));
+    fs.writeFileSync(
+      path.join(root, 'data', 'applications.md'),
+      [
+        '# Applications Tracker',
+        '',
+        '| # | Date | Company | Via | Role | Score | Status | PDF | Report | Notes |',
+        '|---|------|---------|-----|------|-------|--------|-----|--------|-------|',
+        '| 2010 | 2026-08-17 | Deepgram | — | Senior Program Manager, Data Operations | 3.5/5 | Applied | ✅ | [2010](../reports/2010-deepgram-senior-program-manager-data-operations-2026-08-17.md) | sent 2026-09-21 |',
+        '| 2078 | 2026-08-22 | Clipboard | — | AI Tooling Program Manager | 3.6/5 | Aplicado | ✅ | [2078](../reports/2078-clipboard-ai-tooling-program-manager-2026-08-22.md) | |',
+        '| 2187 | 2026-09-14 | Johnson & Johnson MedTech | — | Business, Process and Transformation Lead Latam | 3.5/5 | Evaluated | ✅ | [2187](../reports/2187-johnson-johnson-medtech-2026-09-14.md) | |',
+        '',
+      ].join('\n'),
+    );
+    const sent = (n) => trackerStanding(root, n).sent;
+    assert.deepEqual([sent(2010), sent('2078'), sent(2187), sent(9999)], [true, true, false, false]);
+    assert.equal(trackerStanding(root, 2078).canonical, 'Applied');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -116,21 +116,39 @@ Keep these across rebases; each exists for a reason.
   `apply-llm-owned` submits once after the ready gate. Interactive `apply` still
   never submits.
 - **Hybrid apply filler.** `web/scripts/apply-hybrid.mjs` with
-  `web/src/lib/apply/hybrid/`: one Stagehand `observe()` per form (its model is
-  a local `codex exec` callback, no provider key), deterministic Playwright
-  adapters that re-read the DOM after each action, Jev only for label matches
-  that are not exact (one batched call per answer source, `NONE` allowed), the
-  CV only on an input identified as the résumé, and a pre-submit gate computed
-  from the final DOM scan. It never submits: exit 0 means ready for a human,
-  3 means the gate blocks and lists why. It runs beside
-  `arm1-jev-agentbrowser.mjs`; routing in `lib/apply-route.mjs` is unchanged
-  until it proves it replaces arm1. To compare both on one form, run each with
-  the same URL and a distinct `--out`:
+  `web/src/lib/apply/hybrid/`. Per form: one Stagehand `observe()` to find the
+  application's controls (its model is a local `codex exec` callback, no
+  provider key), then deterministic Playwright adapters for exact-label
+  canonical answers, each re-reading the DOM after it acts. Every field they
+  miss, misfill or cannot verify goes to the model: Jev matching (report
+  answers, then profile answers), a second codex judge, Jev option picks, and
+  a Stagehand `act()` on that field, followed by the same DOM check. A value
+  that does not fit the field (an e-mail in "Address", a monthly amount in an
+  annual field, another currency) is never typed. The CV is always this
+  posting's PDF (`data/pdf-index.tsv`, the report's `**PDF:**` line, `--cv`),
+  checked by file name against the company; when there is none, the track's
+  `pdf` mode generates it before any field is filled.
+
+  The whole round runs in one visible Chrome with a fresh profile (state in
+  `~/.cache/career-ops/hybrid-round.json`). A detached keeper process
+  (`round-keeper.mjs`) launches it and holds the CDP connection that loaded
+  Stagehand's runtime extension, because Chrome disables that extension when
+  the connection closes. Each form is a tab and stays open. After each form the
+  tabs are re-ordered: forms that only need the captcha first, then the rest
+  from fewest to most pending items. Only a posting with no form (closed or
+  removed ad) is closed. A posting whose tracker row is Applied or later is
+  never opened. It never submits. Exit 0: ready, or ready except the captcha.
+  3: pending items, listed by their labels. 4: no form. 5: already applied.
+  1: failure. `--headless` uses a private browser that closes at the end.
+
+  It runs beside `arm1-jev-agentbrowser.mjs`; routing in `lib/apply-route.mjs`
+  is unchanged until it proves it replaces arm1. To compare both on one form,
+  run each with the same URL and a distinct `--out`:
 
   ```sh
   cd ~/dev/career-ops-product/web   # the track that owns the posting
   node scripts/arm1-jev-agentbrowser.mjs --url <url> --row <n> --cv <pdf> --no-submit --out /tmp/arm1.json
-  node scripts/apply-hybrid.mjs          --url <url> --row <n> --cv <pdf> --out /tmp/hybrid.json
+  node scripts/apply-hybrid.mjs          --url <url> --row <n> --out /tmp/hybrid.json
   ```
 
   A track gets Stagehand from `web/package.json`: after `update-system.mjs
