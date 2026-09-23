@@ -49,7 +49,7 @@ export function fileNamesCompany(file, companySlug, { linked = false, reportNumb
   if (!linked) return false;
   if (reportNumber != null) {
     const withoutDate = name.replace(/-\d{4}-\d{2}-\d{2}\.pdf$/, '.pdf');
-    if (matchesTailoredCv(withoutDate, String(Number(reportNumber)))) return true;
+    if (matchesTailoredCv(withoutDate, String(reportNumber)) || matchesTailoredCv(withoutDate, String(Number(reportNumber)))) return true;
   }
   return false;
 }
