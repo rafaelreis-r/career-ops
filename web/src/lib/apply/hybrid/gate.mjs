@@ -39,10 +39,11 @@ export function evaluateGate(finalScan, outcomes, { cvName = '', cvAttached = nu
   for (const q of finalScan.questions) {
     if (!q.visible) continue;
     const o = outcomes.get(q.key);
-    if (q.required && isEmptyState(q, cvName)) {
+    const empty = isEmptyState(q, cvName);
+    if (q.required && (empty || o?.status !== 'verified')) {
       const why = o?.status === 'locked' ? `locked: ${o.reason}` : o?.status === 'no-answer' ? 'no canonical answer' : o?.status ? `${o.status}: ${o.reason ?? ''}`.trim() : 'empty';
-      blockers.push({ kind: 'required-empty', key: q.key, label: q.label, reason: `required and empty (${why})` });
-    } else if (o?.status === 'mismatch' && !isEmptyState(q, cvName)) {
+      blockers.push({ kind: empty ? 'required-empty' : 'required-unverified', key: q.key, label: q.label, reason: `required field lacks a verified canonical answer (${why})` });
+    } else if (o?.status === 'mismatch' && !empty) {
       blockers.push({ kind: 'mismatch', key: q.key, label: q.label, reason: `value on the page differs from the canonical answer (${o.reason ?? ''})` });
     } else if (q.kind === 'text' || q.kind === 'textarea') {
       // Whoever typed it (this run, an autofill, an earlier run): a value
@@ -51,7 +52,7 @@ export function evaluateGate(finalScan, outcomes, { cvName = '', cvAttached = nu
       if (misfit) blockers.push({ kind: 'type-mismatch', key: q.key, label: q.label, reason: `value does not fit the field: ${misfit.reason}` });
     }
   }
-  if (cvAttached === false && !blockers.some((b) => b.kind === 'required-empty' && /resume|cv|curr[ií]culo/i.test(b.label))) {
+  if (cvAttached === false && !blockers.some((b) => /resume|cv|curr[ií]culo/i.test(b.label))) {
     blockers.push({ kind: 'resume', key: null, label: 'Resume/CV', reason: `CV not attached and verified: ${cvReason || 'unknown'} (driver defect)` });
   }
   if (finalScan.captcha?.present) blockers.push({ kind: 'captcha', key: null, label: 'captcha', reason: 'captcha on the page: a human must complete it' });

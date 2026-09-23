@@ -28,6 +28,7 @@ import { resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
 import { attachFile, chooseOption, fillText, reachApplicationForm, sameChoice, selectCombobox, verifyQuestion } from '../../src/lib/apply/hybrid/adapters.mjs';
 import { mapActionsToQuestions } from '../../src/lib/apply/hybrid/stagehand.mjs';
 import { trackerStanding } from '../../src/lib/apply/hybrid/tracker-row.mjs';
+import { rememberFormTab } from '../../src/lib/apply/hybrid/round.mjs';
 
 const FIXTURES = path.join(import.meta.dirname, '..', '..', 'src', 'lib', 'apply', '__fixtures__');
 
@@ -124,7 +125,7 @@ test('the CV goes only to an input identified as the resume that accepts the fil
   );
   assert.equal(wellhub.target.key, 'q6');
   const sole = selectResumeTarget([{ key: 'q1', kind: 'file', ownLabel: 'Anexo', label: 'Anexo', accept: '.pdf' }], 'cv.pdf');
-  assert.equal(sole.target.key, 'q1', 'the one unnamed document input is the upload slot: the CV is never left off');
+  assert.equal(sole.target, null, 'an unnamed document input needs the typed model decision');
   const two = selectResumeTarget(
     [
       { key: 'q1', kind: 'file', ownLabel: 'Anexo', label: 'Anexo', accept: '.pdf' },
@@ -201,6 +202,15 @@ test('the form reacher never clicks Apply inside a form with one hidden CV input
   assert.equal(await page.evaluate(() => window.clicked || 0), 0);
 });
 
+test('the form reacher never clicks an external Apply beside one applicant field', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
+  if (!page) return;
+  await page.setContent('<label>Email*<input type="email"></label><button type="button" onclick="window.clicked=(window.clicked||0)+1">Apply</button>');
+  const reached = await reachApplicationForm(page);
+  assert.equal(reached.reached, false);
+  assert.equal(await page.evaluate(() => window.clicked || 0), 0);
+});
+
 test('the form reacher still clicks the captured iTRTech application trigger', async (t) => {
   const page = await openFixture(t, 'hybrid-recrutai-itrtech.html');
   if (!page) return;
@@ -218,6 +228,17 @@ test('Wellhub: a filled First Name is done the moment the DOM shows it', async (
   assert.deepEqual(r, { status: 'verified', observed: 'Rafael' });
   const gate = evaluateGate(await scan(page), new Map([[first.key, r]]));
   assert.equal(gate.blockers.some((b) => b.label === 'First Name*'), false);
+});
+
+test('Wellhub: browser autofill cannot satisfy a required field without canonical verification', async (t) => {
+  const page = await openFixture(t, 'hybrid-greenhouse-wellhub.html');
+  if (!page) return;
+  const first = byLabel(await scan(page), 'First Name*');
+  await page.locator(`[data-hyb-c="${first.key}"]`).fill('Browser Autofill');
+  const unverified = evaluateGate(await scan(page), new Map());
+  assert.equal(unverified.blockers.find((b) => b.label === 'First Name*').kind, 'required-unverified');
+  const verified = evaluateGate(await scan(page), new Map([[first.key, { status: 'verified' }]]));
+  assert.equal(verified.blockers.some((b) => b.label === 'First Name*'), false);
 });
 
 test('Wellhub: Country Phone Code is selected once and verified in the widget', async (t) => {
@@ -314,7 +335,7 @@ test('iTRTech: a phone the page truncates is cleared and blocks, never kept as a
   assert.equal(r.observed, '+55 31 98427-79');
   assert.equal(await page.inputValue('#inputMobilePhone'), '');
   const gate = evaluateGate(await scan(page), new Map([[phone.key, r]]));
-  assert.match(gate.blockers.find((b) => b.label === 'Celular de contato*').reason, /required and empty \(mismatch/);
+  assert.match(gate.blockers.find((b) => b.label === 'Celular de contato*').reason, /lacks a verified canonical answer \(mismatch/);
 });
 
 test('iTRTech: an observed XPath still finds its question after the page prepends a node to <body>', async (t) => {
@@ -445,8 +466,9 @@ test('SMG: the e-mail never goes into Address and a monthly amount never into th
   await page.fill('#resumator-address-value', 'someone@example.com');
   await page.fill('#resumator-questionnaire-q3022689', 'USD 8000/month');
   const gate = evaluateGate(await scan(page), new Map());
-  const misfits = gate.blockers.filter((b) => b.kind === 'type-mismatch').map((b) => b.label);
-  assert.deepEqual(misfits.sort(), [SMG_ADDRESS, SMG_SALARY].sort());
+  const blocked = gate.blockers.map((b) => b.label);
+  assert.ok(blocked.includes(SMG_ADDRESS));
+  assert.ok(blocked.includes(SMG_SALARY));
 });
 
 test("SMG: another posting's CV is refused; the posting's own PDF is used, or none so it gets generated", () => {
@@ -522,6 +544,22 @@ test('the round leaves forms that only need the human first, then the fewest pen
   assert.deepEqual(tabs[2], { url: 'wellhub', status: 'ready-captcha', pending: [] });
   assert.deepEqual(tabs[0].pending, ['Post Code', 'What is your Legal first and last name?'], 'the captcha is not a pending field');
   assert.deepEqual(orderTabs(tabs).map((x) => x.url), ['wellhub', 'storyteller', 'camunda', 'opened-by-hand']);
+});
+
+test('an interrupted posting keeps ownership of its transitioned application tab', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-round-'));
+  const previous = process.env.CAREER_OPS_HYBRID_STATE_DIR;
+  process.env.CAREER_OPS_HYBRID_STATE_DIR = stateDir;
+  try {
+    const page = { isClosed: () => false, url: () => 'https://itrecruiter.jobs.recrut.ai/itrtechgroup/apply/S8TTFW' };
+    await rememberFormTab({ page }, 'https://itrecruiter.jobs.recrut.ai/itrtechgroup/job/S8TTFW', 'interrupted by SIGINT');
+    const state = JSON.parse(fs.readFileSync(path.join(stateDir, 'hybrid-round.json'), 'utf8'));
+    assert.equal(state.tabs[page.url()].postingUrl, 'https://itrecruiter.jobs.recrut.ai/itrtechgroup/job/S8TTFW');
+  } finally {
+    if (previous === undefined) delete process.env.CAREER_OPS_HYBRID_STATE_DIR;
+    else process.env.CAREER_OPS_HYBRID_STATE_DIR = previous;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
 });
 
 test('a posting the tracker marks Applied (or an alias of it) never enters the round; Evaluated does', () => {

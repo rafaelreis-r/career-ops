@@ -351,8 +351,7 @@ export async function setSubmitGuard(page, on, ms = 180_000) {
 }
 
 // In-page: count controls an applicant fills (not search boxes), and find the
-// "open the application" trigger. The trigger must not sit in a form that has
-// fillable fields — that would be a final submit, which this never clicks.
+// "open the application" trigger.
 function applyProbeInPage() {
   const vis = (el) => {
     const r = el.getBoundingClientRect();
@@ -363,15 +362,15 @@ function applyProbeInPage() {
     .filter((el) => (el.type === 'file' ? true : vis(el)) && !/search|busca|pesquis/i.test(`${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.name || ''}`));
   const applicantFile = fillable.some((el) => el.type === 'file');
   document.querySelectorAll('[data-hyb-apply]').forEach((n) => n.removeAttribute('data-hyb-apply'));
-  const APPLY_RX = /\b(apply|candidat|inscrev|inscri|postul|aplicar|bewerben)/i;
+  const SUBMIT_RX = /^(submit|send|apply|enviar|finalizar|concluir|candidatar|postular|aplicar|bewerben)\b|submit application|send application|enviar candidatura/i;
+  const REVEAL_RX = /^inscrever-se na vaga$/i;
   const trigger = [...document.querySelectorAll('button, a, [role=button], input[type=submit], input[type=button]')].find((el) => {
     if (!vis(el)) return false;
-    const text = `${el.textContent || ''} ${el.value || ''} ${el.getAttribute('aria-label') || ''}`;
+    const text = `${el.textContent || ''} ${el.value || ''} ${el.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
     const href = el.getAttribute('href') || el.getAttribute('formaction') || el.form?.getAttribute('action') || '';
-    if (!APPLY_RX.test(text) && !/\/(apply|job-apply|candidat)/i.test(href)) return false;
+    if (/^(submit|image)$/i.test(el.getAttribute('type') || '') || SUBMIT_RX.test(text)) return false;
+    if (!REVEAL_RX.test(text) && !/\/(apply|job-apply|candidat)/i.test(href)) return false;
     if (/linkedin|indeed|facebook|twitter|mailto:/i.test(href)) return false;
-    const form = el.closest('form');
-    if (form && [...form.querySelectorAll('input:not([type=hidden]), textarea, select')].some((control) => control.type === 'file' || vis(control))) return false;
     return true;
   });
   if (trigger) trigger.setAttribute('data-hyb-apply', '1');

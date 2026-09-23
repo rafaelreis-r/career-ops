@@ -202,6 +202,21 @@ export async function openFormTab({ postingUrl = null } = {}) {
   });
 }
 
+export async function rememberFormTab(round, postingUrl, note = null) {
+  if (!round?.page || round.page.isClosed()) return false;
+  return withLock(async () => {
+    const st = readState() || { tabs: {} };
+    st.tabs ||= {};
+    const url = round.page.url();
+    for (const [knownUrl, tab] of Object.entries(st.tabs)) {
+      if (knownUrl !== url && tab.postingUrl === postingUrl) delete st.tabs[knownUrl];
+    }
+    st.tabs[url] = { status: 'unknown', pending: [], ...st.tabs[url], postingUrl, note, updatedAt: new Date().toISOString() };
+    writeState(st);
+    return true;
+  });
+}
+
 /**
  * Release a Stagehand runtime that an earlier form left initialized (a run
  * killed before `close()`): stop the extension's service worker, whose

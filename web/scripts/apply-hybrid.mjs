@@ -69,7 +69,7 @@ import {
   verifyQuestion,
 } from '../src/lib/apply/hybrid/adapters.mjs';
 import { createCodexGenerate, createFormAgent, mapActionsToQuestions } from '../src/lib/apply/hybrid/stagehand.mjs';
-import { openFormTab, resetStagehandRuntime, settleFormTab } from '../src/lib/apply/hybrid/round.mjs';
+import { openFormTab, rememberFormTab, resetStagehandRuntime, settleFormTab } from '../src/lib/apply/hybrid/round.mjs';
 import { generatePostingCv, parseReportName, resolvePostingCv } from '../src/lib/apply/hybrid/cv.mjs';
 import { trackerStanding } from '../src/lib/apply/hybrid/tracker-row.mjs';
 
@@ -78,7 +78,7 @@ function careerOpsRoot() {
 }
 
 function parseArgs(argv) {
-  const args = { observeTimeoutSeconds: 150 };
+  const args = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--url') args.url = argv[++i];
@@ -86,7 +86,6 @@ function parseArgs(argv) {
     else if (a === '--report') args.report = argv[++i];
     else if (a === '--cv') args.cv = argv[++i];
     else if (a === '--out') args.out = argv[++i];
-    else if (a === '--observe-timeout') args.observeTimeoutSeconds = Number(argv[++i]);
     else if (a === '--help' || a === '-h') args.help = true;
     else throw new Error(`unknown argument: ${a}`);
   }
@@ -102,7 +101,6 @@ const USAGE = `apply-hybrid.mjs — fill an application form: deterministic firs
   --cv               a CV to use when it names the posting's company and no
                      other report owns it; otherwise the posting's own PDF is
                      used, or generated.
-  --observe-timeout  cap for the one Stagehand observation (default 150 s).
   --out              metrics JSON (default <root>/data/ab-test/hybrid.json).
 
 Exit: 0 ready (or only the captcha left), 3 pending items, 4 no form,
@@ -234,8 +232,8 @@ async function main() {
   let agent = null;
   let cvStatus = { attached: false, reason: 'not attempted' };
   const onSignal = async (sig) => {
-    // Release the round's Stagehand runtime even when interrupted, so the next form can start.
     await agent?.close();
+    if (round) await rememberFormTab(round, args.url, `interrupted by ${sig}`).catch(() => {});
     process.exit(sig === 'SIGINT' ? 130 : 143);
   };
   process.once('SIGINT', onSignal);
@@ -253,6 +251,7 @@ async function main() {
         await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
         await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
       });
+      await rememberFormTab(round, args.url);
     }
     // The posting page, before any "Apply" click, carries the job description;
     // its head (title, location) is what "the country where this position is
@@ -261,6 +260,7 @@ async function main() {
     const jobText = cv.path ? '' : pageText;
     const postingHeader = pageText.slice(0, 800);
     const reach = await phase('reachForm', () => reachApplicationForm(page));
+    await rememberFormTab(round, args.url);
     metrics.reach = reach;
     console.log(`[hybrid] form ${reach.reached ? 'reached' : 'NOT reached'} at ${reach.url}${reach.log.length ? ` after ${reach.log.map((l) => `"${l.clicked}"`).join(', ')}` : ''}`);
     if (!reach.reached) {
@@ -303,7 +303,7 @@ async function main() {
         }
       }
     }
-    const obs = agent ? await phase('observe', () => agent.observe({ timeoutMs: args.observeTimeoutSeconds * 1000 })) : { ok: false, ms: 0, actions: [], error: metrics.agentError };
+    const obs = agent ? await phase('observe', () => agent.observe({ timeoutMs: 150_000 })) : { ok: false, ms: 0, actions: [], error: metrics.agentError };
     let observed = new Set();
     if (obs.ok) {
       const mapped = await phase('mapObserved', () => mapActionsToQuestions(page, obs.actions));
@@ -312,8 +312,7 @@ async function main() {
     } else {
       metrics.discovery = { method: 'dom-scan (observe failed)', ms: obs.ms, error: obs.error, questionsScanned: scan.questions.length };
     }
-    // Everything the model saw, plus every required question it may have missed.
-    const targets = scan.questions.filter((q) => q.kind !== 'file' && q.visible && (!obs.ok || observed.has(q.key) || q.required));
+    const targets = scan.questions.filter((q) => q.kind !== 'file' && q.visible);
     console.log(`[hybrid] discovery: ${metrics.discovery.method}, ${targets.length} of ${scan.questions.length} scanned question(s) targeted`);
 
     for (const q of scan.questions) q.frameObj = scan.frameObjs[q.frame];
@@ -472,7 +471,7 @@ async function main() {
       const again = await scanPage(page);
       for (const q of again.questions) q.frameObj = again.frameObjs[q.frame];
       const live = again.questions.filter((q) => q.kind !== 'file' && q.visible);
-      const revealed = live.filter((q) => !handled.has(q.key) && (q.required || matchExact(q, answers)));
+      const revealed = live.filter((q) => !handled.has(q.key));
       const cleared = live.filter((q) => outcomes.get(q.key)?.status === 'verified' && isEmptyState(q));
       if (!revealed.length && !cleared.length) break;
       if (revealed.length) console.log(`[hybrid] ${revealed.length} question(s) appeared after filling: ${revealed.map((q) => q.label).join(' | ')}`);
