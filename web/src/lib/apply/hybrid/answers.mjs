@@ -75,7 +75,7 @@ export function reportAnswerAllowedFor(question, answer) {
 
 /** Canonical answers as `{id, label, value, source}`, non-answers dropped,
  *  first occurrence of a label kept. The posting's report answers come first
- *  (they are specific to this form and already vetted), then the profile's. */
+ *  (they are specific to this form), then the profile's. */
 export function buildAnswers(reportAnswers = [], profileAnswers = []) {
   const out = [];
   const seen = new Set();

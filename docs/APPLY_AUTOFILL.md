@@ -16,9 +16,9 @@ node scripts/apply-hybrid.mjs --url <form-url> --row <n>
 node scripts/apply-hybrid.mjs --url <form-url> --report <report.md>
 ```
 
-Optional `--cv <pdf>` is accepted only when the filename can be tied to the posting and no other report owns it. `--out <json>` changes the metrics path; the default is `data/ab-test/hybrid.json` under the resolved data root.
+Optional `--cv <pdf>` is accepted only when the filename can be tied to the posting and no other report owns it. A CV linked to the selected report by its number may use the zero-padded report number (such as `042`) or its unpadded form (`42`) even when the filename lacks the company name. `--out <json>` changes the metrics path; the default is `data/ab-test/hybrid.json` under the resolved data root.
 
-The driver keeps one visible browser for the round and one tab per posting. It reuses interrupted tabs, attaches the posting-specific CV, fills exact canonical answers deterministically, and uses typed model decisions only for unresolved fields. It does not invent answers. Captchas and required questions without verified canonical answers block submission and remain listed on the open tab.
+The driver keeps one visible browser for the round and one tab per posting. It reuses interrupted tabs, attaches the posting-specific CV, fills exact canonical answers deterministically, and uses typed model decisions only for unresolved fields. Report answers may fill only open text fields asking for motivation or fit with the company or role, including a cover note or letter. Factual fields, including yes/no questions, use profile or CV facts instead. It does not invent answers. Captchas and required questions without verified canonical answers block submission and remain listed on the open tab.
 
 It refuses to open a posting already recorded as sent, a blacklisted company, or a company whose configured submission window is exhausted. A durable attempt claim prevents a second submission after a click whose outcome is uncertain.
 

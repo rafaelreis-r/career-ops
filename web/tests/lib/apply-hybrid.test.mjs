@@ -125,7 +125,7 @@ test('numeric report lookup treats padded and unpadded selectors identically; a 
     assert.equal(loaded.sources.report, report);
     assert.deepEqual(
       loaded.reportAnswers,
-      [{ label: 'Why this role?', value: 'I enjoy solving example problems.' }],
+      [{ label: 'Why this role?', value: 'I enjoy solving example problems.', source: 'report' }],
       'the standalone word "fit" in a factual duties question no longer smuggles it in as motivation prose',
     );
     assert.ok(loaded.cvAnswers.some((answer) => answer.label === 'Years of Experience' && answer.value === '7'));
