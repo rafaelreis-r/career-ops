@@ -207,7 +207,39 @@ test('the gate reads the CV and consents from the final DOM', () => {
   const cleared = evaluateGate(scan([]), outcomes, { cvName });
   assert.deepEqual(cleared.blockers.map((b) => b.kind).sort(), ['consent', 'resume'], 'a CV attached earlier but gone from the page blocks; an unanswered consent blocks');
   const answered = evaluateGate(scan([cvName]), new Map([...outcomes, ['q22', { status: 'verified' }]]), { cvName });
-  assert.equal(answered.ready, true);
+  assert.equal(answered.ready, false, 'a file is not accepted until its chosen resume key is supplied');
+  assert.equal(evaluateGate(scan([cvName]), new Map([...outcomes, ['q22', { status: 'verified' }]]), { cvName, resumeKey: 'q2' }).ready, true);
+});
+
+test('a filename in supporting text or the wrong file input is not CV proof', () => {
+  const cvName = 'cv-candidate-acme.pdf';
+  const finalScan = {
+    captcha: { present: false },
+    questions: [
+      { key: 'resume', kind: 'file', label: 'Resume', required: false, visible: true, state: { files: [], text: '' } },
+      { key: 'cover', kind: 'file', label: 'Cover Letter', required: false, visible: true, state: { files: [cvName], text: cvName } },
+      { key: 'notes', kind: 'textarea', label: 'Supporting information', required: false, visible: true, state: { value: `See ${cvName}` } },
+    ],
+  };
+  const gate = evaluateGate(finalScan, new Map(), { cvName, resumeKey: 'resume' });
+  assert.ok(gate.blockers.some((b) => b.kind === 'resume'));
+  finalScan.questions[0].state.text = cvName;
+  assert.equal(evaluateGate(finalScan, new Map(), { cvName, resumeKey: 'resume' }).blockers.some((b) => b.kind === 'resume'), false);
+});
+
+test('the captured applytojob submit anchor is locked until the final step', async (t) => {
+  const page = await openPage(
+    t,
+    `<form id="f"><input name="email" value="fixture@example.com"><div id="resumator-submit" class="form-group"><a href="#" id="resumator-submit-resume" class="btn">Submit Application</a></div></form>
+     <script>document.getElementById('resumator-submit-resume').onclick=(e)=>{e.preventDefault();window.__sent=(window.__sent||0)+1;document.body.innerHTML='<h1>Application submitted</h1>';};</script>`,
+  );
+  if (!page) return;
+  await holdSubmitLock(page);
+  await page.click('#resumator-submit-resume');
+  assert.equal(await page.evaluate(() => window.__sent || 0), 0);
+  const result = await submitApplication(page, { timeoutMs: 3000 });
+  assert.equal(result.status, 'confirmed');
+  assert.equal(result.control, 'Submit Application');
 });
 
 test('a company whose submission limit is used up across the tracks never enters the round, and the report says when it reopens', () => {

@@ -10,7 +10,7 @@
 // not answer blocks, required or not. A captcha is a human step and always
 // blocks. `ready` (no blocker at all) is the only state the driver submits in.
 
-import { valueFitsField } from './answers.mjs';
+import { normalizeText, valueFitsField } from './answers.mjs';
 
 const CONSENT_RX = /consent|\bi agree\b|\bagree to\b|concordo|aceito|autorizo|privacy policy|pol[ií]tica de privacidade|termos de uso|terms of (use|service)/i;
 
@@ -29,35 +29,53 @@ export function isEmptyState(q, cvName = '') {
   }
 }
 
-/** Does the final DOM still hold this CV (the input's files, or the filename
- *  the ATS shows after consuming the input)? */
-export function cvInFinalDom(finalScan, cvName) {
-  if (!cvName) return false;
+/** Does the chosen resume input still hold this CV, or does its preserved ATS
+ *  container show the filename after consuming the input? */
+export function cvInFinalDom(finalScan, cvName, resumeKey = null) {
+  if (!cvName || !resumeKey) return false;
   return finalScan.questions.some((q) => {
+    if (q.kind !== 'file' || q.key !== resumeKey) return false;
     const s = q.state || {};
-    if (q.kind === 'file') return (s.files || []).includes(cvName) || String(s.text ?? '').includes(cvName);
-    return (q.kind === 'text' || q.kind === 'textarea') && String(s.value ?? '').includes(cvName);
+    return (s.files || []).includes(cvName) || String(s.text ?? '').includes(cvName);
   });
+}
+
+export function alignOutcomes(finalQuestions, outcomes) {
+  const signature = (q) => `${q.kind}|${normalizeText(q.label)}`;
+  const prior = new Map();
+  for (const outcome of outcomes.values()) {
+    const key = signature(outcome);
+    if (!prior.has(key)) prior.set(key, []);
+    prior.get(key).push(outcome);
+  }
+  const finalCounts = new Map();
+  for (const q of finalQuestions) finalCounts.set(signature(q), (finalCounts.get(signature(q)) || 0) + 1);
+  return new Map(
+    finalQuestions
+      .map((q) => {
+        const direct = outcomes.get(q.key);
+        if (direct) return [q.key, direct];
+        const matches = prior.get(signature(q)) || [];
+        return finalCounts.get(signature(q)) === 1 && matches.length === 1 ? [q.key, matches[0]] : null;
+      })
+      .filter(Boolean),
+  );
 }
 
 /**
  * @param {{questions: object[], captcha: {present: boolean}}} finalScan
  * @param {Map<string, {status: string, reason?: string}>} outcomes - per-question fill outcome, by key.
- * @param {{cvName?: string, cvReason?: string|null}} [opts] - the posting's CV file name
- *        (empty when the posting has none: that alone blocks).
+ * @param {{cvName?: string, cvReason?: string|null, resumeKey?: string|null}} [opts]
  * @returns {{ready: boolean, blockers: Array<{kind: string, key: string|null, label: string, reason: string}>}}
  */
-export function evaluateGate(finalScan, outcomes, { cvName = '', cvReason = null } = {}) {
+export function evaluateGate(finalScan, outcomes, { cvName = '', cvReason = null, resumeKey = null } = {}) {
   const blockers = [];
   for (const frame of finalScan.frameErrors || []) blockers.push({ kind: 'frame-scan', key: null, label: frame.url || 'embedded application frame', reason: `frame could not be scanned: ${frame.reason}` });
   for (const q of finalScan.questions) {
     if (!q.visible) continue;
     const o = outcomes.get(q.key);
     const empty = isEmptyState(q, cvName);
-    // A text box the page fills with the uploaded file's name (recrut.ai
-    // "Currículo*") is the CV, not a question.
-    const showsCv = !!cvName && !empty && (q.kind === 'text' || q.kind === 'textarea') && String(q.state?.value ?? '').includes(cvName);
-    if (q.required && !showsCv && (empty || o?.status !== 'verified')) {
+    if (q.required && (empty || o?.status !== 'verified')) {
       const why = o?.status === 'locked' ? `locked: ${o.reason}` : o?.status === 'no-answer' ? 'no canonical answer' : o?.status ? `${o.status}: ${o.reason ?? ''}`.trim() : 'empty';
       blockers.push({ kind: empty ? 'required-empty' : 'required-unverified', key: q.key, label: q.label, reason: `required field lacks a verified canonical answer (${why})` });
     } else if (o?.status === 'mismatch' && !empty) {
@@ -71,7 +89,7 @@ export function evaluateGate(finalScan, outcomes, { cvName = '', cvReason = null
       if (misfit) blockers.push({ kind: 'type-mismatch', key: q.key, label: q.label, reason: `value does not fit the field: ${misfit.reason}` });
     }
   }
-  if (!cvInFinalDom(finalScan, cvName) && !blockers.some((b) => /resume|cv|curr[ií]culo/i.test(b.label))) {
+  if (!cvInFinalDom(finalScan, cvName, resumeKey) && !blockers.some((b) => /resume|cv|curr[ií]culo/i.test(b.label))) {
     blockers.push({ kind: 'resume', key: null, label: 'Resume/CV', reason: `the posting's CV is not in the final DOM: ${cvReason || (cvName ? `${cvName} not shown by any file input` : 'no CV for this posting')} (driver defect)` });
   }
   if (finalScan.captcha?.present) blockers.push({ kind: 'captcha', key: null, label: 'captcha', reason: 'captcha on the page: a human must complete it' });

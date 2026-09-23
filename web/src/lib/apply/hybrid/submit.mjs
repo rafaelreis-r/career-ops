@@ -139,7 +139,7 @@ function submitControlsInPage() {
   const UPLOAD_RX = /\b(attach|upload|anexar|carregar|choose file|browse)\b|^(send|enviar)\b.*\b(resume|résumé|cv|curr[ií]culo|file|arquivo|documento)\b/i;
   document.querySelectorAll('[data-hyb-submit]').forEach((n) => n.removeAttribute('data-hyb-submit'));
   const found = [];
-  for (const c of document.querySelectorAll('button, input[type=submit], input[type=image], [role=button]')) {
+  for (const c of document.querySelectorAll('button, input[type=submit], input[type=image], [role=button], a')) {
     if (!vis(c) || c.disabled) continue;
     const text = `${c.textContent || ''} ${c.value || ''} ${c.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
     const form = c.form || c.closest('form');

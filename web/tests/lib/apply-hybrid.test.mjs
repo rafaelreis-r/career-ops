@@ -23,7 +23,7 @@ import { chromium } from 'playwright-core';
 import { scanPage, scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
 import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, lockFor, matchAnswers, matchExact, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
-import { evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
+import { alignOutcomes, evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
 import { generatePostingCv, resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
 import { attachFile, chooseOption, fillText, reachApplicationForm, sameChoice, selectCombobox, verifyQuestion } from '../../src/lib/apply/hybrid/adapters.mjs';
 import { trackerStanding } from '../../src/lib/apply/hybrid/tracker-row.mjs';
@@ -60,6 +60,37 @@ test('a money answer never lands in a field that names another currency', () => 
   assert.equal(currencyLock({ label: STORY_SALARY }, { label: 'Yearly Salary Expectations (in USD)', value: '80000' }), null);
   assert.deepEqual(currencyLock({ label: STORY_SALARY }, { label: 'Pretensão salarial', value: '20000' }), { reason: 'currency-mismatch', fieldCurrency: 'USD', answerCurrency: null }, 'an answer that names no currency is not assumed to be dollars');
   assert.equal(currencyLock({ label: STORY_SALARY }, { label: 'Consent', value: 'Yes' }), null, 'a value without digits is not money');
+});
+
+test('semantic compatibility rejects known cross-question matches before typing', () => {
+  const mismatch = (question, label, value) => lockFor({ label: question }, { label, value })?.reason;
+  assert.equal(mismatch('Full Legal Name', 'Last Name', 'Reis'), 'semantic-mismatch');
+  assert.equal(mismatch('Current Company', 'Full Name', 'Rafael Reis'), 'semantic-mismatch');
+  assert.equal(mismatch('Current base salary', 'Expected Salary', '80000'), 'semantic-mismatch');
+  assert.equal(mismatch('Expected base salary', 'Current Salary', '80000'), 'semantic-mismatch');
+  assert.equal(mismatch('Average monthly commission', 'Base Salary', '8000/month'), 'semantic-mismatch');
+  assert.equal(mismatch('Base Salary', 'Commission', '8000/month'), 'semantic-mismatch');
+  assert.equal(mismatch('LinkedIn profile URL', 'First Name', 'Rafael'), 'type-mismatch');
+  assert.equal(mismatch('Phone Number', 'First Name', 'Rafael'), 'type-mismatch');
+  assert.equal(mismatch('Do you consent to recording?', 'Generic Yes', 'Yes'), 'semantic-mismatch');
+  assert.equal(lockFor({ label: 'Do you consent to recording?' }, { label: 'Do you consent to recording?', value: 'Yes' }), null);
+  assert.match(lockFor({ label: 'Yearly Salary Expectations' }, { label: 'Monthly Salary', value: '8000' }).text, /monthly amount in a field that asks for annual/);
+});
+
+test('duplicate labels never share a fallback outcome after rerender', () => {
+  const outcomes = new Map([
+    ['old-a', { key: 'old-a', kind: 'text', label: 'Name', status: 'verified' }],
+    ['old-b', { key: 'old-b', kind: 'text', label: 'Name', status: 'failed' }],
+  ]);
+  const aligned = alignOutcomes(
+    [
+      { key: 'new-a', kind: 'text', label: 'Name' },
+      { key: 'new-b', kind: 'text', label: 'Name' },
+    ],
+    outcomes,
+  );
+  assert.equal(aligned.size, 0);
+  assert.equal(alignOutcomes([{ key: 'new', kind: 'text', label: 'Email' }], new Map([['old', { kind: 'text', label: 'Email', status: 'verified' }]])).get('new').status, 'verified');
 });
 
 test('an option is chosen only when it represents the canonical value uniquely', () => {
@@ -171,7 +202,8 @@ test('Storyteller: the gate blocks the required checkbox group that no input mar
 
   const outcomes = new Map();
   for (const q of before.questions.filter((x) => x.kind === 'text' || x.kind === 'textarea')) {
-    const r = await fillText(page.mainFrame(), q, q.inputType === 'email' ? 'fixture@example.com' : 'fixture value');
+    const value = q.inputType === 'email' ? 'fixture@example.com' : /phone/i.test(q.label) ? '+1 202 555 0100' : 'fixture value';
+    const r = await fillText(page.mainFrame(), q, value);
     assert.equal(r.status, 'verified', `${q.label}: one fill, verified from the DOM`);
     outcomes.set(q.key, r);
   }
@@ -590,6 +622,7 @@ test('a durable submit claim blocks both the eligibility lookup and a second sub
     assert.equal(submissionAttemptFor(rootA, url, 42).status, 'unconfirmed');
     assert.deepEqual(submissionAttemptFor(rootA, url, 42).tracker, { ok: false, error: 'write failed' });
     assert.equal(submissionAttemptFor(rootA, 'https://jobs.example.test/changed', 42).status, 'unconfirmed', 'the report number survives a URL change within one track');
+    assert.deepEqual(fs.readdirSync(stateDir), ['hybrid-round.json'], 'the serialized state is atomically renamed into place');
   } finally {
     if (previous === undefined) delete process.env.CAREER_OPS_HYBRID_STATE_DIR;
     else process.env.CAREER_OPS_HYBRID_STATE_DIR = previous;

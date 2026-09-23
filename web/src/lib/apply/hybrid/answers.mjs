@@ -82,6 +82,7 @@ export function currencyLock(question, answer) {
 
 const EMAIL_VALUE_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const URL_VALUE_RX = /^(https?:\/\/|www\.)|^[\w.-]*linkedin\.com\//i;
+const PHONE_VALUE_RX = /^\+[\d\s().-]+$|^[\d\s().-]{8,}$/;
 const periodOf = (text) => {
   const t = String(text ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
   if (/\/\s*(month|mo|mes)\b|per month|a month|monthly|mensal|por mes|ao mes/.test(t)) return 'monthly';
@@ -107,9 +108,12 @@ export function valueFitsField(question, value) {
   const wantsEmail = type === 'email' || /\be ?mail\b/.test(label);
   const wantsUrl = type === 'url' || /\b(linkedin|url|website|site|portfolio|github|link|perfil)\b/.test(label);
   const wantsPhone = type === 'tel' || /\b(phone|telefone|celular|mobile|whatsapp|telephone|fone)\b/.test(label);
+  const phoneValue = PHONE_VALUE_RX.test(v) || (/\b(code|codigo)\b/.test(label) && /\+\d{1,4}\b/.test(v));
   if (EMAIL_VALUE_RX.test(v) && !wantsEmail) return { reason: 'an e-mail address in a field that does not ask for one' };
   if (wantsEmail && !EMAIL_VALUE_RX.test(v)) return { reason: 'the field asks for an e-mail address' };
   if (URL_VALUE_RX.test(v) && !wantsUrl) return { reason: 'a URL in a field that does not ask for one' };
+  if (wantsUrl && !URL_VALUE_RX.test(v)) return { reason: 'the field asks for a URL' };
+  if (wantsPhone && !phoneValue) return { reason: 'the field asks for a phone number' };
   if (v.startsWith('+') && (v.match(/\d/g) || []).length >= 10 && /^\+[\d\s().-]+$/.test(v) && !wantsPhone) return { reason: 'a phone number in a field that does not ask for one' };
   const fieldPeriod = periodOf(question.label);
   const valuePeriod = periodOf(v);
@@ -228,10 +232,47 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
 /** Why a canonical answer must not be typed into this question, or null:
  *  a different currency, or a value whose shape is not what the field asks. */
 export function lockFor(question, answer) {
+  const semantic = semanticMismatch(question, answer);
+  if (semantic) return { reason: 'semantic-mismatch', text: `semantic-mismatch: ${semantic}` };
   const currency = currencyLock(question, answer);
   if (currency) return { ...currency, text: `currency-mismatch: field ${currency.fieldCurrency}, answer ${currency.answerCurrency ?? 'unstated'}` };
   const shape = valueFitsField(question, answer.value);
   return shape ? { reason: 'type-mismatch', text: `type-mismatch: ${shape.reason}` } : null;
+}
+
+const SENSITIVE_QUESTION_RX = /consent|i agree|concordo|aceito|autorizo|self identification|self identify|identificacao|disab|defici|gender|g[eê]nero|race|ra[cç]a|ethnic|etnia|hispanic|latino|veteran|lgbt|sexual|transgender|underrepresented|pronoun/;
+
+function semanticMismatch(question, answer) {
+  const qLabel = normalizeText(question.label);
+  const q = normalizeText(`${question.label ?? ''} ${question.placeholder ?? ''}`);
+  const a = normalizeText(answer?.label);
+  const v = normalizeText(answer?.value);
+  if (SENSITIVE_QUESTION_RX.test(q) && qLabel !== a) return 'consent and self-identification require an exact canonical question';
+
+  const fullName = /\b(full legal name|legal full name|full name|nome completo|nome legal completo)\b/;
+  const partialName = /\b(first name|last name|surname|family name|given name|preferred name|primeiro nome|sobrenome|nome preferido)\b/;
+  if (fullName.test(q) && (partialName.test(a) || v.split(' ').length < 2)) return 'a full legal name cannot use a partial name';
+
+  const company = /\b(current company|current employer|company name|employer name|empresa atual|nome da empresa|empregador atual)\b/;
+  const person = /\b(first name|last name|full name|legal name|preferred name|candidate name|nome completo|nome legal|sobrenome)\b/;
+  if (company.test(q) && person.test(a)) return 'a person name cannot answer a company field';
+  if (person.test(q) && company.test(a)) return 'a company cannot answer a person-name field';
+
+  const current = /\b(current|atual)\b/;
+  const expected = /\b(expected|expectation|expectations|desired|pretensao|pretendido)\b/;
+  const salary = /\b(salary|compensation|pay|salario|remuneracao)\b/;
+  if (salary.test(q) && current.test(q) && expected.test(a)) return 'expected compensation cannot answer current compensation';
+  if (salary.test(q) && expected.test(q) && current.test(a)) return 'current compensation cannot answer expected compensation';
+
+  const commission = /\b(commission|variable compensation|bonus|comissao|remuneracao variavel)\b/;
+  const basePay = /\b(base salary|base pay|salario base)\b/;
+  if (commission.test(q) && basePay.test(a)) return 'base pay cannot answer commission or variable compensation';
+  if (basePay.test(q) && commission.test(a)) return 'commission cannot answer base pay';
+
+  const fieldPeriod = periodOf(q);
+  const answerPeriod = periodOf(`${answer?.label ?? ''} ${answer?.value ?? ''}`);
+  if (fieldPeriod && answerPeriod && fieldPeriod !== answerPeriod) return `a ${answerPeriod} amount in a field that asks for ${fieldPeriod}`;
+  return null;
 }
 
 /**

@@ -46,7 +46,10 @@ function readState() {
 }
 function writeState(s) {
   fs.mkdirSync(stateDir(), { recursive: true });
-  fs.writeFileSync(stateFile(), `${JSON.stringify(s, null, 2)}\n`);
+  const target = stateFile();
+  const tmp = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(s, null, 2)}\n`);
+  fs.renameSync(tmp, target);
 }
 
 /** Serialize launch and state updates across concurrent processes. */

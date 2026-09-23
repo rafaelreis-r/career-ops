@@ -60,13 +60,12 @@ import {
   matchAnswers,
   matchExact,
   matchOption,
-  normalizeText,
   pickOfferedOptions,
   truthyAnswer,
   valueFitsField,
 } from '../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../src/lib/apply/hybrid/files.mjs';
-import { cvInFinalDom, evaluateGate, isEmptyState, tabStatus } from '../src/lib/apply/hybrid/gate.mjs';
+import { alignOutcomes, cvInFinalDom, evaluateGate, isEmptyState, tabStatus } from '../src/lib/apply/hybrid/gate.mjs';
 import { holdSubmitLock, submitApplication } from '../src/lib/apply/hybrid/submit.mjs';
 import {
   attachFile,
@@ -271,6 +270,7 @@ async function main() {
   let formBlock = null;
   let agent = null;
   let cvStatus = { attached: false, reason: 'not attempted' };
+  let resumeKey = null;
   let lock = null;
   let submission = null;
   const onSignal = async (sig) => {
@@ -386,6 +386,7 @@ async function main() {
     metrics.cv.target = target.target ? { key: target.target.key, label: target.target.label, evidence: target.evidence ?? null } : null;
     metrics.cv.considered = target.considered;
     if (cv.path && target.target) {
+      resumeKey = target.target.key;
       const r = await phase('attachCv', () => run(target.target, (live) => attachFile(frameOf(target.target), live, cv.path, cvName)));
       record(target.target, r, { via: 'deterministic', source: 'cv' });
       cvStatus = r.status === 'verified' ? { attached: true, how: r.how, via: 'deterministic' } : { attached: false, reason: r.reason };
@@ -475,6 +476,8 @@ async function main() {
           }
         }
         if (t) {
+          resumeKey = t.key;
+          metrics.cv.target = { key: t.key, label: t.label, evidence: 'model-selected and validated' };
           let r = await run(t, (live) => attachFile(frameOf(t), live, cv.path, cvName));
           if (r.status !== 'verified' && agent) {
             const chooser = page.waitForEvent('filechooser', { timeout: 120_000 }).catch(() => null);
@@ -524,13 +527,12 @@ async function main() {
     if (round && !noForm) {
       await settled(round.page);
       const finalScan = await phase('finalScan', () => scanPage(round.page));
-      const finalCvAttached = cvInFinalDom(finalScan, cvName);
+      const finalCvAttached = cvInFinalDom(finalScan, cvName, resumeKey);
       cvStatus = finalCvAttached
         ? { ...cvStatus, attached: true, via: cvStatus.via || 'final-dom' }
         : { attached: false, reason: cvName ? `${cvName} not shown by any file input in the final DOM` : cvStatus.reason || 'no CV for this posting' };
-      const byLabel = new Map([...outcomes.values()].map((o) => [`${o.kind}|${normalizeText(o.label)}`, o]));
-      const finalOutcomes = new Map(finalScan.questions.map((q) => [q.key, outcomes.get(q.key) ?? byLabel.get(`${q.kind}|${normalizeText(q.label)}`)]).filter(([, o]) => o));
-      gate = evaluateGate(finalScan, finalOutcomes, { cvName, cvReason: cvStatus.attached ? null : cvStatus.reason });
+      const finalOutcomes = alignOutcomes(finalScan.questions, outcomes);
+      gate = evaluateGate(finalScan, finalOutcomes, { cvName, cvReason: cvStatus.attached ? null : cvStatus.reason, resumeKey });
       metrics.questions = finalScan.questions.map((q) => ({ key: q.key, kind: q.kind, label: q.label, required: q.required, requiredBy: q.requiredBy, visible: q.visible, outcome: finalOutcomes.get(q.key) ?? null }));
       metrics.captcha = finalScan.captcha;
       standing = tabStatus(gate);
