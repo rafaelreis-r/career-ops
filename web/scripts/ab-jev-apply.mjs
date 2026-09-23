@@ -57,14 +57,7 @@ import { chromium } from "playwright-core";
 import * as yaml from "js-yaml";
 import { isMainModule } from "../../lib/is-main-module.mjs";
 import { parseApplicationAnswersSection } from "../../application-answers.mjs";
-// REPORT_OPEN_TEXT_RX is imported (not duplicated) from hybrid/answers.mjs:
-// the destination-side boundary checks there (matchAnswers, judgeWithModel,
-// answerYesNoFromFacts) must recognize exactly the same open-text/role-fit
-// criterion this file uses to decide, at ingestion, which of a report's own
-// Application Answers become report-sourced canonical answers at all — a
-// drifted second copy could let a fact-field answer in one place that the
-// other place then refuses, or vice versa.
-import { REPORT_OPEN_TEXT_RX } from "../src/lib/apply/hybrid/answers.mjs";
+import { isReportMotivationLabel } from "../src/lib/apply/hybrid/answers.mjs";
 import {
   isJevDriveEnabled,
   classifyElement,
@@ -268,7 +261,7 @@ export function loadCanonicalData(root, { row, reportPath } = {}) {
     const text = fs.readFileSync(resolvedReportPath, "utf8");
     const snap = parseApplicationAnswersSection(text);
     if (snap) {
-      for (const e of snap.freeText) if (e.answer?.trim() && REPORT_OPEN_TEXT_RX.test(e.question || '')) reportAnswers.push({ label: e.question, value: e.answer.trim() });
+      for (const e of snap.freeText) if (e.answer?.trim() && isReportMotivationLabel(e.question)) reportAnswers.push({ label: e.question, value: e.answer.trim() });
       sources.report = resolvedReportPath;
     }
   }

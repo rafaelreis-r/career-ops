@@ -47,24 +47,23 @@ export function isNonAnswer(value) {
   return v.length === 0 || NON_ANSWER_RX.test(v);
 }
 
-/** A question this criterion recognizes as open-text motivation or role-fit
- *  prose ("why this company/role", "good fit for this role", a cover note or
- *  letter) — the ONLY kind of field a report's free-text answer may ever
- *  reach. `web/scripts/ab-jev-apply.mjs` imports this exact constant to
- *  decide, at ingestion, which of a report's own Application Answers become
- *  report-sourced canonical answers at all; every function below re-checks
- *  the DESTINATION field against it too, so a report answer can never reach
- *  a fact field (salary, experience, visa, location, availability,
- *  eligibility, any factual Yes/No) regardless of which stage or judge would
- *  otherwise have picked it. A bare "fit" ("Are you physically fit to
- *  perform these duties?") does not qualify — only "<adjective> fit" or
- *  "fit for <this/the/our> <role/position/job/team/company>" does. */
-export const REPORT_OPEN_TEXT_RX =
+const REPORT_OPEN_TEXT_RX =
   /\bwhy\b.*\b(company|role|position|team)\b|\b(motivation|cover note|cover letter|what interests you|why are you interested)\b|\b(good|great|strong|ideal|right)\s+fit\b|\bfit\s+for\s+(this|the|our)\s+(role|position|job|team|company)\b/i;
+const REPORT_FACT_RX = /\b(salary|compensation|remuneration|wages?|pay|income|years? of experience|visa|sponsorship|authori[sz]ation|eligib(?:le|ility)|location|located|address|country|city|availab(?:le|ility)|start date|notice period|citizen(?:ship)?|physically|health|disab(?:ility|led)|background check|age|date of birth)\b/i;
+const REPORT_YES_NO_RX = /^\s*(are|do|does|did|can|could|have|has|will|would|is)\b/i;
 
-/** Is `question`'s own label a field REPORT_OPEN_TEXT_RX recognizes? */
+export function isReportMotivationLabel(label) {
+  const text = String(label ?? '');
+  return REPORT_OPEN_TEXT_RX.test(text) && !REPORT_FACT_RX.test(text) && !REPORT_YES_NO_RX.test(text);
+}
+
 export function isReportEligibleQuestion(question) {
-  return REPORT_OPEN_TEXT_RX.test(String(question?.label ?? ''));
+  const kind = question?.kind;
+  const inputType = String(question?.inputType ?? '').toLowerCase();
+  return (kind === 'text' || kind === 'textarea')
+    && (!question?.options || question.options.length === 0)
+    && (kind === 'textarea' || !inputType || inputType === 'text')
+    && isReportMotivationLabel(question.label);
 }
 
 /** The one boundary check every destination in this module composes: a
@@ -273,9 +272,8 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
   return { decisions, jev };
 }
 
-/** Why a canonical answer must not be typed into this question, or null:
- *  a different currency, or a value whose shape is not what the field asks. */
 export function lockFor(question, answer) {
+  if (!reportAnswerAllowedFor(question, answer)) return { reason: 'report-source-mismatch', text: 'report-source-mismatch' };
   const semantic = semanticMismatch(question, answer);
   if (semantic) return { reason: 'semantic-mismatch', text: `semantic-mismatch: ${semantic}` };
   const currency = currencyLock(question, answer);

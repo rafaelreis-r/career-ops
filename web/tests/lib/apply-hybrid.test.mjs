@@ -188,13 +188,35 @@ test('exact labels skip Jev; the report is asked before the profile for report-e
   assert.equal(decisions.get('q3').answer, null, 'confidence 0.4 is below the 0.6 threshold: no value');
 });
 
-test('isReportEligibleQuestion recognizes motivation and role-fit prose, never a bare "fit"', () => {
-  assert.equal(isReportEligibleQuestion({ label: 'Are you physically fit to perform these duties?' }), false, 'a factual duties question is not motivation prose merely for containing "fit"');
-  assert.equal(isReportEligibleQuestion({ label: 'Why do you want to work at this company?' }), true);
-  assert.equal(isReportEligibleQuestion({ label: 'What makes you a good fit for this role?' }), true);
-  assert.equal(isReportEligibleQuestion({ label: 'Please describe your motivation for applying.' }), true);
-  assert.equal(isReportEligibleQuestion({ label: 'Country Phone Code' }), false);
-  assert.equal(isReportEligibleQuestion({ label: 'Expected base salary for this role (reais)' }), false, 'the word "role" alone, without "why", is not motivation prose');
+test('report answers require open motivation text and never a factual or choice destination', () => {
+  const field = (label, kind = 'textarea') => ({ label, kind });
+  assert.equal(isReportEligibleQuestion(field('Are you physically fit to perform these duties?')), false);
+  assert.equal(isReportEligibleQuestion(field('Why do you want to work at this company?')), true);
+  assert.equal(isReportEligibleQuestion(field('What makes you a good fit for this role?')), true);
+  assert.equal(isReportEligibleQuestion(field('Please describe your motivation for applying.')), true);
+  assert.equal(isReportEligibleQuestion(field('Cover letter', 'text')), true);
+  assert.equal(isReportEligibleQuestion(field('Are you a good fit for this role?', 'select')), false);
+  assert.equal(isReportEligibleQuestion(field('Are you a good fit for this role?')), false);
+  assert.equal(isReportEligibleQuestion(field('Why do you want to work at this company?', 'toggle')), false);
+  assert.equal(isReportEligibleQuestion({ ...field('Why this role?', 'text'), inputType: 'number' }), false);
+  assert.equal(isReportEligibleQuestion({ ...field('Why this role?', 'text'), options: ['Yes', 'No'] }), false);
+  assert.equal(isReportEligibleQuestion(field('Why are you interested in this role and what salary do you expect?')), false);
+  assert.equal(isReportEligibleQuestion(field('Describe your motivation and visa sponsorship needs')), false);
+  assert.equal(isReportEligibleQuestion(field('Country Phone Code')), false);
+});
+
+test('a report fit answer cannot cross exact, Jev, model, or final lock into a choice field', async () => {
+  const question = { key: 'fit', label: 'Are you a good fit for this role?', kind: 'select', options: ['Yes', 'No'] };
+  const [report] = buildAnswers([{ label: question.label, value: 'Yes' }]);
+  assert.equal(matchExact(question, [report]), null);
+  let calls = 0;
+  const { decisions } = await matchAnswers([question], [report], { ask: async () => { calls++; return { answers: {} }; } });
+  assert.equal(calls, 0);
+  assert.equal(decisions.get('fit').answer, null);
+  const picks = await judgeWithModel([question], [report], async () => { calls++; return { structuredContent: { matches: [{ key: 'fit', answer: report.id }] } }; });
+  assert.equal(calls, 0);
+  assert.equal(picks.size, 0);
+  assert.equal(lockFor(question, report).reason, 'report-source-mismatch');
 });
 
 test('matchExact never returns a report answer for a field the report criterion does not recognize', () => {
