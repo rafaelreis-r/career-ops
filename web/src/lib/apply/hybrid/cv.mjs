@@ -1,13 +1,11 @@
 // cv.mjs — the CV of THIS posting, found or generated before any field is filled.
 //
-// "The right CV" is the PDF made for this report, checked by file name against
-// the company: data/pdf-index.tsv (written by generate-pdf.mjs --report) first,
-// then the report's own **PDF:** line, then an explicit --cv. A file whose name
-// does not name the company is rejected, whatever pointed at it: on 2026-09-22
-// the SMG form (applytojob) went out with cv-candidate-fingerprint-*.pdf, a CV
-// made for another posting. When the posting has no PDF of its own, the track's
-// `pdf` mode (modes/pdf.md) is run headlessly to make one; another posting's
-// PDF is never reused.
+// "The right CV" is the PDF made for this report: data/pdf-index.tsv (written
+// by generate-pdf.mjs --report) first, then the report's own **PDF:** line,
+// then an explicit --cv. Its name must identify the company or, for an exact
+// report link, carry that report's padded or unpadded number. A PDF with
+// neither link is rejected so another posting's CV is never reused. When the
+// posting has no PDF of its own, the track's `pdf` mode (modes/pdf.md) makes one.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -49,7 +47,7 @@ export function fileNamesCompany(file, companySlug, { linked = false, reportNumb
   if (!linked) return false;
   if (reportNumber != null) {
     const withoutDate = name.replace(/-\d{4}-\d{2}-\d{2}\.pdf$/, '.pdf');
-    if (matchesTailoredCv(withoutDate, String(Number(reportNumber)))) return true;
+    if (matchesTailoredCv(withoutDate, String(reportNumber)) || matchesTailoredCv(withoutDate, String(Number(reportNumber)))) return true;
   }
   return false;
 }

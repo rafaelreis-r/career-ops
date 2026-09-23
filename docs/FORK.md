@@ -130,9 +130,11 @@ Keep these across rebases; each exists for a reason.
   field (an e-mail in "Address", a monthly amount in an annual field, another
   currency) is never typed. Captcha frames are never scanned. The CV is always
   this posting's PDF (`data/pdf-index.tsv`, the report's `**PDF:**` line,
-  `--cv`), checked by file name against the company; when there is none, the
-  track's `pdf` mode generates it before any field is filled, using only a JD
-  already archived in the report or its report-numbered `jds/` capture.
+  `--cv`), checked against the posting; when there is none, the track's `pdf`
+  mode generates it before any field is filled, using only a JD already
+  archived in the report or its report-numbered `jds/` capture. See
+  [APPLY_AUTOFILL.md](APPLY_AUTOFILL.md#hybrid-driver) for answer-source and CV
+  filename rules.
 
   The whole round runs in one visible Chrome with a fresh profile (state in
   `~/.cache/career-ops/hybrid-round.json`). A detached keeper process

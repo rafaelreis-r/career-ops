@@ -21,7 +21,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { scanPage, scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
-import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, lockFor, matchAnswers, matchExact, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
+import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, isReportEligibleQuestion, judgeWithModel, lockFor, matchAnswers, matchExact, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
 import { alignOutcomes, evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
 import { fileNamesCompany, generatePostingCv, resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
@@ -109,7 +109,7 @@ test('reread rejects a reused key and requires an unambiguous signature', async 
   assert.equal(await reread(frame, expected), null);
 });
 
-test('numeric report lookup treats padded and unpadded selectors identically', () => {
+test('numeric report lookup treats padded and unpadded selectors identically; a factual "fit" question is never mistaken for motivation prose', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-report-'));
   try {
     fs.mkdirSync(path.join(root, 'reports'));
@@ -117,13 +117,17 @@ test('numeric report lookup treats padded and unpadded selectors identically', (
     fs.writeFileSync(path.join(root, 'cv.md'), '# Example Candidate\n\n**Years of Experience:** 7\n');
     fs.writeFileSync(
       report,
-      '# Acme\n\n## Application Answers\n\n**Date:** 2026-09-22\n**State:** filled\n\n### Free-text answers\n\n1. **Why this role?**\n\n> I enjoy solving example problems.\n\n2. **Email**\n\n> report@example.test\n\n### Selections made\n\n1. **Visa sponsorship:** Yes\n\n### Other field values\n\n1. **Years of experience:** 99\n\n### Files used\n\n- None captured.\n',
+      '# Acme\n\n## Application Answers\n\n**Date:** 2026-09-22\n**State:** filled\n\n### Free-text answers\n\n1. **Why this role?**\n\n> I enjoy solving example problems.\n\n2. **Are you physically fit to perform these duties?**\n\n> Yes, I am in excellent health.\n\n3. **Email**\n\n> report@example.test\n\n### Selections made\n\n1. **Visa sponsorship:** Yes\n\n### Other field values\n\n1. **Years of experience:** 99\n\n### Files used\n\n- None captured.\n',
     );
     assert.equal(findReportForRow(root, 22), report);
     assert.equal(findReportForRow(root, '022'), report);
     const loaded = loadCanonicalData(root, { row: 22 });
     assert.equal(loaded.sources.report, report);
-    assert.deepEqual(loaded.reportAnswers, [{ label: 'Why this role?', value: 'I enjoy solving example problems.' }]);
+    assert.deepEqual(
+      loaded.reportAnswers,
+      [{ label: 'Why this role?', value: 'I enjoy solving example problems.', source: 'report' }],
+      'the standalone word "fit" in a factual duties question no longer smuggles it in as motivation prose',
+    );
     assert.ok(loaded.cvAnswers.some((answer) => answer.label === 'Years of Experience' && answer.value === '7'));
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -144,9 +148,9 @@ test('an option is chosen only when it represents the canonical value uniquely',
   assert.equal(sameChoice('No', 'Authorized to work in Brazil. No sponsorship needed.'), false);
 });
 
-test('exact labels skip Jev; the report is asked before the profile; below-threshold is no answer', async () => {
+test('exact labels skip Jev; the report is asked before the profile for report-eligible fields only; below-threshold is no answer', async () => {
   const answers = buildAnswers(
-    [{ label: 'Country Phone Code', value: 'BRA (+55)' }, { label: 'Expected base salary for this role (reais)', value: '28000' }],
+    [{ label: 'Why do you want to work here?', value: 'The mission and the scale of the engineering challenge.' }, { label: 'Country Phone Code', value: 'BRA (+55)' }],
     [{ label: 'First Name', value: 'Casey' }, { label: 'Desired Salary', value: 'USD 8000/month' }, { label: 'LinkedIn', value: 'https://linkedin.com/in/example-candidate' }],
   );
   const questions = [
@@ -154,6 +158,7 @@ test('exact labels skip Jev; the report is asked before the profile; below-thres
     { key: 'q1', label: 'Please select your Country Phone Code*', kind: 'combobox' },
     { key: 'q2', label: WELLHUB_COMMISSION, kind: 'text' },
     { key: 'q3', label: 'LinkedIn Profile*', kind: 'text' },
+    { key: 'q4', label: 'Why do you want to work at this company?*', kind: 'textarea' },
   ];
   const requests = [];
   const ask = async ({ questions: spec }) => {
@@ -162,7 +167,7 @@ test('exact labels skip Jev; the report is asked before the profile; below-thres
     const idOf = (value) => offered.find((id) => Object.values(spec)[0].options[id].includes(`"${value}"`));
     const out = {};
     for (const key of Object.keys(spec)) {
-      if (requests.length === 1 && key === 'q1') out[key] = { choice: idOf('BRA (+55)'), confidence: 0.9 };
+      if (requests.length === 1 && key === 'q4') out[key] = { choice: idOf('The mission and the scale of the engineering challenge.'), confidence: 0.9 };
       else if (requests.length === 2 && key === 'q2') out[key] = { choice: idOf('USD 8000/month'), confidence: 0.95 };
       else if (requests.length === 2 && key === 'q3') out[key] = { choice: idOf('https://linkedin.com/in/example-candidate'), confidence: 0.4 };
       else out[key] = { choice: 'NONE', confidence: 0.9 };
@@ -170,12 +175,112 @@ test('exact labels skip Jev; the report is asked before the profile; below-thres
     return { enabled: true, answers: out };
   };
   const { decisions, jev } = await matchAnswers(questions, answers, { ask, threshold: 0.6 });
-  assert.deepEqual(requests, [['q1', 'q2', 'q3'], ['q2', 'q3']], 'First Name matched exactly, so it never reaches Jev; the profile stage only sees what the report left open');
+  assert.deepEqual(
+    requests,
+    [['q4'], ['q1', 'q2', 'q3']],
+    'the report stage is offered only to the open-text motivation field; a fact field like Country Phone Code never even sees the report as a candidate',
+  );
   assert.equal(jev.requests, 2);
   assert.equal(decisions.get('q0').source, 'exact');
-  assert.equal(decisions.get('q1').answer.value, 'BRA (+55)');
+  assert.equal(decisions.get('q4').answer.value, 'The mission and the scale of the engineering challenge.', 'the report answers the open-text motivation field it is vetted for');
+  assert.equal(decisions.get('q1').answer, null, 'a report value for a fact field (Country Phone Code) is never offered, even though the report has one');
   assert.equal(decisions.get('q2').lock.reason, 'currency-mismatch', 'even a confident pick is locked out of a field in reais');
   assert.equal(decisions.get('q3').answer, null, 'confidence 0.4 is below the 0.6 threshold: no value');
+});
+
+test('report answers require open motivation text and never a factual or choice destination', () => {
+  const field = (label, kind = 'textarea') => ({ label, kind });
+  assert.equal(isReportEligibleQuestion(field('Are you physically fit to perform these duties?')), false);
+  assert.equal(isReportEligibleQuestion(field('Why do you want to work at this company?')), true);
+  assert.equal(isReportEligibleQuestion(field('What makes you a good fit for this role?')), true);
+  assert.equal(isReportEligibleQuestion(field('Please describe your motivation for applying.')), true);
+  assert.equal(isReportEligibleQuestion(field('Cover letter', 'text')), true);
+  assert.equal(isReportEligibleQuestion(field('Are you a good fit for this role?', 'select')), false);
+  assert.equal(isReportEligibleQuestion(field('Are you a good fit for this role?')), false);
+  assert.equal(isReportEligibleQuestion(field('Why do you want to work at this company?', 'toggle')), false);
+  assert.equal(isReportEligibleQuestion({ ...field('Why this role?', 'text'), inputType: 'number' }), false);
+  assert.equal(isReportEligibleQuestion({ ...field('Why this role?', 'text'), options: ['Yes', 'No'] }), false);
+  assert.equal(isReportEligibleQuestion(field('Why are you interested in this role and what salary do you expect?')), false);
+  assert.equal(isReportEligibleQuestion(field('Describe your motivation and visa sponsorship needs')), false);
+  assert.equal(isReportEligibleQuestion(field('Country Phone Code')), false);
+});
+
+test('a report fit answer cannot cross exact, Jev, model, or final lock into a choice field', async () => {
+  const question = { key: 'fit', label: 'Are you a good fit for this role?', kind: 'select', options: ['Yes', 'No'] };
+  const [report] = buildAnswers([{ label: question.label, value: 'Yes' }]);
+  assert.equal(matchExact(question, [report]), null);
+  let calls = 0;
+  const { decisions } = await matchAnswers([question], [report], { ask: async () => { calls++; return { answers: {} }; } });
+  assert.equal(calls, 0);
+  assert.equal(decisions.get('fit').answer, null);
+  const picks = await judgeWithModel([question], [report], async () => { calls++; return { structuredContent: { matches: [{ key: 'fit', answer: report.id }] } }; });
+  assert.equal(calls, 0);
+  assert.equal(picks.size, 0);
+  assert.equal(lockFor(question, report).reason, 'report-source-mismatch');
+});
+
+test('matchExact never returns a report answer for a field the report criterion does not recognize', () => {
+  const factual = buildAnswers([{ label: 'Are you physically fit to perform these duties?', value: 'Yes, I am in excellent health.' }], []);
+  assert.equal(
+    matchExact({ label: 'Are you physically fit to perform these duties?*', kind: 'toggle' }, factual),
+    null,
+    'the label matches exactly, but the field is factual, not motivation prose',
+  );
+  const motivation = buildAnswers([{ label: 'Why do you want to work at this company?', value: 'The mission and the team.' }], []);
+  assert.equal(matchExact({ label: 'Why do you want to work at this company?*', kind: 'textarea' }, motivation).value, 'The mission and the team.');
+});
+
+test('judgeWithModel drops a report answer the model picks for a fact field, and keeps one it picks for an eligible motivation field', async () => {
+  const answers = buildAnswers(
+    [
+      { label: 'Are you physically fit to perform these duties?', value: 'Yes, I am in excellent health.' },
+      { label: 'Why do you want to work here?', value: 'The mission and the scale of the challenge.' },
+    ],
+    [],
+  );
+  const fitAnswer = answers.find((a) => a.label === 'Are you physically fit to perform these duties?');
+  const motivationAnswer = answers.find((a) => a.label === 'Why do you want to work here?');
+  const questions = [
+    { key: 'q_fit', label: 'Are you physically fit to perform these duties?*', kind: 'toggle' },
+    { key: 'q_motivation', label: 'Why do you want to work at this company?*', kind: 'textarea' },
+  ];
+  // A misbehaving model hands the fitness essay to the factual field too.
+  const complete = async () => ({
+    structuredContent: { matches: [{ key: 'q_fit', answer: fitAnswer.id }, { key: 'q_motivation', answer: motivationAnswer.id }] },
+  });
+  const picks = await judgeWithModel(questions, answers, complete);
+  assert.equal(picks.has('q_fit'), false, 'a report answer is never trusted for a fact field, even when the model itself picks it');
+  assert.equal(picks.get('q_motivation').value, 'The mission and the scale of the challenge.');
+});
+
+test('judgeWithModel never calls the model when no field in the batch is report-eligible', async () => {
+  const answers = buildAnswers([{ label: 'Are you physically fit to perform these duties?', value: 'Yes, I am in excellent health.' }], []);
+  const questions = [{ key: 'q_fit', label: 'Are you physically fit to perform these duties?*', kind: 'toggle' }];
+  let called = 0;
+  const complete = async () => {
+    called += 1;
+    return { structuredContent: { matches: [] } };
+  };
+  const picks = await judgeWithModel(questions, answers, complete);
+  assert.equal(called, 0, 'nothing in the payload would have been eligible, so no call is made');
+  assert.equal(picks.size, 0);
+});
+
+test('answerYesNoFromFacts never lets a report answer into the facts, even one recorded under a fit-shaped label', async () => {
+  const answers = buildAnswers(
+    [{ label: 'Are you physically fit to perform these duties?', value: 'Yes, I am in excellent health.' }],
+    [{ label: 'Visa sponsorship required', value: 'No sponsorship needed' }],
+  );
+  const questions = [{ key: 'q_fit', label: 'Are you physically fit to perform these duties?*', kind: 'toggle', options: ['Yes', 'No'] }];
+  let seenFacts = null;
+  const bool = async (label, facts) => {
+    seenFacts = facts;
+    return { bool: false, confidence: 0.9 };
+  };
+  await answerYesNoFromFacts(questions, answers, { bool });
+  assert.ok(seenFacts, 'the yes/no judge was called');
+  assert.ok(!('Are you physically fit to perform these duties?' in seenFacts), 'a report-sourced answer never becomes a fact');
+  assert.equal(seenFacts['Visa sponsorship required'], 'No sponsorship needed', 'a profile fact still reaches the judge');
 });
 
 test('the CV goes only to an input identified as the resume that accepts the file', () => {
@@ -230,6 +335,18 @@ async function openFixture(t, name) {
 
 const scan = (page) => page.mainFrame().evaluate(scanQuestionsInPage);
 const byLabel = (s, label) => s.questions.find((q) => q.label === label);
+
+test('an input without type is eligible for an open motivation answer', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
+  if (!page) return;
+  await page.setContent('<label for="motivation">Why this role?</label><input id="motivation">');
+  const question = byLabel(await scan(page), 'Why this role?');
+  assert.equal(question.kind, 'text');
+  assert.equal(question.inputType, 'text');
+  const [report] = buildAnswers([{ label: 'Why this role?', value: 'The work matches my experience.' }]);
+  assert.equal(matchExact(question, [report]), report);
+  assert.equal(lockFor(question, report), null);
+});
 
 test('Storyteller: the gate blocks the required checkbox group that no input marks required', async (t) => {
   const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
@@ -598,6 +715,27 @@ test('a CV the report links and names by report number (not by company) is this 
     fs.writeFileSync(path.join(root, 'data', 'pdf-index.tsv'), '2003\toutput/cv-example-candidate-2003-desenvolvedor-backend-2026-09-22.pdf\toutput/x.html\ta4\t2026-09-22\n');
     const linked = resolvePostingCv({ root, reportPath: report });
     assert.deepEqual([linked.path, linked.source], [byRole, 'pdf-index']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a CV linked only by a zero-padded report number (no company slug in the filename) is this posting\'s CV', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-cv-'));
+  try {
+    for (const d of ['reports', 'output', 'data']) fs.mkdirSync(path.join(root, d));
+    const report = path.join(root, 'reports', '042-acme-2026-09-22.md');
+    fs.writeFileSync(report, '# Acme\n');
+    const byPaddedNumber = path.join(root, 'output', 'cv-candidate-042-backend.pdf');
+    fs.writeFileSync(byPaddedNumber, '%PDF-1.4\n');
+    fs.writeFileSync(path.join(root, 'data', 'pdf-index.tsv'), '42\toutput/cv-candidate-042-backend.pdf\toutput/x.html\ta4\t2026-09-22\n');
+
+    const found = resolvePostingCv({ root, reportPath: report });
+    assert.deepEqual(
+      [found.path, found.source],
+      [byPaddedNumber, 'pdf-index'],
+      'the literal "042" token in the filename links it to report 42 even though the number loses its leading zero once parsed',
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

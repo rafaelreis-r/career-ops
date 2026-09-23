@@ -47,9 +47,35 @@ export function isNonAnswer(value) {
   return v.length === 0 || NON_ANSWER_RX.test(v);
 }
 
+const REPORT_OPEN_TEXT_RX =
+  /\bwhy\b.*\b(company|role|position|team)\b|\b(motivation|cover note|cover letter|what interests you|why are you interested)\b|\b(good|great|strong|ideal|right)\s+fit\b|\bfit\s+for\s+(this|the|our)\s+(role|position|job|team|company)\b/i;
+const REPORT_FACT_RX = /\b(salary|compensation|remuneration|wages?|pay|income|years? of experience|visa|sponsorship|authori[sz]ation|eligib(?:le|ility)|location|located|address|country|city|availab(?:le|ility)|start date|notice period|citizen(?:ship)?|physically|health|disab(?:ility|led)|background check|age|date of birth)\b/i;
+const REPORT_YES_NO_RX = /^\s*(are|do|does|did|can|could|have|has|will|would|is)\b/i;
+
+export function isReportMotivationLabel(label) {
+  const text = String(label ?? '');
+  return REPORT_OPEN_TEXT_RX.test(text) && !REPORT_FACT_RX.test(text) && !REPORT_YES_NO_RX.test(text);
+}
+
+export function isReportEligibleQuestion(question) {
+  const kind = question?.kind;
+  const inputType = String(question?.inputType ?? '').toLowerCase();
+  return (kind === 'text' || kind === 'textarea')
+    && (!question?.options || question.options.length === 0)
+    && (kind === 'textarea' || !inputType || inputType === 'text')
+    && isReportMotivationLabel(question.label);
+}
+
+/** The one boundary check every destination in this module composes: a
+ *  report-sourced answer may reach only a report-eligible question; every
+ *  other source reaches every question. */
+export function reportAnswerAllowedFor(question, answer) {
+  return answer.source !== 'report' || isReportEligibleQuestion(question);
+}
+
 /** Canonical answers as `{id, label, value, source}`, non-answers dropped,
  *  first occurrence of a label kept. The posting's report answers come first
- *  (they are specific to this form and already vetted), then the profile's. */
+ *  (they are specific to this form), then the profile's. */
 export function buildAnswers(reportAnswers = [], profileAnswers = []) {
   const out = [];
   const seen = new Set();
@@ -133,11 +159,12 @@ export function valueFitsField(question, value) {
   return null;
 }
 
-/** Exact normalized label equality between a question and a canonical answer. */
+/** Exact normalized label equality between a question and a canonical
+ *  answer — a report-sourced answer only when the question is report-eligible. */
 export function matchExact(question, answers) {
   const q = normalizeText(question.label);
   if (!q) return null;
-  return answers.find((a) => normalizeText(a.label) === q) || null;
+  return answers.find((a) => reportAnswerAllowedFor(question, a) && normalizeText(a.label) === q) || null;
 }
 
 const JEV_OPTION_PREVIEW = 90;
@@ -166,9 +193,10 @@ export function groupAnswersByValue(answers) {
 
 /**
  * Decide a canonical answer for every question: exact label first, then one
- * batched Jev choice request per answer source, in precedence order — the
- * posting's report answers, then the profile's for what is still open. At most
- * two requests per form, NONE offered to every question in each.
+ * posting's report answers, then the profile's for what is still open — the
+ * report stage is offered only to report-eligible questions
+ * (`reportAnswerAllowedFor`); every other question waits for the profile
+ * stage. At most two requests per form, NONE offered to every question in each.
  *
  * @param {Array<{key: string, label: string, kind: string, placeholder?: string, options?: string[]|null}>} questions
  * @param {Array<{id: string, label: string, value: string, source: string}>} answers
@@ -192,6 +220,9 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
   const stages = ['report', 'profile'].map((s) => answers.filter((a) => a.source === s)).filter((list) => list.length);
   for (const stageAnswers of stages) {
     if (!pending.length) break;
+    const batch = pending.filter((q) => stageAnswers.every((a) => reportAnswerAllowedFor(q, a)));
+    if (!batch.length) continue;
+    const deferred = pending.filter((q) => !batch.includes(q));
     const groups = groupAnswersByValue(stageAnswers);
     const options = { [NONE_OPTION]: 'No canonical answer clearly belongs in this form field.' };
     for (const g of groups) {
@@ -200,11 +231,11 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
     }
     const state = JSON.stringify({
       form_fields: Object.fromEntries(
-        pending.map((q) => [q.key, { label: q.label ?? null, kind: q.kind, placeholder: q.placeholder ?? null, offered_options: q.options ?? null }]),
+        batch.map((q) => [q.key, { label: q.label ?? null, kind: q.kind, placeholder: q.placeholder ?? null, offered_options: q.options ?? null }]),
       ),
     });
     const spec = {};
-    for (const q of pending) {
+    for (const q of batch) {
       spec[q.key] = {
         type: 'choice',
         instructions:
@@ -222,7 +253,7 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
     }
     jev.error = jev.error ?? res.error ?? null;
     const still = [];
-    for (const q of pending) {
+    for (const q of batch) {
       const a = res.answers?.[q.key] || {};
       const pick = a.choice && a.choice !== NONE_OPTION && (a.confidence ?? 0) >= limit ? groups.find((g) => g.id === a.choice)?.answer : null;
       if (pick) decisions.set(q.key, { answer: pick, source: 'jev', confidence: a.confidence ?? null });
@@ -231,7 +262,7 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
         still.push(q);
       }
     }
-    pending = still;
+    pending = [...deferred, ...still];
   }
 
   for (const q of questions) {
@@ -241,9 +272,8 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
   return { decisions, jev };
 }
 
-/** Why a canonical answer must not be typed into this question, or null:
- *  a different currency, or a value whose shape is not what the field asks. */
 export function lockFor(question, answer) {
+  if (!reportAnswerAllowedFor(question, answer)) return { reason: 'report-source-mismatch', text: 'report-source-mismatch' };
   const semantic = semanticMismatch(question, answer);
   if (semantic) return { reason: 'semantic-mismatch', text: `semantic-mismatch: ${semantic}` };
   const currency = currencyLock(question, answer);
@@ -292,19 +322,25 @@ function semanticMismatch(question, answer) {
  * call to a stronger model (the local codex, through the same callback shape
  * Stagehand uses). It may only name a listed canonical answer id or NONE, so
  * it fills gaps without inventing values; every pick is still locked out by
- * `lockFor` when the value does not fit the field.
+ * `lockFor` when the value does not fit the field. A report-sourced answer
+ * is offered only when at least one field in the batch is report-eligible,
+ * and a pick is kept only when `reportAnswerAllowedFor` allows it for that
+ * SPECIFIC field — a model choosing one for a fact field is dropped, never
+ * trusted.
  *
  * @param {Array<{key: string, label: string, kind: string, options?: string[]|null}>} questions
- * @param {Array<{id: string, label: string, value: string}>} answers
+ * @param {Array<{id: string, label: string, value: string, source: string}>} answers
  * @param {(params: object) => Promise<{structuredContent: object}>} complete
  * @returns {Promise<Map<string, object>>} key -> chosen canonical answer
  */
 export async function judgeWithModel(questions, answers, complete) {
   const picks = new Map();
   if (!questions.length || !answers.length) return picks;
+  const relevant = answers.filter((a) => questions.some((q) => reportAnswerAllowedFor(q, a)));
+  if (!relevant.length) return picks;
   const payload = {
     fields: questions.map((q) => ({ key: q.key, label: q.label, kind: q.kind, offered_options: q.options ?? null })),
-    canonical_answers: answers.map((a) => ({ id: a.id, label: a.label, value: a.value.length > 300 ? `${a.value.slice(0, 300)}…` : a.value })),
+    canonical_answers: relevant.map((a) => ({ id: a.id, label: a.label, value: a.value.length > 300 ? `${a.value.slice(0, 300)}…` : a.value })),
   };
   const res = await complete({
     systemPrompt:
@@ -324,8 +360,8 @@ export async function judgeWithModel(questions, answers, complete) {
   });
   for (const m of res?.structuredContent?.matches || []) {
     const q = questions.find((x) => x.key === m.key);
-    const a = answers.find((x) => x.id === m.answer);
-    if (q && a) picks.set(q.key, a);
+    const a = relevant.find((x) => x.id === m.answer);
+    if (q && a && reportAnswerAllowedFor(q, a)) picks.set(q.key, a);
   }
   return picks;
 }
@@ -442,18 +478,21 @@ const NOT_INFERRED_RX = /consent|i agree|concordo|aceito|autorizo|disab|defici|g
  * `posting` is the head of the posting page (title, location), for questions
  * about "the country where this position is based"; it is page text, handed
  * to Jev as data. Consent and self-identification are never answered here.
+ * A yes/no question is never open-text motivation prose, so a report-sourced
+ * answer is never a fact here, whatever it says: the facts come only from
+ * the profile and CV.
  *
  * @returns {Promise<Map<string, {answer: object, confidence: number}>>}
  */
 export async function answerYesNoFromFacts(questions, answers, { bool = answerBool, posting = '' } = {}) {
   const out = new Map();
-  // Short facts, one per distinct value: with every alias and the report's
-  // essay answers in the state, Jev stayed below threshold on Wellhub's
-  // citizenship question (P 0.70) that the same facts decide at 0.96 alone.
+  // Short facts, one per distinct value: with every alias in the state, Jev
+  // stayed below threshold on Wellhub's citizenship question (P 0.70) that
+  // the same facts decide at 0.96 alone.
   const facts = {};
   const values = new Set();
   for (const a of answers) {
-    if (a.value.length > 200 || values.has(a.value)) continue;
+    if (a.source === 'report' || a.value.length > 200 || values.has(a.value)) continue;
     values.add(a.value);
     facts[a.label] = a.value;
   }
