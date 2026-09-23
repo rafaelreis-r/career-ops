@@ -25,7 +25,6 @@ import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { localBrowser } from '@browserbasehq/stagehand';
 import { chromium } from 'playwright-core';
 import { orderTabs } from './gate.mjs';
 
@@ -219,6 +218,7 @@ export async function recordSubmissionResult(dataRoot, postingUrl, reportNumber,
  * @returns {Promise<{shBrowser, pw, context, page, reused: boolean, shared: boolean, cdpUrl: string, runtimeError?: string}>}
  */
 export async function openFormTab({ postingUrl = null } = {}) {
+  const { localBrowser } = await import('@browserbasehq/stagehand');
   return withLock(async () => {
     let st = readState();
     const fresh = !(st?.cdpUrl && (await alive(st.cdpUrl)));
