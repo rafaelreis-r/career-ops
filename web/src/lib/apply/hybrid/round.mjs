@@ -145,6 +145,20 @@ export async function openFormTab({ headless = false } = {}) {
 }
 
 /**
+ * Release a Stagehand runtime that an earlier form left initialized (a run
+ * that crashed before `close()`): reload the extension, then reconnect. The
+ * tabs are untouched; only the extension's worker restarts.
+ */
+export async function resetStagehandRuntime(round) {
+  const st = readState();
+  const worker = await extensionWorker(round.context, st?.extensionId);
+  await worker?.evaluate(() => chrome.runtime.reload()).catch(() => {});
+  await sleep(2000);
+  round.shBrowser = await localBrowser.connect({ cdpUrl: round.cdpUrl, ...(st?.extensionId ? { extensionId: st.extensionId } : {}) });
+  return round.shBrowser;
+}
+
+/**
  * Record this form's standing and put the round's tabs in order. Returns the
  * tabs as they stand, in their new order, with what each one still needs.
  * @param {{status: string, pending: string[]}|null} standing - null closes the tab (no form on the page).

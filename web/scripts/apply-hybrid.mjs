@@ -64,7 +64,7 @@ import {
   verifyQuestion,
 } from '../src/lib/apply/hybrid/adapters.mjs';
 import { createCodexGenerate, createFormAgent, mapActionsToQuestions } from '../src/lib/apply/hybrid/stagehand.mjs';
-import { openFormTab, settleFormTab } from '../src/lib/apply/hybrid/round.mjs';
+import { openFormTab, resetStagehandRuntime, settleFormTab } from '../src/lib/apply/hybrid/round.mjs';
 import { generatePostingCv, parseReportName, resolvePostingCv } from '../src/lib/apply/hybrid/cv.mjs';
 
 function careerOpsRoot() {
@@ -197,18 +197,11 @@ async function main() {
 
   const metrics = { driver: 'hybrid (deterministic first, model for gaps)', url: args.url, row: args.row ?? null, report: reportPath, startedAt: new Date(t0).toISOString(), canonicalSources: loaded.sources, phases };
 
-  // 0. The posting's CV, before anything is filled.
+  // 0. The posting's CV, before anything is filled (generated below, from the
+  // live posting, when the posting has none of its own).
   let cv = resolvePostingCv({ root, reportPath, companySlug, explicitCv: args.cv });
   metrics.cv = { resolved: cv.path, source: cv.source, rejected: cv.rejected };
-  if (!cv.path) {
-    console.log(`[hybrid] no CV of this posting (${cv.rejected.map((r) => `${path.basename(r.path)}: ${r.reason}`).join('; ') || 'none linked'}); generating it with the pdf mode`);
-    calls.cvGeneration++;
-    const gen = await phase('cvGeneration', () => generatePostingCv({ root, reportPath, companySlug }));
-    metrics.cv.generation = gen;
-    if (gen.path) cv = { ...cv, path: gen.path, source: 'generated' };
-  }
-  const cvName = cv.path ? path.basename(cv.path) : '';
-  console.log(`[hybrid] CV: ${cv.path ? `${cv.path} (${cv.source})` : `NONE: ${metrics.cv.generation?.error || 'no report to tailor it to'}`}`);
+  let cvName = cv.path ? path.basename(cv.path) : '';
 
   const outcomes = new Map();
   let round = null;
@@ -219,7 +212,15 @@ async function main() {
   let failed = false;
   let noForm = false;
   let formBlock = null;
-  let cvStatus = { attached: false, reason: cv.path ? 'not attempted' : metrics.cv.generation?.error || 'no CV for this posting' };
+  let agent = null;
+  let cvStatus = { attached: false, reason: 'not attempted' };
+  const onSignal = async (sig) => {
+    // Release the round's Stagehand runtime even when interrupted, so the next form can start.
+    await agent?.close();
+    process.exit(sig === 'SIGINT' ? 130 : 143);
+  };
+  process.once('SIGINT', onSignal);
+  process.once('SIGTERM', onSignal);
 
   try {
     round = await phase('openTab', () => openFormTab({ headless: args.headless }));
@@ -228,6 +229,8 @@ async function main() {
       await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
       await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
     });
+    // The posting page, before any "Apply" click, carries the job description.
+    const jobText = cv.path ? '' : await page.evaluate(() => document.body?.innerText || '').catch(() => '');
     const reach = await phase('reachForm', () => reachApplicationForm(page));
     metrics.reach = reach;
     console.log(`[hybrid] form ${reach.reached ? 'reached' : 'NOT reached'} at ${reach.url}${reach.log.length ? ` after ${reach.log.map((l) => `"${l.clicked}"`).join(', ')}` : ''}`);
@@ -238,13 +241,34 @@ async function main() {
       formBlock = reach.reason;
       throw new Error(`form not reached: ${reach.reason}`);
     }
+    if (!cv.path) {
+      console.log(`[hybrid] no CV of this posting (${cv.rejected.map((r) => `${path.basename(r.path)}: ${r.reason}`).join('; ') || 'none linked'}); generating it with the pdf mode`);
+      calls.cvGeneration++;
+      const gen = await phase('cvGeneration', () => generatePostingCv({ root, reportPath, companySlug, jobUrl: args.url, jobText }));
+      metrics.cv.generation = gen;
+      if (gen.path) {
+        cv = { ...cv, path: gen.path, source: 'generated' };
+        cvName = path.basename(gen.path);
+      }
+    }
+    console.log(`[hybrid] CV: ${cv.path ? `${cv.path} (${cv.source})` : `NONE: ${metrics.cv.generation?.error || 'no report to tailor it to'}`}`);
+    if (!cv.path) cvStatus = { attached: false, reason: metrics.cv.generation?.error || 'no CV for this posting' };
 
     const scan = await phase('scan', () => scanPage(page));
-    let agent = null;
     try {
       agent = await createFormAgent(round.shBrowser, stagehandGenerate, page.url());
     } catch (e) {
-      metrics.agentError = errText(e);
+      if (/already initialized|initiali[sz]ation timed out|Stagehand\.create exceeded/i.test(String(e?.message)) && round.shared) {
+        // An earlier form left the round's Stagehand runtime claimed or stuck: release it and retry once.
+        try {
+          await resetStagehandRuntime(round);
+          agent = await createFormAgent(round.shBrowser, stagehandGenerate, page.url());
+        } catch (e2) {
+          metrics.agentError = `${errText(e)}; reset failed: ${errText(e2)}`;
+        }
+      } else {
+        metrics.agentError = errText(e);
+      }
     }
     const obs = agent ? await phase('observe', () => agent.observe({ timeoutMs: args.observeTimeoutSeconds * 1000 })) : { ok: false, ms: 0, actions: [], error: metrics.agentError };
     let observed = new Set();
@@ -408,6 +432,7 @@ async function main() {
       if (formBlock) standing = { ...standing, status: 'incomplete', pending: [formBlock, ...standing.pending] };
       else if (failed) standing = { ...standing, status: 'incomplete', pending: [...standing.pending, `run error: ${stoppedAt}`] };
     }
+    await agent?.close();
     if (round) settle = await settleFormTab(round, noForm ? null : standing, { note: stoppedAt });
   } catch (e) {
     failed = true;

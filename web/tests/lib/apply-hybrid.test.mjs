@@ -348,6 +348,26 @@ test("SMG: another posting's CV is refused; the posting's own PDF is used, or no
   }
 });
 
+test('a CV the report links and names by report number (not by company) is this posting\'s CV', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-cv-'));
+  try {
+    for (const d of ['reports', 'output', 'data']) fs.mkdirSync(path.join(root, d));
+    const report = path.join(root, 'reports', '2003-itrtech-2026-09-21.md');
+    fs.writeFileSync(report, '# iTRTech\n');
+    const byRole = path.join(root, 'output', 'cv-rafael-reis-2003-desenvolvedor-backend-2026-09-22.pdf');
+    fs.writeFileSync(byRole, '%PDF-1.4\n');
+
+    const unlinked = resolvePostingCv({ root, reportPath: report, explicitCv: byRole });
+    assert.equal(unlinked.path, null, 'a file nothing links to this report never passes on a number alone');
+
+    fs.writeFileSync(path.join(root, 'data', 'pdf-index.tsv'), '2003\toutput/cv-rafael-reis-2003-desenvolvedor-backend-2026-09-22.pdf\toutput/x.html\ta4\t2026-09-22\n');
+    const linked = resolvePostingCv({ root, reportPath: report });
+    assert.deepEqual([linked.path, linked.source], [byRole, 'pdf-index']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('the round leaves forms that only need the human first, then the fewest pending items', () => {
   const tab = (url, blockers) => ({ url, ...tabStatus({ ready: !blockers.length, blockers }) });
   const captcha = { kind: 'captcha', key: null, label: 'captcha', reason: '' };

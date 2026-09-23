@@ -100,9 +100,12 @@ async function bounded(promise, ms, what) {
  * The model side of one form: a Stagehand instance bound to the form's tab.
  * `observe()` runs once per form to discover the controls; `act()` is the
  * fallback for a field the deterministic adapter could not fill or verify.
- * The tab is named explicitly: Stagehand's default is the most recently
- * opened tab, which is not the form when the site opened another one
- * (recrut.ai's privacy page) or when the round already holds other forms.
+ * `close()` MUST run when the form is done: the round's browser holds one
+ * Stagehand runtime, and a later form cannot start its own until this one is
+ * released ("A Stagehand instance is already initialized"). It releases the
+ * runtime only; the browser and the tab stay. The tab is named explicitly:
+ * Stagehand's default is the most recently opened tab, which is not the form
+ * when the site opened another one or when the round holds other forms.
  */
 export async function createFormAgent(shBrowser, generate, pageUrl) {
   const stagehand = await bounded(Stagehand.create({ browser: shBrowser, model: { generate } }), 60_000, 'Stagehand.create');
@@ -110,7 +113,10 @@ export async function createFormAgent(shBrowser, generate, pageUrl) {
   for (const p of await shBrowser.context.pages()) {
     if ((await p.url()) === pageUrl) page = p;
   }
-  if (!page) throw new Error(`Stagehand does not see the form tab ${pageUrl}`);
+  if (!page) {
+    await stagehand.close().catch(() => {});
+    throw new Error(`Stagehand does not see the form tab ${pageUrl}`);
+  }
   return {
     async observe({ timeoutMs = 150_000, instruction = OBSERVE_INSTRUCTION } = {}) {
       const t0 = Date.now();
@@ -130,6 +136,7 @@ export async function createFormAgent(shBrowser, generate, pageUrl) {
         return { ok: false, ms: Date.now() - t0, error: e instanceof Error ? e.message : String(e) };
       }
     },
+    close: () => bounded(stagehand.close(), 15_000, 'Stagehand.close').catch(() => {}),
   };
 }
 
