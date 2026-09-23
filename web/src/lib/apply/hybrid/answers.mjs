@@ -13,7 +13,7 @@
 //     field stays blank and is reported locked. No conversion, no preference.
 
 import { jevAsk } from '../../../../../lib/jev-client.mjs';
-import { resolveApplyThreshold, NONE_OPTION } from '../../../../../lib/jev-apply-helpers.mjs';
+import { answerBool, resolveApplyThreshold, NONE_OPTION } from '../../../../../lib/jev-apply-helpers.mjs';
 
 /** Lowercase, strip diacritics and required/optional markers, collapse
  *  punctuation to single spaces. The comparison form of a label or option. */
@@ -361,4 +361,35 @@ export function truthyAnswer(value) {
   if (/^(yes|sim|true|accept|accepted|agree|i agree|concordo|aceito|aceitar|checked)$/.test(v)) return true;
   if (/^(no|nao|false|decline|declined|unchecked)$/.test(v)) return false;
   return null;
+}
+
+/** A choice question whose two offered options are a yes and a no. */
+export function isYesNoQuestion(q) {
+  if (!STATIC_CHOICE_KINDS.has(q.kind) || q.options?.length !== 2) return false;
+  const t = q.options.map(truthyAnswer);
+  return t.includes(true) && t.includes(false);
+}
+
+const CONSENT_RX = /consent|i agree|concordo|aceito|autorizo/i;
+
+/**
+ * Yes/no questions that no canonical answer names ("Are you able and willing
+ * to work remotely?" against "Work Authorization: Brazil-based, remote only"),
+ * answered from the canonical facts by Jev's typed yes/no judgment, one call
+ * per question (answerBool: no answer when the facts do not determine it).
+ * Consent questions are never answered here: agreeing is the candidate's act.
+ *
+ * @returns {Promise<Map<string, {answer: object, confidence: number}>>}
+ */
+export async function answerYesNoFromFacts(questions, answers, { bool = answerBool } = {}) {
+  const out = new Map();
+  const facts = Object.fromEntries(answers.map((a) => [a.label, a.value]));
+  for (const q of questions) {
+    if (!isYesNoQuestion(q) || CONSENT_RX.test(q.label)) continue;
+    const r = await bool(q.label, facts);
+    if (r?.bool === true || r?.bool === false) {
+      out.set(q.key, { answer: { id: `yes-no:${q.key}`, label: 'yes/no from the canonical facts', value: r.bool ? 'Yes' : 'No' }, confidence: r.confidence });
+    }
+  }
+  return out;
 }

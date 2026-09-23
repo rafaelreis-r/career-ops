@@ -36,10 +36,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isMainModule } from '../../lib/is-main-module.mjs';
 import { jevAsk, jevChoice, jevNoul } from '../../lib/jev-client.mjs';
-import { pickOption, resolveApplyThreshold } from '../../lib/jev-apply-helpers.mjs';
+import { answerBool, pickOption, resolveApplyThreshold } from '../../lib/jev-apply-helpers.mjs';
 import { loadCanonicalData, deriveCompanySlug } from './ab-jev-apply.mjs';
 import { scanPage } from '../src/lib/apply/hybrid/page-scan.mjs';
 import {
+  answerYesNoFromFacts,
   buildAnswers,
   judgeWithModel,
   lockFor,
@@ -192,6 +193,7 @@ async function main() {
   const judgeGenerate = createCodexGenerate({ onCall: () => { calls.judge++; } });
   const ask = (a) => { calls.jev++; return jevAsk(a); };
   const choice = (a) => { calls.jev++; return jevChoice(a); };
+  const noul = (a) => { calls.jev++; return jevNoul(a); };
   const pick = (options, target) => pickOption(options, target, { jev: choice });
   const equivalent = async (shown, desired, label) => {
     calls.jev++;
@@ -233,12 +235,18 @@ async function main() {
   process.once('SIGTERM', onSignal);
 
   try {
-    round = await phase('openTab', () => openFormTab({ headless: args.headless }));
+    round = await phase('openTab', () => openFormTab({ headless: args.headless, postingUrl: args.url }));
     const { page } = round;
-    await phase('navigate', async () => {
-      await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-      await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
-    });
+    if (round.reused) {
+      // This posting already has a tab in the round: fill its gaps where it stands.
+      console.log(`[hybrid] reusing the round's tab for this posting (${page.url()})`);
+      await page.bringToFront().catch(() => {});
+    } else {
+      await phase('navigate', async () => {
+        await page.goto(args.url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+        await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+      });
+    }
     // The posting page, before any "Apply" click, carries the job description.
     const jobText = cv.path ? '' : await page.evaluate(() => document.body?.innerText || '').catch(() => '');
     const reach = await phase('reachForm', () => reachApplicationForm(page));
@@ -359,6 +367,9 @@ async function main() {
             decided.set(key, { answer: a, lock: lockFor(q, a), source: 'model-judge' });
           }
         }
+        const yesNoOpen = needValue.filter((q) => !decided.has(q.key));
+        const yesNo = await answerYesNoFromFacts(yesNoOpen, answers, { bool: (question, facts) => answerBool(question, facts, { jev: noul }) });
+        for (const [key, d] of yesNo) decided.set(key, { answer: d.answer, lock: null, source: 'jev-yes-no', confidence: d.confidence });
       }
       const optionDecisions = new Map(gaps.filter((q) => decided.has(q.key)).map((q) => [q.key, { answer: decided.get(q.key).answer, lock: decided.get(q.key).lock }]));
       await pickOfferedOptions(gaps.filter((q) => optionDecisions.has(q.key)), optionDecisions, { ask });
@@ -366,7 +377,7 @@ async function main() {
       for (const q of gaps) {
         const d = decided.get(q.key);
         if (!d) {
-          if (!outcomes.has(q.key)) record(q, { status: 'no-answer', reason: 'no canonical answer (deterministic, Jev and the second judge found none)' }, { via: 'model' });
+          if (!outcomes.has(q.key)) record(q, { status: 'no-answer', reason: 'no canonical answer (deterministic, Jev, the second judge and the yes/no judgment found none)' }, { via: 'model' });
           continue;
         }
         if (d.lock) {
@@ -447,7 +458,7 @@ async function main() {
       else if (failed) standing = { ...standing, status: 'incomplete', pending: [...standing.pending, `run error: ${stoppedAt}`] };
     }
     await agent?.close();
-    if (round) settle = await settleFormTab(round, noForm ? null : standing, { note: stoppedAt });
+    if (round) settle = await settleFormTab(round, noForm ? null : standing, { postingUrl: args.url, note: stoppedAt });
   } catch (e) {
     failed = true;
     stoppedAt = stoppedAt || errText(e);
@@ -467,7 +478,7 @@ async function main() {
     cvAttachedTo: cvStatus.attached ? metrics.cv.target?.label || 'resume input (model-chosen)' : null,
   };
   metrics.gate = gate;
-  metrics.tab = { status: noForm ? 'closed: no application form' : standing?.status ?? 'unknown', shared: round?.shared ?? false };
+  metrics.tab = { status: noForm ? 'closed: no application form' : standing?.status ?? 'unknown', shared: round?.shared ?? false, reused: round?.reused ?? false };
   metrics.round = settle?.tabs ?? [];
   metrics.stoppedAt = stoppedAt || (standing?.status === 'incomplete' ? `pre-submit gate: ${standing.pending.length} pending` : 'ready for the human');
   metrics.submitted = false;

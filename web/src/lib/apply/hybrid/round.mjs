@@ -169,20 +169,24 @@ async function startRound() {
 }
 
 /**
- * Join the round's browser (or start it) and open this form's tab.
+ * Join the round's browser (or start it) and open this form's tab. A posting
+ * that already has a tab in the round (`postingUrl` as the tab's address, or
+ * as the posting a settled tab was reached from) gets that tab back as it
+ * stands, `reused: true`, so a second run fills its gaps instead of opening a
+ * duplicate or reloading away what the human typed.
  * `shBrowser` is null when the round's Stagehand runtime is gone (its keeper
  * was killed while Chrome kept running): the form is then filled without the
  * model's observe/act, and `runtimeError` says why.
- * @returns {Promise<{shBrowser, pw, context, page, shared: boolean, cdpUrl: string, runtimeError?: string}>}
+ * @returns {Promise<{shBrowser, pw, context, page, reused: boolean, shared: boolean, cdpUrl: string, runtimeError?: string}>}
  */
-export async function openFormTab({ headless = false } = {}) {
+export async function openFormTab({ headless = false, postingUrl = null } = {}) {
   if (headless) {
     const port = await freePort();
     const shBrowser = await localBrowser.launch({ port, headless: true, viewport: VIEWPORT });
     const pw = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
     const context = pw.contexts()[0];
     const page = context.pages().find((p) => isFormTab(p.url()) || p.url() === 'about:blank') || (await context.newPage());
-    return { shBrowser, pw, context, page, shared: false, cdpUrl: `http://127.0.0.1:${port}` };
+    return { shBrowser, pw, context, page, reused: false, shared: false, cdpUrl: `http://127.0.0.1:${port}` };
   }
   return withLock(async () => {
     let st = readState();
@@ -190,8 +194,10 @@ export async function openFormTab({ headless = false } = {}) {
     if (fresh) st = await startRound();
     const pw = await chromium.connectOverCDP(st.cdpUrl);
     const context = pw.contexts()[0];
+    const known = new Set([postingUrl, ...Object.entries(st.tabs || {}).filter(([, t]) => t.postingUrl === postingUrl).map(([u]) => u)]);
+    const existing = postingUrl ? context.pages().find((p) => known.has(p.url())) : null;
     const blank = fresh ? context.pages().find((p) => p.url() === 'about:blank') : null;
-    const page = blank || (await context.newPage());
+    const page = existing || blank || (await context.newPage());
     let shBrowser = null;
     let runtimeError;
     if (!st.extensionId || !keeperAlive(st.keeperPid)) {
@@ -202,7 +208,7 @@ export async function openFormTab({ headless = false } = {}) {
         return null;
       });
     }
-    return { shBrowser, pw, context, page, shared: true, cdpUrl: st.cdpUrl, runtimeError };
+    return { shBrowser, pw, context, page, reused: !!existing, shared: true, cdpUrl: st.cdpUrl, runtimeError };
   });
 }
 
@@ -235,7 +241,7 @@ export async function resetStagehandRuntime(round) {
  * tabs as they stand, in their new order, with what each one still needs.
  * @param {{status: string, pending: string[]}|null} standing - null closes the tab (no form on the page).
  */
-export async function settleFormTab(round, standing, { url = round.page.url(), note = null } = {}) {
+export async function settleFormTab(round, standing, { url = round.page.url(), postingUrl = null, note = null } = {}) {
   if (!round.shared) {
     await round.shBrowser.close().catch(() => {});
     return { tabs: [], closedThisTab: true };
@@ -243,7 +249,7 @@ export async function settleFormTab(round, standing, { url = round.page.url(), n
   return withLock(async () => {
     const st = readState() || { tabs: {} };
     st.tabs ||= {};
-    if (standing) st.tabs[url] = { ...standing, note, updatedAt: new Date().toISOString() };
+    if (standing) st.tabs[url] = { ...standing, postingUrl, note, updatedAt: new Date().toISOString() };
     else {
       delete st.tabs[url];
       await round.page.close().catch(() => {});

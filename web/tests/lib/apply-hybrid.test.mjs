@@ -21,7 +21,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
-import { buildAnswers, currencyLock, isNonAnswer, lockFor, matchAnswers, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
+import { answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, lockFor, matchAnswers, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
 import { evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
 import { resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
@@ -298,6 +298,26 @@ test('Camunda: autofill is not the resume, and a yes/no toggle is verified by ar
   const status = byLabel(s, 'If you are eligible, please select the status that allows you to work and live in that Country');
   assert.equal(status.kind, 'radio');
   assert.equal(status.options.length, 3);
+});
+
+test('Camunda: a yes/no toggle no answer names is judged from the facts; a consent toggle and a 3-option radio never are', async (t) => {
+  const page = await openFixture(t, 'hybrid-ashby-camunda.html');
+  if (!page) return;
+  const s = await scan(page);
+  const eligible = byLabel(s, 'Are you legally eligible to work in the country where you’re planning to work from?');
+  const status = byLabel(s, 'If you are eligible, please select the status that allows you to work and live in that Country');
+  // Same widget as the eligibility toggle, label verbatim from the live Camunda SRE form (2026-09-22).
+  const consent = { ...eligible, key: 'brighthire', label: "Do you consent to BrightHire's Interview Integrity feature analyzing your interview for potential fraud signals—including deepfake detection, device consistency, and location checks—to help our team review interview authenticity? (This is separate from interview recording consent.)?" };
+  const asked = [];
+  const bool = async (question) => {
+    asked.push(question);
+    return { bool: true, confidence: 0.9 };
+  };
+  const facts = buildAnswers([], [{ label: 'Work Authorization', value: 'Brazil-based, remote only. No sponsorship needed' }]);
+  const out = await answerYesNoFromFacts([eligible, status, consent], facts, { bool });
+  assert.deepEqual(asked, [eligible.label]);
+  assert.equal(out.get(eligible.key).answer.value, 'Yes');
+  assert.equal(matchOption(eligible.options, out.get(eligible.key).answer.value)?.index, eligible.options.indexOf('Yes'));
 });
 
 // --- SMG (applytojob, 2026-09-22): the three errors the live round shipped ---
