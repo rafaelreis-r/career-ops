@@ -5,37 +5,48 @@
 // can run on the same form and be compared; routing is unchanged until this
 // path proves it replaces that one.
 //
-//   0. CV: this posting's PDF (pdf-index, the report's PDF line, --cv), held to
+//   0. Eligibility: never a posting whose tracker row is already sent, a
+//      blacklisted company, or a company whose recorded submission limit is
+//      used up across every track (the report says when the window reopens).
+//   1. CV: this posting's PDF (pdf-index, the report's PDF line, --cv), held to
 //      a file-name check against the company. Another posting's CV is never used.
-//   1. Round: the form opens as a new tab of the round's single browser.
-//   2. Reach the form (click the apply trigger when the page has no fields).
+//   2. Round: the form opens as a tab of the round's single browser, and a
+//      submit lock goes on in every frame before the posting loads.
+//   3. Reach the form (click the apply trigger when the page has no fields).
 //      A posting with no PDF of its own gets one now, from the track's pdf
 //      mode and the posting text read before the click.
-//   3. Stagehand observe() once: which controls belong to the application.
-//   4. DOM scan: label, required flag and state of every question.
-//   5. Deterministic pass: exact-label canonical answers through adapters that
+//   4. Stagehand observe() once: which controls belong to the application.
+//   5. DOM scan: label, required flag and state of every question.
+//   6. Deterministic pass: exact-label canonical answers through adapters that
 //      act and re-read the DOM. Progress is what the page shows, not a model's
 //      opinion. The CV goes to the input identified as the résumé.
-//   6. Model pass, for every field the deterministic pass could not fill or
+//   7. Model pass, for every field the deterministic pass could not fill or
 //      verify: Jev typed matching (report answers, then profile answers), a
 //      second judge (codex) for what Jev left open, Jev option picks, then a
 //      Stagehand act() on the field — each followed by the same DOM check.
 //      Values that do not fit the field (an e-mail in "Address", a monthly
 //      amount in an annual field, another currency) are never typed.
-//   7. Gate from the final DOM scan; the tab is left open and the round's
-//      tabs are re-ordered: ready-but-for-the-captcha first, then incomplete
-//      from fewest to most pending items. Only a posting with no form is closed.
-// It never submits (a guard blocks submit while a model acts), and never opens
-// a posting the tracker marks as already applied. Exit code: 0 ready (or ready
-// but for the captcha), 3 pending items, 4 no form, 5 already applied, 1 failure.
+//   8. Gate from the final DOM scan. With nothing blocking (every required
+//      field verified, the CV in the final DOM, no unanswered consent, no
+//      captcha) the one explicit submit step clicks the form's submit control
+//      and counts the application only on the employer's confirmation; the
+//      tracker row then becomes Applied through set-status.mjs. Otherwise the
+//      tab is left filled for the human, and the round's tabs are re-ordered.
+//      Only a posting with no form is closed.
+//
+// Exit code: 0 submitted and confirmed, 3 left for the human (pending items or
+// the captcha), 4 no form, 5 not eligible (no tab opened), 6 submitted without
+// a confirmation or refused by the employer (tab left for a check), 1 failure.
 //
 // Run (from web/):
 //   node scripts/apply-hybrid.mjs --url <form-url> [--row N | --report <md>] [--cv <pdf>] [--out <json>]
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import * as yaml from 'js-yaml';
 import { isMainModule } from '../../lib/is-main-module.mjs';
+import { getCareerOpsRoot, resolveTrackerPath } from '../../path-resolver.mjs';
 import { jevAsk, jevChoice, jevNoul } from '../../lib/jev-client.mjs';
 import { answerBool, pickOption, resolveApplyThreshold } from '../../lib/jev-apply-helpers.mjs';
 import { loadCanonicalData, deriveCompanySlug } from './ab-jev-apply.mjs';
@@ -57,6 +68,7 @@ import {
 } from '../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../src/lib/apply/hybrid/files.mjs';
 import { evaluateGate, isEmptyState, tabStatus } from '../src/lib/apply/hybrid/gate.mjs';
+import { holdSubmitLock, submitApplication } from '../src/lib/apply/hybrid/submit.mjs';
 import {
   attachFile,
   chooseOption,
@@ -65,16 +77,29 @@ import {
   reread,
   selectCombobox,
   selectNative,
-  setSubmitGuard,
   verifyQuestion,
 } from '../src/lib/apply/hybrid/adapters.mjs';
 import { createCodexGenerate, createFormAgent, mapActionsToQuestions } from '../src/lib/apply/hybrid/stagehand.mjs';
 import { openFormTab, rememberFormTab, resetStagehandRuntime, settleFormTab } from '../src/lib/apply/hybrid/round.mjs';
 import { generatePostingCv, parseReportName, resolvePostingCv } from '../src/lib/apply/hybrid/cv.mjs';
-import { trackerStanding } from '../src/lib/apply/hybrid/tracker-row.mjs';
+import { postingEligibility } from '../src/lib/apply/hybrid/tracker-row.mjs';
 
-function careerOpsRoot() {
-  return process.env.CAREER_OPS_ROOT?.trim() || path.resolve(process.cwd(), '..');
+// Code and data can live apart (CAREER_OPS_DATA_DIR, a .career-ops-data marker):
+// profile, reports, tracker and output come from the data root; the pdf mode
+// and set-status.mjs run from the code root.
+const CODE_ROOT = path.resolve(import.meta.dirname, '..', '..');
+
+/** After the employer's confirmation: the tracker row becomes Applied through
+ *  the repository's own writer (set-status.mjs: lock, status-log, follow-up). */
+function markApplied(root, reportNumber, submission) {
+  if (!reportNumber) return { ok: false, error: 'no report number: nothing to mark in the tracker' };
+  const note = `sent by apply-hybrid; confirmation: "${submission.evidence}"`;
+  const r = spawnSync(process.execPath, [path.join(CODE_ROOT, 'set-status.mjs'), '--report', String(Number(reportNumber)), 'Applied', '--note', note], {
+    cwd: CODE_ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, CAREER_OPS_TRACKER: resolveTrackerPath(root) },
+  });
+  return r.status === 0 ? { ok: true, output: r.stdout.trim().slice(-300) } : { ok: false, error: `set-status exited ${r.status}: ${(r.stderr || r.stdout).trim().slice(-300)}` };
 }
 
 function parseArgs(argv) {
@@ -92,7 +117,7 @@ function parseArgs(argv) {
   return args;
 }
 
-const USAGE = `apply-hybrid.mjs — fill an application form: deterministic first, the model for every gap, the posting's CV always. Never submits.
+const USAGE = `apply-hybrid.mjs — fill an application form (deterministic first, the model for every gap, the posting's CV always) and submit it when nothing blocks.
 
   node scripts/apply-hybrid.mjs --url <form-url> [--row N | --report <md>] [--cv <pdf>] [--out <json>]
 
@@ -103,8 +128,9 @@ const USAGE = `apply-hybrid.mjs — fill an application form: deterministic firs
                      used, or generated.
   --out              metrics JSON (default <root>/data/ab-test/hybrid.json).
 
-Exit: 0 ready (or only the captcha left), 3 pending items, 4 no form,
-5 already applied (the tracker row is Applied or later; no tab opened), 1 run failure.`;
+Exit: 0 submitted and confirmed, 3 left for the human, 4 no form, 5 not eligible
+(already sent, blacklisted, or the company's submission limit is used up; no
+tab opened), 6 submitted without confirmation or refused, 1 run failure.`;
 
 /** The report file for --report / --row, whether or not it has Application Answers. */
 function findReport(root, { row, report }) {
@@ -165,7 +191,7 @@ async function main() {
     process.exit(args.help ? 0 : 1);
   }
 
-  const root = careerOpsRoot();
+  const root = getCareerOpsRoot();
   const t0 = Date.now();
   const phases = {};
   const phase = async (name, fn) => {
@@ -185,10 +211,11 @@ async function main() {
   console.log(`[hybrid] canonical sources: ${JSON.stringify(loaded.sources)}; report: ${reportPath || 'none'}`);
   console.log(`[hybrid] ${answers.length} canonical answer(s)`);
 
-  // A posting the tracker marks as already sent never enters the round.
-  const standing0 = trackerStanding(root, parseReportName(reportPath).number ?? args.row);
-  if (standing0.sent) {
-    console.log(`[hybrid] not opened: tracker row ${standing0.row} is "${standing0.status}" (${standing0.canonical}), the application was already sent (${standing0.tracker})`);
+  // 0. Never a posting already sent, a blacklisted company, or a company whose
+  // submission limit is used up across the tracks: no tab is opened for it.
+  const eligibility = postingEligibility({ root, reportNumber: parseReportName(reportPath).number ?? args.row, company: companySlug });
+  if (!eligibility.eligible) {
+    for (const reason of eligibility.reasons) console.log(`[hybrid] not opened: ${reason}`);
     process.exit(5);
   }
 
@@ -231,8 +258,11 @@ async function main() {
   let formBlock = null;
   let agent = null;
   let cvStatus = { attached: false, reason: 'not attempted' };
+  let lock = null;
+  let submission = null;
   const onSignal = async (sig) => {
     await agent?.close();
+    await lock?.release().catch(() => {});
     if (round) await rememberFormTab(round, args.url, `interrupted by ${sig}`).catch(() => {});
     process.exit(sig === 'SIGINT' ? 130 : 143);
   };
@@ -242,6 +272,8 @@ async function main() {
   try {
     round = await phase('openTab', () => openFormTab({ postingUrl: args.url }));
     const { page } = round;
+    // Before anything loads: every submission in this tab is cancelled until the final step arms it.
+    lock = await holdSubmitLock(page);
     if (round.reused) {
       // This posting already has a tab in the round: fill its gaps where it stands.
       console.log(`[hybrid] reusing the round's tab for this posting (${page.url()})`);
@@ -273,7 +305,7 @@ async function main() {
     if (!cv.path) {
       console.log(`[hybrid] no CV of this posting (${cv.rejected.map((r) => `${path.basename(r.path)}: ${r.reason}`).join('; ') || 'none linked'}); generating it with the pdf mode`);
       calls.cvGeneration++;
-      const gen = await phase('cvGeneration', () => generatePostingCv({ root, reportPath, companySlug, jobUrl: args.url, jobText }));
+      const gen = await phase('cvGeneration', () => generatePostingCv({ root, codeRoot: CODE_ROOT, reportPath, companySlug, jobUrl: args.url, jobText }));
       metrics.cv.generation = gen;
       if (gen.path) {
         cv = { ...cv, path: gen.path, source: 'generated' };
@@ -412,9 +444,7 @@ async function main() {
             ? `In the question labeled "${q.label}", select the option that means "${d.answer.value}". Change nothing else and do not click any submit or apply button.`
             : `Enter "${d.answer.value}" in the field labeled "${q.label}". If the field states a format (for example digits only with area code), enter the same value in that format without adding or removing information. Change nothing else and do not click any submit or apply button.`;
           stagehandPurpose = 'act';
-          await setSubmitGuard(page, true);
           const act = await agent.act(instruction);
-          await setSubmitGuard(page, false);
           const v = await run(q, () => verifyQuestion(frameOf(q), q, d.answer.value, { equivalent, fits: valueFitsField }));
           r = { ...v, how: 'stagehand-act', act: act.ok ? 'ok' : act.error || act.message, prior: r.reason ?? r.status };
         }
@@ -445,10 +475,8 @@ async function main() {
           let r = await run(t, (live) => attachFile(frameOf(t), live, cv.path, cvName));
           if (r.status !== 'verified' && agent) {
             stagehandPurpose = 'act';
-            await setSubmitGuard(page, true);
             const chooser = page.waitForEvent('filechooser', { timeout: 120_000 }).catch(() => null);
             await agent.act(`Click the button or link that uploads the resume/CV file for "${t.label || 'Resume'}". Do not click any submit or apply button.`);
-            await setSubmitGuard(page, false);
             const fc = await Promise.race([chooser, new Promise((res) => setTimeout(() => res(null), 5000))]);
             if (fc) await fc.setFiles(cv.path).catch(() => {});
             r = await run(t, (live) => attachFile(frameOf(t), live, cv.path, cvName));
@@ -488,21 +516,34 @@ async function main() {
     console.error(`[hybrid] ${noForm ? 'no form' : formBlock ? 'form not reached' : 'error'}: ${stoppedAt}`);
   }
 
-  // 7. Gate, tab standing, round order. The tab stays open unless there was no form.
+  // 8. Gate, the one explicit submit step, tab standing, round order. The tab
+  // stays open unless there was no form.
   try {
     if (round && !noForm) {
       await settled(round.page);
       const finalScan = await phase('finalScan', () => scanPage(round.page));
       const byLabel = new Map([...outcomes.values()].map((o) => [`${o.kind}|${normalizeText(o.label)}`, o]));
       const finalOutcomes = new Map(finalScan.questions.map((q) => [q.key, outcomes.get(q.key) ?? byLabel.get(`${q.kind}|${normalizeText(q.label)}`)]).filter(([, o]) => o));
-      gate = evaluateGate(finalScan, finalOutcomes, { cvName, cvAttached: cvStatus.attached, cvReason: cvStatus.reason });
+      gate = evaluateGate(finalScan, finalOutcomes, { cvName, cvReason: cvStatus.attached ? null : cvStatus.reason });
       metrics.questions = finalScan.questions.map((q) => ({ key: q.key, kind: q.kind, label: q.label, required: q.required, requiredBy: q.requiredBy, visible: q.visible, outcome: finalOutcomes.get(q.key) ?? null }));
       metrics.captcha = finalScan.captcha;
       standing = tabStatus(gate);
       if (formBlock) standing = { ...standing, status: 'incomplete', pending: [formBlock, ...standing.pending] };
       else if (failed) standing = { ...standing, status: 'incomplete', pending: [...standing.pending, `run error: ${stoppedAt}`] };
+      else if (gate.ready) {
+        submission = await phase('submit', () => submitApplication(round.page));
+        metrics.submission = submission;
+        if (submission.status === 'confirmed') {
+          standing = { status: 'submitted', pending: [] };
+          metrics.tracker = markApplied(root, parseReportName(reportPath).number, submission);
+        } else {
+          standing = { status: 'incomplete', pending: [`submit: ${submission.reason}`] };
+        }
+      }
     }
     await agent?.close();
+    // Every tab left open is the human's again: their own Submit must work.
+    await lock?.release();
     if (round) settle = await settleFormTab(round, noForm ? null : standing, { postingUrl: args.url, note: stoppedAt });
   } catch (e) {
     failed = true;
@@ -525,8 +566,10 @@ async function main() {
   metrics.gate = gate;
   metrics.tab = { status: noForm ? 'closed: no application form' : standing?.status ?? 'unknown', shared: round?.shared ?? false, reused: round?.reused ?? false };
   metrics.round = settle?.tabs ?? [];
-  metrics.stoppedAt = stoppedAt || (standing?.status === 'incomplete' ? `pre-submit gate: ${standing.pending.length} pending` : 'ready for the human');
-  metrics.submitted = false;
+  metrics.stoppedAt =
+    stoppedAt ||
+    (standing?.status === 'submitted' ? `submitted: ${submission.evidence}` : submission && submission.status !== 'confirmed' ? `submit ${submission.status}: ${submission.reason}` : standing?.status === 'incomplete' ? `pre-submit gate: ${standing.pending.length} pending` : 'left for the human (captcha)');
+  metrics.submitted = standing?.status === 'submitted';
 
   const outPath = args.out ? path.resolve(args.out) : path.join(root, 'data', 'ab-test', 'hybrid.json');
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
@@ -538,12 +581,14 @@ async function main() {
   console.log(`[hybrid] verified ${metrics.summary.fieldsVerified} (deterministic ${metrics.summary.closedByDeterministic}, model ${metrics.summary.closedByModel}); model calls ${metrics.modelCalls.total} (observe ${calls.observe}, act ${calls.act}, judge ${calls.judge}, jev ${calls.jev}, cv-generation ${calls.cvGeneration}); ${metrics.wallClockSeconds}s`);
   console.log(`[hybrid] CV: ${cvStatus.attached ? `${cvName} attached to "${metrics.summary.cvAttachedTo}" (${cvStatus.via})` : `NOT attached: ${cvStatus.reason}`}`);
   console.log(`[hybrid] tab: ${metrics.tab.status}${standing?.pending?.length ? ` — pending: ${standing.pending.join(' | ')}` : ''}`);
+  if (submission) console.log(`[hybrid] submit: ${submission.status}${submission.evidence ? ` ("${submission.evidence}")` : ''}${submission.reason ? ` — ${submission.reason}` : ''}${metrics.tracker ? `; tracker: ${metrics.tracker.ok ? 'Applied' : `NOT updated (${metrics.tracker.error})`}` : ''}`);
   if (settle?.tabs?.length) {
     console.log(`[hybrid] round (${settle.arranged ? 'tabs re-ordered' : 'order not applied'}):`);
     settle.tabs.forEach((t, i) => console.log(`[hybrid]   ${i + 1}. [${t.status}] ${t.url}${t.pending?.length ? ` — missing: ${t.pending.join(' | ')}` : ''}`));
   }
   console.log(`[hybrid] metrics: ${outPath}`);
-  process.exit(failed ? 1 : noForm ? 4 : standing && standing.status !== 'incomplete' ? 0 : 3);
+  const submitAttempted = submission && submission.status !== 'no-control';
+  process.exit(failed ? 1 : noForm ? 4 : standing?.status === 'submitted' ? 0 : submitAttempted ? 6 : 3);
 }
 
 if (isMainModule(import.meta.url)) {

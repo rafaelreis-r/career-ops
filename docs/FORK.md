@@ -139,22 +139,39 @@ Keep these across rebases; each exists for a reason.
   (`round-keeper.mjs`) launches it and holds the CDP connection that loaded
   Stagehand's runtime extension, because Chrome disables that extension when
   the connection closes. Each form is a tab and stays open; running a posting
-  again reuses its tab as it stands. After each form the
-  tabs are re-ordered: forms that only need the captcha first, then the rest
-  from fewest to most pending items. Only a posting with no form (closed or
-  removed ad) is closed. A posting whose tracker row is Applied or later is
-  never opened. It never submits. Exit 0: ready, or ready except the captcha.
-  3: pending items, listed by their labels. 4: no form. 5: already applied.
-  1: failure.
+  again reuses its tab as it stands. After each form the tabs are re-ordered:
+  forms that only need the captcha first, then the rest from fewest to most
+  pending items, submitted ones last. Only a posting with no form (closed or
+  removed ad) is closed.
+
+  It submits (captain, 2026-09-23), and only through one explicit final step:
+  when the gate on the final DOM finds nothing (every required field with a
+  verified canonical value, the posting's CV in the final DOM, no consent
+  without a canonical answer, no captcha), it clicks the form's single submit
+  control and counts the application only when the employer's confirmation
+  shows; the tracker row then becomes Applied through `set-status.mjs`.
+  Anything else leaves the tab filled for the human. Until that step, a lock
+  in every frame of the tab (`submit.mjs`) cancels every submission of a form
+  holding applicant fields (submit events, `submit()`, `requestSubmit()`, a
+  button without a type, Enter) and clicks on submit-like controls; it lives
+  on a heartbeat, so it lifts by itself when the driver stops.
+
+  Never opened: a posting whose tracker row is Applied or later, a company on
+  `data/blacklist.md`, and a company whose submission limit is used up across
+  every track listed in the shared `trilhas.yml`. Limits live in
+  `data/submission-limits.tsv` of the shared directory (`$CAREER_OPS_SHARED_DIR`,
+  default `~/dev/career-ops-shared`): `company`, `max_submissions`,
+  `window_days`, tab-separated; the run reports the date the window reopens.
+  Exit 0: submitted and confirmed. 3: left for the human (pending items, listed
+  by their labels, or the captcha). 4: no form. 5: not eligible. 6: submitted
+  without a confirmation, or refused by the employer. 1: failure.
 
   It runs beside `arm1-jev-agentbrowser.mjs`; routing in `lib/apply-route.mjs`
-  is unchanged until it proves it replaces arm1. To compare both on one form,
-  run each with the same URL and a distinct `--out`:
+  is unchanged until it proves it replaces arm1:
 
   ```sh
   cd ~/dev/career-ops-product/web   # the track that owns the posting
-  node scripts/arm1-jev-agentbrowser.mjs --url <url> --row <n> --cv <pdf> --no-submit --out /tmp/arm1.json
-  node scripts/apply-hybrid.mjs          --url <url> --row <n> --out /tmp/hybrid.json
+  node scripts/apply-hybrid.mjs --url <url> --row <n> --out /tmp/hybrid.json
   ```
 
   A track gets Stagehand from `web/package.json`: after `update-system.mjs

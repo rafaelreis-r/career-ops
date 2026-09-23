@@ -306,52 +306,11 @@ export async function attachFile(frame, q, cvPath, cvName) {
   return { status: 'unverified', reason: 'the page does not show the attached file', observed: JSON.stringify(w.after?.state ?? null).slice(0, 160) };
 }
 
-/** While a model acts on the page, block any submit: a capture-phase listener
- *  on every frame cancels `submit` events and clicks on submit-like buttons.
- *  The guard expires by itself (`ms`), so a crashed run cannot leave the
- *  human's own Submit disabled; `on: false` removes it at once. */
-export async function setSubmitGuard(page, on, ms = 180_000) {
-  for (const frame of page.frames()) {
-    await frame
-      .evaluate(
-        ({ on: enable, until }) => {
-          const w = window;
-          if (!enable) {
-            if (w.__hybGuard) {
-              window.removeEventListener('submit', w.__hybGuard, true);
-              window.removeEventListener('click', w.__hybGuard, true);
-              delete w.__hybGuard;
-            }
-            return;
-          }
-          w.__hybGuardUntil = until;
-          if (w.__hybGuard) return;
-          const submitLike = (el) => {
-            const b = el && el.closest ? el.closest('button, input[type=submit], input[type=image], [role=button]') : null;
-            if (!b) return false;
-            const text = (b.textContent || b.value || b.getAttribute('aria-label') || '').trim();
-            if ((b.getAttribute('type') || '').toLowerCase() === 'submit') return !/^(attach|upload|anexar|enviar arquivo)/i.test(text);
-            return /^(submit|send|apply|enviar|finalizar|concluir|candidatar)|submit application|enviar candidatura/i.test(text);
-          };
-          w.__hybGuard = (e) => {
-            if (Date.now() > w.__hybGuardUntil) return;
-            if (e.type === 'submit' || submitLike(e.target)) {
-              e.preventDefault();
-              e.stopImmediatePropagation();
-              w.__hybBlockedSubmits = (w.__hybBlockedSubmits || 0) + 1;
-            }
-          };
-          window.addEventListener('submit', w.__hybGuard, true);
-          window.addEventListener('click', w.__hybGuard, true);
-        },
-        { on, until: Date.now() + ms },
-      )
-      .catch(() => {});
-  }
-}
-
 // In-page: count controls an applicant fills (not search boxes), and find the
-// "open the application" trigger.
+// "open the application" trigger. A control that would submit a form holding
+// applicant controls is never the trigger, whatever it says; a submit button
+// of a form with no applicant control only navigates (recrut.ai's
+// "Inscrever-se na vaga" posts to /job-apply/ to open the form).
 function applyProbeInPage() {
   const vis = (el) => {
     const r = el.getBoundingClientRect();
@@ -361,6 +320,7 @@ function applyProbeInPage() {
   const fillable = [...document.querySelectorAll('input:not([type]), input[type=text], input[type=email], input[type=tel], input[type=file], textarea')]
     .filter((el) => (el.type === 'file' ? true : vis(el)) && !/search|busca|pesquis/i.test(`${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.name || ''}`));
   const applicantFile = fillable.some((el) => el.type === 'file');
+  const applicantControls = (form) => form.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]), textarea, select').length;
   document.querySelectorAll('[data-hyb-apply]').forEach((n) => n.removeAttribute('data-hyb-apply'));
   const SUBMIT_RX = /^(submit|send|apply|enviar|finalizar|concluir|candidatar|postular|aplicar|bewerben)\b|submit application|send application|enviar candidatura/i;
   const REVEAL_RX = /^inscrever-se na vaga$/i;
@@ -368,8 +328,10 @@ function applyProbeInPage() {
     if (!vis(el)) return false;
     const text = `${el.textContent || ''} ${el.value || ''} ${el.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
     const href = el.getAttribute('href') || el.getAttribute('formaction') || el.form?.getAttribute('action') || '';
-    if (/^(submit|image)$/i.test(el.getAttribute('type') || '') || SUBMIT_RX.test(text)) return false;
-    if (!REVEAL_RX.test(text) && !/\/(apply|job-apply|candidat)/i.test(href)) return false;
+    // `type` is the effective type: a <button> without the attribute submits too.
+    if ((el.type === 'submit' || el.type === 'image') && el.form && applicantControls(el.form) > 0) return false;
+    if (SUBMIT_RX.test(text) && !REVEAL_RX.test(el.textContent.replace(/\s+/g, ' ').trim())) return false;
+    if (!REVEAL_RX.test(el.textContent.replace(/\s+/g, ' ').trim()) && !/\/(apply|job-apply|candidat)/i.test(href)) return false;
     if (/linkedin|indeed|facebook|twitter|mailto:/i.test(href)) return false;
     return true;
   });

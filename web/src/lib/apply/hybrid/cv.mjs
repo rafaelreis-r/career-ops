@@ -103,16 +103,17 @@ export function resolvePostingCv({ root, reportPath = null, companySlug = null, 
 
 /**
  * Make this posting's CV with the track's own `pdf` mode, run headlessly by
- * the locally authenticated `codex exec` inside the track checkout (it reads
- * cv.md, the report and modes/pdf.md there, runs the fact gate, and renders
- * with generate-pdf.mjs --report so pdf-index links it). `jobText` is the live
- * posting as the driver read it, for reports that archived no job description
- * (the mode's JD step needs one). The result goes through resolvePostingCv, so
- * a generated file is held to the same check.
+ * the locally authenticated `codex exec` inside the track's code checkout
+ * (`codeRoot`: modes/pdf.md, generate-pdf.mjs), writing into the data root
+ * (`root`: cv.md, the report, output/, data/pdf-index.tsv), which may be a
+ * separate directory. `jobText` is the live posting as the driver read it, for
+ * reports that archived no job description (the mode's JD step needs one). The
+ * result goes through resolvePostingCv, so a generated file is held to the same
+ * check.
  *
  * @returns {Promise<{path: string|null, ms: number, error: string|null}>}
  */
-export async function generatePostingCv({ root, reportPath, companySlug, jobUrl = null, jobText = '', bin = process.env.CODEX_BIN || 'codex', timeoutMs = 30 * 60_000 }) {
+export async function generatePostingCv({ root, codeRoot = root, reportPath, companySlug, jobUrl = null, jobText = '', bin = process.env.CODEX_BIN || 'codex', timeoutMs = 30 * 60_000 }) {
   const { number } = parseReportName(reportPath);
   const t0 = Date.now();
   if (!number) return { path: null, ms: 0, error: 'no report: nothing to tailor the CV to' };
@@ -123,7 +124,7 @@ export async function generatePostingCv({ root, reportPath, companySlug, jobUrl 
     schema,
     JSON.stringify({ type: 'object', additionalProperties: false, required: ['pdf', 'error'], properties: { pdf: { type: ['string', 'null'] }, error: { type: ['string', 'null'] } } }),
   );
-  const rel = path.relative(root, reportPath);
+  const rel = path.relative(codeRoot, reportPath).startsWith('..') ? reportPath : path.relative(codeRoot, reportPath);
   const jd = String(jobText || '').trim().slice(0, 20_000);
   const prompt = [
     `You are the career-ops agent of this checkout. Run the "pdf" mode (modes/pdf.md) now, non-interactively, for the report ${rel} (report number ${number}).`,
@@ -133,12 +134,12 @@ export async function generatePostingCv({ root, reportPath, companySlug, jobUrl 
       : '',
     'Skip the optional hiring-manager audit. The fact gate (verify-cv-facts.mjs) must pass; if it cannot, stop without a PDF.',
     `Render with generate-pdf.mjs and --report=${number} so data/pdf-index.tsv links the PDF to this report. The PDF file name must contain "${companySlug}" or the report number ${number}.`,
-    'Do not touch the tracker, any other report or application, or anything outside this checkout.',
-    'Final message: {"pdf": "<path relative to the checkout>", "error": null}, or {"pdf": null, "error": "<why>"}.',
+    `Do not touch the tracker, any other report or application, or anything outside this checkout${root !== codeRoot ? ` and its data directory ${root}` : ''}.`,
+    'Final message: {"pdf": "<path of the PDF>", "error": null}, or {"pdf": null, "error": "<why>"}.',
   ]
     .filter(Boolean)
     .join('\n');
-  const args = ['exec', '--ephemeral', '--skip-git-repo-check', '-s', 'workspace-write', '-C', root, '-o', out, '--output-schema', schema, '-'];
+  const args = ['exec', '--ephemeral', '--skip-git-repo-check', '-s', 'workspace-write', '-C', codeRoot, ...(root !== codeRoot ? ['--add-dir', root] : []), '-o', out, '--output-schema', schema, '-'];
   try {
     await new Promise((resolve, reject) => {
       const child = spawn(bin, args, { stdio: ['pipe', 'ignore', 'pipe'] });
