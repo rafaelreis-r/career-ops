@@ -336,6 +336,18 @@ async function openFixture(t, name) {
 const scan = (page) => page.mainFrame().evaluate(scanQuestionsInPage);
 const byLabel = (s, label) => s.questions.find((q) => q.label === label);
 
+test('an input without type is eligible for an open motivation answer', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
+  if (!page) return;
+  await page.setContent('<label for="motivation">Why this role?</label><input id="motivation">');
+  const question = byLabel(await scan(page), 'Why this role?');
+  assert.equal(question.kind, 'text');
+  assert.equal(question.inputType, 'text');
+  const [report] = buildAnswers([{ label: 'Why this role?', value: 'The work matches my experience.' }]);
+  assert.equal(matchExact(question, [report]), report);
+  assert.equal(lockFor(question, report), null);
+});
+
 test('Storyteller: the gate blocks the required checkbox group that no input marks required', async (t) => {
   const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
   if (!page) return;
