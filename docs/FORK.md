@@ -123,16 +123,16 @@ Keep these across rebases; each exists for a reason.
   miss, misfill or cannot verify goes to the model: Jev matching (report
   answers, then profile answers), a second codex judge, Jev's yes/no judgment
   over the canonical facts (never for a consent question), Jev option picks,
-  and a Stagehand `act()` on that field, followed by the same DOM check. A value
   and a Stagehand `act()` on that field, followed by the same DOM check. The
   canonical answers add the profile blocks arm1 does not read (address,
   nationality, employment, the captain's form answers, the USD anchor). After
   both passes the page is rescanned once it settles: questions it revealed and
-  verified fields it cleared are filled again. A value
-  that does not fit the field (an e-mail in "Address", a monthly amount in an
-  annual field, another currency) is never typed. Captcha frames are never
-  scanned. The CV is always this
-  `pdf` mode generates it before any field is filled.
+  verified fields it cleared are filled again. A value that does not fit the
+  field (an e-mail in "Address", a monthly amount in an annual field, another
+  currency) is never typed. Captcha frames are never scanned. The CV is always
+  this posting's PDF (`data/pdf-index.tsv`, the report's `**PDF:**` line,
+  `--cv`), checked by file name against the company; when there is none, the
+  track's `pdf` mode generates it before any field is filled.
 
   The whole round runs in one visible Chrome with a fresh profile (state in
   `~/.cache/career-ops/hybrid-round.json`). A detached keeper process
