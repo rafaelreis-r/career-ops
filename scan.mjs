@@ -64,7 +64,7 @@ import { loadProviders, resolveProvider } from './providers/_registry.mjs';
 import { mergeProviderPlugins } from './plugins/_engine.mjs';
 import { classifyFetchError } from './verify-portals.mjs';
 import { fingerprintText, findCrossListings } from './fingerprint-core.mjs';
-import { resolveColumns, parseTrackerRow, normalizeTextKey } from './tracker-parse.mjs';
+import { resolveColumns, parseBlacklist, parseTrackerRow, normalizeTextKey } from './tracker-parse.mjs';
 import { normalizeCompany } from './tracker-utils.mjs';
 import { normalizeCompanyName } from './invite-match.mjs';
 import { withPipelineLock } from './pipeline-lock.mjs';
@@ -2481,25 +2481,7 @@ const BLACKLIST_PATH = path.join(DATA_ROOT, 'data/blacklist.md');
  * @returns {Map<string, {company: string, since: string, scope: string, reason: string}>}
  *          Normalized company key → entry. First row wins on duplicate keys.
  */
-export function parseBlacklist(text) {
-  const entries = new Map();
-  for (const line of String(text ?? '').replace(/\r/g, '').split('\n')) {
-    if (!line.trim().startsWith('|')) continue;
-    const cells = line.split('|').map(s => s.trim());
-    const company = cells[1] || '';
-    if (!company || /^[-: ]+$/.test(company)) continue; // separator row
-    if (company.toLowerCase() === 'company') continue;  // header row
-    const key = normalizeCompany(company);
-    if (!key || entries.has(key)) continue;
-    entries.set(key, {
-      company,
-      since: cells[2] || '',
-      scope: cells[3] || '',
-      reason: cells[4] || '',
-    });
-  }
-  return entries;
-}
+export { parseBlacklist };
 
 /**
  * Load data/blacklist.md if the user opted in. Absent file = empty Map = no

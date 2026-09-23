@@ -14,10 +14,24 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { findCaptureForReport } from '../../../../../jd-capture.mjs';
-import { resolvePdfIndexPath, resolveTrackerPath } from '../../../../../tracker-utils.mjs';
+import { resolvePdfIndexPath, resolveTrackerPath } from '../../../../../path-resolver.mjs';
 import { matchesTailoredCv } from '../cv-match.mjs';
 
 const slugOf = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+function stripHtmlComments(text) {
+  let clean = '';
+  let cursor = 0;
+  while (cursor < text.length) {
+    const start = text.indexOf('<!--', cursor);
+    if (start === -1) return clean + text.slice(cursor);
+    clean += text.slice(cursor, start);
+    const end = text.indexOf('-->', start + 4);
+    if (end === -1) return clean;
+    cursor = end + 3;
+  }
+  return clean;
+}
 
 /** Report number and company slug from a `reports/NNN-<slug>-YYYY-MM-DD.md` path. */
 export function parseReportName(reportPath) {
@@ -50,7 +64,7 @@ function hasArchivedJobDescription(root, reportPath, reportNumber, companySlug) 
   }
   const heading = /^##\s+Job Description\b.*$/im.exec(report);
   if (heading) {
-    const body = report.slice(heading.index + heading[0].length).split(/^##\s+(?:Machine Summary|Keywords extracted|[A-Z]\)|Block\s[A-Z]\b|Risk Summary|Cover Letter Draft|Post-evaluation|Liveness gate|Blacklist gate|Bounded Research Budget|Step 0\b)/im)[0].replace(/<!--[^]*?-->/g, '').trim();
+    const body = stripHtmlComments(report.slice(heading.index + heading[0].length).split(/^##\s+(?:Machine Summary|Keywords extracted|[A-Z]\)|Block\s[A-Z]\b|Risk Summary|Cover Letter Draft|Post-evaluation|Liveness gate|Blacklist gate|Bounded Research Budget|Step 0\b)/im)[0]).trim();
     if (body.length >= 40 && !/posting's full text, pasted verbatim/i.test(body)) return true;
   }
   return !!findCaptureForReport(path.join(root, 'jds'), reportNumber, { companySlug });

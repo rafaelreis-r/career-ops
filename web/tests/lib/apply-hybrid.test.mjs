@@ -265,6 +265,24 @@ test('Storyteller: a Yes/No checkbox group is not verified while both answers ar
   assert.equal((await verifyQuestion(page.mainFrame(), group, 'No')).status, 'mismatch');
 });
 
+test('a hidden choice is activated through the exact label even when its id contains CSS syntax', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
+  if (!page) return;
+  await page.setContent('<fieldset><legend>Availability*</legend><input type="radio" name="availability" style="display:none"><label>Yes</label><input type="radio" name="availability" style="display:none"><label>No</label></fieldset>');
+  await page.evaluate(() => {
+    const ids = ['available\\\\"yes', 'available\\\\"no'];
+    document.querySelectorAll('input').forEach((input, index) => {
+      input.id = ids[index];
+      input.nextElementSibling.htmlFor = ids[index];
+    });
+  });
+  const question = (await scan(page)).questions.find((candidate) => candidate.kind === 'radio');
+  assert.ok(question);
+  const result = await chooseOption(page.mainFrame(), question, question.options.indexOf('Yes'));
+  assert.equal(result.status, 'verified');
+  assert.deepEqual(byLabel(await scan(page), question.label).state.selected, ['Yes']);
+});
+
 test('CPF, CNPJ, RG and matrícula values are not classified as phone numbers', () => {
   for (const [label, value] of [['CPF', '000.000.000-00'], ['CNPJ', '00.000.000/0000-00'], ['RG', '00.000.000-0'], ['Matrícula', '00000000000']]) {
     assert.equal(lockFor({ label }, { label, value }), null, label);
@@ -641,6 +659,21 @@ test('CV generation stops before launching an agent when the report has no archi
     fs.writeFileSync(report, '# Acme\n\n**URL:** https://jobs.example.test/22\n');
     const result = await generatePostingCv({ root, reportPath: report, companySlug: 'acme', bin: 'this-command-must-not-run' });
     assert.equal(result.path, null);
+    assert.match(result.error, /no archived job description/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an unclosed HTML comment cannot count as an archived job description', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-cv-'));
+  try {
+    fs.mkdirSync(path.join(root, 'reports'));
+    const report = path.join(root, 'reports', '022-acme-2026-09-22.md');
+    fs.writeFileSync(report, '# Acme\n\n## Job Description (archived verbatim)\n\n<!-- this unfinished comment is deliberately longer than forty characters and is not JD text');
+    const result = await generatePostingCv({ root, reportPath: report, companySlug: 'acme', bin: 'this-command-must-not-run' });
+    assert.equal(result.path, null);
+    assert.equal(result.ms, 0);
     assert.match(result.error, /no archived job description/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

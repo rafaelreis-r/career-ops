@@ -19,9 +19,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as yaml from 'js-yaml';
 import { resolveTrackerPath } from '../../../../../path-resolver.mjs';
-import { extractTrackerReportNumbers, isHeaderRow, isSeparatorRow, parseTrackerRow, resolveColumns } from '../../../../../tracker-parse.mjs';
-import { loadCanonicalStates, normalizeCompany, resolveCanonicalState } from '../../../../../tracker-utils.mjs';
-import { parseBlacklist } from '../../../../../scan.mjs';
+import { canonicalStatesFromDocument, extractTrackerReportNumbers, isHeaderRow, isSeparatorRow, normalizeTextKey, parseBlacklist, parseTrackerRow, resolveCanonicalState, resolveColumns } from '../../../../../tracker-parse.mjs';
 
 const FORK_STATES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../../templates/states.yml');
 
@@ -30,8 +28,11 @@ export const SENT_STATES = new Set(['Applied', 'Responded', 'Interview', 'Offer'
 
 const statesFor = (root) => {
   const own = path.join(root, 'templates', 'states.yml');
-  return loadCanonicalStates(fs.existsSync(own) ? own : FORK_STATES);
+  const statesPath = fs.existsSync(own) ? own : FORK_STATES;
+  return canonicalStatesFromDocument(yaml.load(fs.readFileSync(statesPath, 'utf8')), statesPath);
 };
+
+const normalizeCompany = normalizeTextKey;
 
 function trackerRows(root) {
   const tracker = resolveTrackerPath(root);

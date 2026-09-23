@@ -133,10 +133,15 @@ async function activateOption(frame, key, i) {
   }
   const id = await opt.getAttribute('id').catch(() => null);
   if (id) {
-    const lab = frame.locator(`label[for="${id.replace(/"/g, '\\"')}"]`).first();
-    if (await lab.isVisible().catch(() => false)) {
-      await lab.click({ timeout: ACTION_TIMEOUT_MS });
-      return;
+    const labels = frame.locator('label');
+    const count = await labels.count();
+    for (let index = 0; index < count; index += 1) {
+      const lab = labels.nth(index);
+      if (await lab.getAttribute('for').catch(() => null) !== id) continue;
+      if (await lab.isVisible().catch(() => false)) {
+        await lab.click({ timeout: ACTION_TIMEOUT_MS });
+        return;
+      }
     }
   }
   await opt.evaluate((el) => el.click());

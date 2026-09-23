@@ -21,6 +21,11 @@ import { postingEligibility } from '../../src/lib/apply/hybrid/tracker-row.mjs';
 import { isSubmitLikeText } from '../../src/lib/apply/hybrid/submit-policy.mjs';
 import { scanPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
 
+const CORE_ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
+const CORE_RECONCILIATION_SKIP = fs.existsSync(path.join(CORE_ROOT, 'node_modules'))
+  ? false
+  : `core dependencies are not installed at ${CORE_ROOT} (web-only checkout)`;
+
 async function openPage(t, html) {
   let browser;
   try {
@@ -343,7 +348,7 @@ test('a company whose submission limit is used up across the tracks never enters
   }
 });
 
-test('a confirmed prior attempt reconciles the tracker and exits successfully without another click', () => {
+test('a confirmed prior attempt reconciles the tracker and exits successfully without another click', { skip: CORE_RECONCILIATION_SKIP }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-reconcile-'));
   const stateDir = path.join(root, 'state');
   const out = path.join(root, 'reconciled.json');

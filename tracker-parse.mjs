@@ -547,3 +547,59 @@ export function normalizeTextKey(value, separator = '') {
     .replace(/[^\p{L}\p{M}\p{N}]+/gu, separator)
     .trim();
 }
+
+/** Convert the parsed states.yml document into canonical state records. */
+export function canonicalStatesFromDocument(doc, statesPath = 'templates/states.yml') {
+  if (!doc || !Array.isArray(doc.states)) {
+    throw new Error(`Malformed states file at ${statesPath}: expected a top-level "states" list`);
+  }
+  return doc.states.map((state) => ({
+    id: String(state.id ?? ''),
+    label: String(state.label ?? ''),
+    aliases: Array.isArray(state.aliases) ? state.aliases.map(String) : [],
+    description: String(state.description ?? ''),
+    terminal: state.terminal === true,
+  }));
+}
+
+/** Fold a human-entered status for strict canonical-state matching. */
+export function foldStatusInput(input) {
+  return String(input ?? '')
+    .replace(/\*\*/g, '')
+    .trim()
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/\u0307/gu, '');
+}
+
+/** Resolve a status label, id, or alias to its canonical label. */
+export function resolveCanonicalState(input, states) {
+  const clean = foldStatusInput(input);
+  if (!clean) return null;
+  for (const state of states) {
+    if (state.label.toLowerCase() === clean) return state.label;
+    if (state.id.toLowerCase() === clean) return state.label;
+    if (state.aliases.some((alias) => alias.toLowerCase() === clean)) return state.label;
+  }
+  return null;
+}
+
+/** Parse the user-owned do-not-apply markdown table by normalized company. */
+export function parseBlacklist(text) {
+  const entries = new Map();
+  for (const line of String(text ?? '').replace(/\r/g, '').split('\n')) {
+    if (!line.trim().startsWith('|')) continue;
+    const cells = line.split('|').map((cell) => cell.trim());
+    const company = cells[1] || '';
+    if (!company || /^[-: ]+$/.test(company) || company.toLowerCase() === 'company') continue;
+    const key = normalizeTextKey(company);
+    if (!key || entries.has(key)) continue;
+    entries.set(key, {
+      company,
+      since: cells[2] || '',
+      scope: cells[3] || '',
+      reason: cells[4] || '',
+    });
+  }
+  return entries;
+}
