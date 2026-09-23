@@ -2,12 +2,31 @@
 
 The `apply` mode interactive assistant helps you fill out applications for job postings. It reads the form questions in your browser and drafts personalized answers based on your profile and the evaluated report.
 
-**CRITICAL RULE: Career-Ops never submits.**
-The agent prepares the responses, selects the options, and types out the text fields. **You always click Submit.** This ensures you have the final say and gives you a chance to review the application before it is sent.
+**Interactive `apply` never submits.** The agent prepares responses, selects options, and types text fields; you click Submit.
+
+The separately invoked hybrid driver is a narrow exception. It may submit one eligible application after its final gate verifies every required answer, the posting-specific CV attachment, consent, the absence of a detected captcha, and native browser validity. If any check fails, it leaves the filled tab open for you.
+
+## Hybrid Driver
+
+Run it from `web/` with a job or application URL and either a tracker row or report:
+
+```bash
+node scripts/apply-hybrid.mjs --url <form-url> --row <n>
+# or
+node scripts/apply-hybrid.mjs --url <form-url> --report <report.md>
+```
+
+Optional `--cv <pdf>` is accepted only when the filename can be tied to the posting and no other report owns it. `--out <json>` changes the metrics path; the default is `data/ab-test/hybrid.json` under the resolved data root.
+
+The driver keeps one visible browser for the round and one tab per posting. It reuses interrupted tabs, attaches the posting-specific CV, fills exact canonical answers deterministically, and uses typed model decisions only for unresolved fields. It does not invent answers. Captchas and required questions without verified canonical answers block submission and remain listed on the open tab.
+
+It refuses to open a posting already recorded as sent, a blacklisted company, or a company whose configured submission window is exhausted. A durable attempt claim prevents a second submission after a click whose outcome is uncertain.
+
+Exit codes are: `0` submitted and confirmed; `3` left open for the human; `4` no form; `5` ineligible; `6` clicked but refused or not confirmed; `1` run failure.
 
 ---
 
-## 1. How It Works Per ATS
+## Interactive Apply: How It Works Per ATS
 
 We have field-tested the auto-fill flow across several major ATS platforms (Ashby, Greenhouse, Lever, and Workable). The agent adapts its behavior to handle specific ATS quirks silently:
 
@@ -30,7 +49,7 @@ We have field-tested the auto-fill flow across several major ATS platforms (Ashb
 
 ---
 
-## 2. The Knock-Out Pre-Scan
+## Interactive Apply: Knock-Out Pre-Scan
 
 Before it drafts a single answer, the agent scans the form for **knock-out questions**. These are questions designed to immediately disqualify you if your answers don't match the employer's hard requirements.
 
@@ -49,7 +68,7 @@ This saves you from spending time tailoring responses for a job that the ATS wil
 
 ---
 
-## 3. Troubleshooting
+## Troubleshooting
 
 - **Agent hangs or crashes mid-form:** This usually happens when an ATS updates its React DOM unexpectedly or pops a hidden captcha. When this happens, look at the agent's output—it always prints a complete list of generated answers. You can easily copy and paste the remaining answers manually.
 - **Form changes:** If you notice the form on screen is for a different role than the one evaluated in your report, the agent will detect it and ask if you want to adapt the responses to the new title or stop and re-evaluate.

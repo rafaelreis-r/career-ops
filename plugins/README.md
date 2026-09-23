@@ -111,7 +111,8 @@ These don't belong in the plugin layer — they're a different direction:
   not the open-core.
 - **Auto-submitting / blind-applying** to jobs. career-ops is a decision-support
   tool, not a spam bot — it drafts applications for **you** to review and submit.
-  No hook can submit, and `humanInTheLoop: true` is mandatory. This holds
-  everywhere, in core and plugins alike.
+  No plugin hook can submit, and `humanInTheLoop: true` is mandatory. The
+  separately invoked core hybrid driver is outside the plugin hook surface and
+  follows its own final-gate, single-attempt submission contract.
 
 See `CONTRIBUTING.md` → "Scope" for the full boundary.

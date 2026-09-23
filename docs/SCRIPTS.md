@@ -1,8 +1,8 @@
 # Scripts Reference
 
-All scripts live in the project root as `.mjs` modules. Most are exposed via
-`npm run <name>`; agent-invoked utilities (bottom section) run via
-`node <script>` directly.
+Core scripts live in the project root as `.mjs` modules; web-only helpers live
+under `web/`. Most core scripts are exposed via `npm run <name>`; agent-invoked
+utilities run via `node <script>` directly.
 
 ## Quick Reference
 
@@ -54,6 +54,7 @@ All scripts live in the project root as `.mjs` modules. Most are exposed via
 | `npm run star` | `match-star.mjs` | Match a behavioural question to your best STAR story (zero-LLM) |
 | `npm run archive` | `archive-posting.mjs` | Save a live job posting as PDF before it disappears |
 | `npm run prepare:application` | `prepare-application.mjs` | Print an ATS prefill summary (read-only, never POSTs) |
+| `node web/scripts/apply-hybrid.mjs` | `web/scripts/apply-hybrid.mjs` | Fill one application and submit only after the final gate clears |
 | `npm run build:dashboard` | `build-dashboard.mjs` | Build the Go TUI dashboard binary cross-platform |
 | `node upgrade-tests.mjs --pr-gate` | `upgrade-tests.mjs` | Upgrade an install seeded from the newest old release to this commit and prove user data survived (CI gate; `--canary` proves the gate can fail) |
 | `node linkedin-join.mjs` | `linkedin-join.mjs` | Warm-intro finder — join a LinkedIn `Connections.csv` export against tracker + `portals.yml` companies to answer "do I know anyone here?" (offline, zero-token, read-only; see [LINKEDIN_JOIN.md](LINKEDIN_JOIN.md)) |
@@ -1025,6 +1026,12 @@ open the apply URL, and submit yourself. See
 ```bash
 npm run prepare:application -- --url https://boards.greenhouse.io/acme/jobs/123
 ```
+
+---
+
+## apply-hybrid
+
+Hybrid application driver: deterministic browser adapters fill canonical answers, typed model decisions cover unresolved fields, and the final gate decides whether the one submit step is allowed. Blocked forms stay open in the round's shared browser. See [APPLY_AUTOFILL.md](APPLY_AUTOFILL.md#hybrid-driver) for the command, safeguards, and exit codes.
 
 ---
 

@@ -11,7 +11,7 @@ database, no server. If you never run it, nothing about your CLI workflow change
 
 ## Quick start
 
-Requires Node 22+ (see [Tests](#tests) — `npm test`'s glob discovery needs it).
+Requires Node 22.18+ (see [Tests](#tests) — `npm test`'s glob discovery needs it).
 
 ```bash
 cd web
@@ -28,8 +28,9 @@ Open http://localhost:3000. The app reads the career-ops checkout it lives in
   write back through the core's own scripts.
 - **Explore** — the free reverse-ATS scan with an honest partial-dataset
   indicator, plus AI-assisted discovery (bring your own CLI/keys, including Grok Build CLI).
-- **Apply** — assisted form prefill with a hard rule inherited from the core:
-  **it never submits for you** — you always press the button.
+- **Apply** — assisted form prefill in the web UI. This interactive flow never
+  submits for you; the separate `scripts/apply-hybrid.mjs` CLI driver is not
+  invoked by the UI.
 - **Today / Analytics / CV / Config** — action queue, funnel, CV editing with
   preview, settings.
 
@@ -37,8 +38,10 @@ Open http://localhost:3000. The app reads the career-ops checkout it lives in
 
 - **Local-first:** the local web app runs entirely on your machine — no cloud,
   no account needed. Your CV and data stay in your own files.
-- **Never auto-submits:** the apply flow drafts and prefills; submitting is
-  always a human action.
+- **Web apply never submits:** the UI drafts and prefills; submitting in this
+  flow is always a human action. The separately invoked hybrid CLI driver has
+  its own gated submission contract documented in
+  [`docs/APPLY_AUTOFILL.md`](../docs/APPLY_AUTOFILL.md#hybrid-driver).
 - **CV generation never asks the agent to write:** the `pdf` worker tailors your
   CV and emits it inline in a `<<cv-html>>` envelope; the backend parses that
   envelope, writes the HTML, and renders the PDF itself. Job postings and

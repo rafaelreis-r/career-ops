@@ -13,8 +13,9 @@
 
      The agent reads this file alongside the system instructions;
      your rules here take precedence over the defaults, as long as
-     they don't break the Data Contract (your files are never
-     touched, and we never auto-submit an application for you).
+     they don't break the Data Contract. Interactive apply never submits;
+     the separately invoked hybrid driver follows its own final-gate and
+     single-attempt submission contract.
 
      Because this is a user-layer file, anything you write here
      survives `node update-system.mjs`. Put customizations HERE,
