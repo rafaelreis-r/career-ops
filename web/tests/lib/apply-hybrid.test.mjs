@@ -22,10 +22,10 @@ import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { scanPage, scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
 import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, lockFor, matchAnswers, matchExact, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
-import { selectResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
+import { selectResumeTarget, validateResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
 import { evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
 import { resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
-import { attachFile, chooseOption, fillText, selectCombobox } from '../../src/lib/apply/hybrid/adapters.mjs';
+import { attachFile, chooseOption, fillText, reachApplicationForm, sameChoice, selectCombobox, verifyQuestion } from '../../src/lib/apply/hybrid/adapters.mjs';
 import { mapActionsToQuestions } from '../../src/lib/apply/hybrid/stagehand.mjs';
 import { trackerStanding } from '../../src/lib/apply/hybrid/tracker-row.mjs';
 
@@ -69,6 +69,7 @@ test('an option is chosen only when it represents the canonical value uniquely',
   const sms = ['Yes - I consent to receiving text messages', 'No - I do not consent to receiving text messages'];
   assert.equal(matchOption(sms, 'No').index, 1);
   assert.equal(matchOption(['Yes', 'No'], 'Authorized to work in Brazil. No sponsorship needed.'), null, 'a sentence mentioning "no" is not the option "No"');
+  assert.equal(sameChoice('No', 'Authorized to work in Brazil. No sponsorship needed.'), false);
 });
 
 test('exact labels skip Jev; the report is asked before the profile; below-threshold is no answer', async () => {
@@ -133,6 +134,8 @@ test('the CV goes only to an input identified as the resume that accepts the fil
   );
   assert.equal(two.target, null, 'two unnamed document inputs: the model decides, not the first one');
   assert.equal(selectResumeTarget([{ key: 'q1', kind: 'file', ownLabel: 'Resume', label: 'Resume', accept: 'image/*' }], 'cv.pdf').reason, 'the resume input does not accept this file type');
+  assert.equal(validateResumeTarget({ ownLabel: 'Foto', label: 'Foto', accept: 'application/pdf' }, 'cv.pdf').ok, false, 'a model pick cannot turn a photo field into a CV field');
+  assert.equal(validateResumeTarget({ ownLabel: 'Anexo', label: 'Anexo', accept: 'image/*' }, 'cv.pdf').ok, false, 'a model pick cannot bypass accept');
 });
 
 // --- real markup in a real browser ---------------------------------------------
@@ -175,6 +178,36 @@ test('Storyteller: the gate blocks the required checkbox group that no input mar
   const gate = evaluateGate(await scan(page), outcomes);
   assert.equal(gate.ready, false);
   assert.deepEqual(gate.blockers.map((b) => b.label).sort(), ['Resume*', STORY_SCHEDULE].sort(), 'every text field is filled; the unchecked group and the missing resume still block');
+});
+
+test('Storyteller: a Yes/No checkbox group is not verified while both answers are selected', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
+  if (!page) return;
+  let group = byLabel(await scan(page), STORY_SCHEDULE);
+  assert.equal((await chooseOption(page.mainFrame(), group, group.options.indexOf('Yes'))).status, 'verified');
+  group = byLabel(await scan(page), STORY_SCHEDULE);
+  const contradictory = await chooseOption(page.mainFrame(), group, group.options.indexOf('No'));
+  assert.equal(contradictory.status, 'mismatch');
+  assert.deepEqual(byLabel(await scan(page), STORY_SCHEDULE).state.selected, ['Yes', 'No']);
+  assert.equal((await verifyQuestion(page.mainFrame(), group, 'No')).status, 'mismatch');
+});
+
+test('the form reacher never clicks Apply inside a form with one hidden CV input', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
+  if (!page) return;
+  await page.setContent('<form><input type="file" aria-label="Resume/CV*" style="display:none"><button type="button" onclick="window.clicked=(window.clicked||0)+1">Apply</button></form>');
+  const reached = await reachApplicationForm(page);
+  assert.equal(reached.reached, true);
+  assert.equal(await page.evaluate(() => window.clicked || 0), 0);
+});
+
+test('the form reacher still clicks the captured iTRTech application trigger', async (t) => {
+  const page = await openFixture(t, 'hybrid-recrutai-itrtech.html');
+  if (!page) return;
+  await page.setContent('<button type="button" onclick="this.remove(); document.body.insertAdjacentHTML(\'beforeend\', \'<label>Nome*<input type=text></label><label>Email*<input type=email></label>\')">INSCREVER-SE NA VAGA</button>');
+  const reached = await reachApplicationForm(page);
+  assert.equal(reached.reached, true);
+  assert.deepEqual(reached.log.map((entry) => entry.clicked), ['INSCREVER-SE NA VAGA']);
 });
 
 test('Wellhub: a filled First Name is done the moment the DOM shows it', async (t) => {
@@ -435,6 +468,22 @@ test("SMG: another posting's CV is refused; the posting's own PDF is used, or no
     fs.appendFileSync(path.join(root, 'data', 'pdf-index.tsv'), '617\toutput/cv-rafael-reis-service-management-group-smg-2026-09-22.pdf\toutput/y.html\tletter\t2026-09-22\n');
     const found = resolvePostingCv({ root, reportPath: report, explicitCv: other });
     assert.deepEqual([found.path, found.source], [own, 'pdf-index']);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a report link cannot prove ownership from one generic company word', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-cv-'));
+  try {
+    for (const d of ['reports', 'output', 'data']) fs.mkdirSync(path.join(root, d));
+    const report = path.join(root, 'reports', '617-service-management-group-smg-2026-09-14.md');
+    const weak = path.join(root, 'output', 'cv-candidate-service-2026-09-22.pdf');
+    fs.writeFileSync(weak, '%PDF-1.4 unrelated\n');
+    fs.writeFileSync(report, `# SMG\n\n**PDF:** output/${path.basename(weak)}\n`);
+    const found = resolvePostingCv({ root, reportPath: report });
+    assert.equal(found.path, null);
+    assert.match(found.rejected[0].reason, /does not name/);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

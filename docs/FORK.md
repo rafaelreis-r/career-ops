@@ -145,7 +145,7 @@ Keep these across rebases; each exists for a reason.
   removed ad) is closed. A posting whose tracker row is Applied or later is
   never opened. It never submits. Exit 0: ready, or ready except the captcha.
   3: pending items, listed by their labels. 4: no form. 5: already applied.
-  1: failure. `--headless` uses a private browser that closes at the end.
+  1: failure.
 
   It runs beside `arm1-jev-agentbrowser.mjs`; routing in `lib/apply-route.mjs`
   is unchanged until it proves it replaces arm1. To compare both on one form,

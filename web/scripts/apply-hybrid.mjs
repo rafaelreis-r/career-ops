@@ -30,7 +30,7 @@
 // but for the captcha), 3 pending items, 4 no form, 5 already applied, 1 failure.
 //
 // Run (from web/):
-//   node scripts/apply-hybrid.mjs --url <form-url> [--row N | --report <md>] [--cv <pdf>] [--out <json>] [--headless]
+//   node scripts/apply-hybrid.mjs --url <form-url> [--row N | --report <md>] [--cv <pdf>] [--out <json>]
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,7 +55,7 @@ import {
   truthyAnswer,
   valueFitsField,
 } from '../src/lib/apply/hybrid/answers.mjs';
-import { selectResumeTarget } from '../src/lib/apply/hybrid/files.mjs';
+import { selectResumeTarget, validateResumeTarget } from '../src/lib/apply/hybrid/files.mjs';
 import { evaluateGate, isEmptyState, tabStatus } from '../src/lib/apply/hybrid/gate.mjs';
 import {
   attachFile,
@@ -78,7 +78,7 @@ function careerOpsRoot() {
 }
 
 function parseArgs(argv) {
-  const args = { headless: false, observeTimeoutSeconds: 150 };
+  const args = { observeTimeoutSeconds: 150 };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--url') args.url = argv[++i];
@@ -86,8 +86,6 @@ function parseArgs(argv) {
     else if (a === '--report') args.report = argv[++i];
     else if (a === '--cv') args.cv = argv[++i];
     else if (a === '--out') args.out = argv[++i];
-    else if (a === '--headless') args.headless = true;
-    else if (a === '--no-submit') args.noSubmit = true; // accepted for parity with arm1; this driver never submits
     else if (a === '--observe-timeout') args.observeTimeoutSeconds = Number(argv[++i]);
     else if (a === '--help' || a === '-h') args.help = true;
     else throw new Error(`unknown argument: ${a}`);
@@ -97,16 +95,13 @@ function parseArgs(argv) {
 
 const USAGE = `apply-hybrid.mjs — fill an application form: deterministic first, the model for every gap, the posting's CV always. Never submits.
 
-  node scripts/apply-hybrid.mjs --url <form-url> [--row N | --report <md>] [--cv <pdf>] [--out <json>] [--headless]
+  node scripts/apply-hybrid.mjs --url <form-url> [--row N | --report <md>] [--cv <pdf>] [--out <json>]
 
   --url              required. Job page or application form URL.
   --row / --report   the posting's report: its Application Answers and its CV.
   --cv               a CV to use when it names the posting's company and no
                      other report owns it; otherwise the posting's own PDF is
                      used, or generated.
-  --headless         private headless browser, closed at the end (tests). By
-                     default the form opens as a tab of the round's single
-                     visible browser and stays open.
   --observe-timeout  cap for the one Stagehand observation (default 150 s).
   --out              metrics JSON (default <root>/data/ab-test/hybrid.json).
 
@@ -247,7 +242,7 @@ async function main() {
   process.once('SIGTERM', onSignal);
 
   try {
-    round = await phase('openTab', () => openFormTab({ headless: args.headless, postingUrl: args.url }));
+    round = await phase('openTab', () => openFormTab({ postingUrl: args.url }));
     const { page } = round;
     if (round.reused) {
       // This posting already has a tab in the round: fill its gaps where it stands.
@@ -442,7 +437,10 @@ async function main() {
             options: { NONE: 'No input is the resume/CV upload.', ...Object.fromEntries(fresh.map((q, i) => [String(i), `File input ${i}: "${q.label || q.ownLabel || q.context.slice(0, 60)}".`])) },
             id: 'resume_input',
           });
-          if (r.choice && r.choice !== 'NONE' && (r.confidence ?? 0) >= resolveApplyThreshold()) t = fresh[Number(r.choice)];
+          if (r.choice && r.choice !== 'NONE' && (r.confidence ?? 0) >= resolveApplyThreshold()) {
+            const candidate = fresh[Number(r.choice)];
+            if (candidate && validateResumeTarget(candidate, cv.path).ok) t = candidate;
+          }
         }
         if (t) {
           let r = await run(t, (live) => attachFile(frameOf(t), live, cv.path, cvName));

@@ -52,6 +52,13 @@ export function classifyFileInput(q) {
   return { kind: 'unknown', evidence: null, text: '' };
 }
 
+export function validateResumeTarget(q, cvPath) {
+  const classification = classifyFileInput(q);
+  if (!acceptsFile(q.accept, cvPath)) return { ok: false, reason: 'the selected input does not accept this file type', classification };
+  if (['photo', 'cover_letter', 'autofill'].includes(classification.kind)) return { ok: false, reason: `the selected input is ${classification.kind}`, classification };
+  return { ok: true, reason: null, classification };
+}
+
 /**
  * Pick the one input that should receive the CV, or none with a reason.
  *
@@ -62,7 +69,8 @@ export function classifyFileInput(q) {
 export function selectResumeTarget(fileQuestions, cvPath) {
   const considered = (fileQuestions || []).map((q) => {
     const c = classifyFileInput(q);
-    return { key: q.key, label: q.label, accept: q.accept, kind: c.kind, evidence: c.evidence, acceptsCv: acceptsFile(q.accept, cvPath), visible: q.visible !== false, q };
+    const validation = validateResumeTarget(q, cvPath);
+    return { key: q.key, label: q.label, accept: q.accept, kind: c.kind, evidence: c.evidence, acceptsCv: validation.ok, visible: q.visible !== false, q };
   });
   const resumes = considered.filter((c) => c.kind === 'resume');
   const usable = resumes.filter((c) => c.acceptsCv);

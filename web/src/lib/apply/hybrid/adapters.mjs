@@ -19,7 +19,26 @@ export function sameChoice(displayed, chosen) {
   const d = normalizeText(displayed);
   const c = normalizeText(chosen);
   if (!d || !c) return false;
-  return d === c || ` ${c} `.includes(` ${d} `) || ` ${d} `.includes(` ${c} `);
+  if (d === c) return true;
+  const generic = new Set(['yes', 'no', 'sim', 'nao']);
+  if (generic.has(d) || generic.has(c)) return false;
+  return ` ${c} `.includes(` ${d} `) || ` ${d} `.includes(` ${c} `);
+}
+
+const optionPolarity = (s) => {
+  const n = normalizeText(s);
+  if (/^(yes|sim)(\b|$)/.test(n)) return true;
+  if (/^(no|nao)(\b|$)/.test(n)) return false;
+  return null;
+};
+
+function conflictingBinarySelections(question, desired, selected) {
+  const options = question.options || [];
+  const exact = options.find((option) => normalizeText(option) === normalizeText(desired));
+  const desiredPolarity = exact ? optionPolarity(exact) : new Set(['yes', 'sim']).has(normalizeText(desired)) ? true : new Set(['no', 'nao']).has(normalizeText(desired)) ? false : null;
+  const offered = new Set(options.map(optionPolarity).filter((p) => p !== null));
+  if (desiredPolarity === null || !offered.has(true) || !offered.has(false)) return [];
+  return selected.filter((option) => optionPolarity(option) === !desiredPolarity);
 }
 
 /** The question as it is on the page now: by key, or — when a re-render
@@ -87,6 +106,8 @@ export async function verifyQuestion(frame, q, value, { equivalent = null, fits 
   if (after.kind === 'file') return { status: 'failed', reason: 'not a value question' };
   const shown = after.state?.selected ?? [];
   if (!shown.length) return { status: 'failed', reason: 'nothing selected' };
+  const conflicts = conflictingBinarySelections(after, value, shown);
+  if (conflicts.length) return { status: 'mismatch', reason: `the incompatible option is also selected: "${conflicts.join(', ')}"`, observed: shown.join(', ') };
   if (shown.some((s) => sameChoice(s, value) || matchOption([s], value))) return { status: 'verified', observed: shown.join(', ') };
   if (equivalent) {
     for (const s of shown) if (await equivalent(s, value, after.label)) return { status: 'verified', observed: s, how: 'model-equivalent' };
@@ -130,6 +151,8 @@ export async function chooseOption(frame, q, index) {
   await sleep(150);
   const after = await reread(frame, q);
   const got = after?.state?.selected ?? [];
+  const conflicts = after ? conflictingBinarySelections(after, want, got) : [];
+  if (conflicts.length) return { status: 'mismatch', reason: `the incompatible option is also selected: "${conflicts.join(', ')}"`, observed: got.join(', ') };
   return got.includes(want) ? { status: 'verified', observed: want } : { status: 'failed', reason: 'the option did not register as selected', observed: got.join(', ') };
 }
 
@@ -338,6 +361,7 @@ function applyProbeInPage() {
   };
   const fillable = [...document.querySelectorAll('input:not([type]), input[type=text], input[type=email], input[type=tel], input[type=file], textarea')]
     .filter((el) => (el.type === 'file' ? true : vis(el)) && !/search|busca|pesquis/i.test(`${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.name || ''}`));
+  const applicantFile = fillable.some((el) => el.type === 'file');
   document.querySelectorAll('[data-hyb-apply]').forEach((n) => n.removeAttribute('data-hyb-apply'));
   const APPLY_RX = /\b(apply|candidat|inscrev|inscri|postul|aplicar|bewerben)/i;
   const trigger = [...document.querySelectorAll('button, a, [role=button], input[type=submit], input[type=button]')].find((el) => {
@@ -347,7 +371,7 @@ function applyProbeInPage() {
     if (!APPLY_RX.test(text) && !/\/(apply|job-apply|candidat)/i.test(href)) return false;
     if (/linkedin|indeed|facebook|twitter|mailto:/i.test(href)) return false;
     const form = el.closest('form');
-    if (form && [...form.querySelectorAll('input:not([type=hidden]), textarea, select')].some(vis)) return false;
+    if (form && [...form.querySelectorAll('input:not([type=hidden]), textarea, select')].some((control) => control.type === 'file' || vis(control))) return false;
     return true;
   });
   if (trigger) trigger.setAttribute('data-hyb-apply', '1');
@@ -366,7 +390,7 @@ function applyProbeInPage() {
   // page with nothing to fill.
   const challenge = !!document.querySelector('iframe[src*="challenges.cloudflare"], .cf-turnstile, #challenge-form, #cf-challenge-running') || /verify you are human|confirme que [eé] humano|checking your browser|verificando (seu|o) navegador/i.test(text);
   const closed = /no longer (available|accepting applications|open)|job (is )?(closed|expired|no longer)|(position|job) has been (filled|closed|removed)|posting (has been )?(closed|removed)|this job (has )?expired|vaga (foi )?(encerrada|expirada|fechada)|n[aã]o est[aá] mais dispon[ií]vel|page (was )?not found|p[aá]gina n[aã]o encontrada/i.test(text);
-  return { fillable: fillable.length, trigger: trigger ? (trigger.textContent || trigger.value || trigger.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80) : null, cookie: !!cookie, challenge, closed };
+  return { fillable: fillable.length, applicantFile, trigger: trigger ? (trigger.textContent || trigger.value || trigger.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80) : null, cookie: !!cookie, challenge, closed };
 }
 
 /**
@@ -378,8 +402,8 @@ function applyProbeInPage() {
 export async function reachApplicationForm(page) {
   const log = [];
   for (let attempt = 0; attempt < 3; attempt++) {
-    const probe = await page.evaluate(applyProbeInPage).catch(() => ({ fillable: 0, trigger: null, cookie: false, challenge: false, closed: false }));
-    if (probe.fillable >= 2) return { reached: true, url: page.url(), log };
+    const probe = await page.evaluate(applyProbeInPage).catch(() => ({ fillable: 0, applicantFile: false, trigger: null, cookie: false, challenge: false, closed: false }));
+    if (probe.fillable >= 2 || probe.applicantFile) return { reached: true, url: page.url(), log };
     if (probe.challenge) return { reached: false, challenge: true, url: page.url(), log, reason: 'a human-verification challenge stands before the form' };
     if (attempt === 2 || !probe.trigger) {
       return { reached: false, closed: probe.closed, url: page.url(), log, reason: probe.closed ? 'the posting is closed or removed' : probe.trigger ? 'no applicant fields after the apply click' : 'no applicant fields and no apply trigger' };
@@ -391,7 +415,7 @@ export async function reachApplicationForm(page) {
     for (let i = 0; i < 20; i++) {
       await sleep(500);
       const p = await page.evaluate(applyProbeInPage).catch(() => null);
-      if (p && p.fillable >= 2) break;
+      if (p && (p.fillable >= 2 || p.applicantFile)) break;
     }
     log.push({ clicked: probe.trigger, from: before, to: page.url() });
   }

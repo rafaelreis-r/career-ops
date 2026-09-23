@@ -22,10 +22,8 @@ export function parseReportName(reportPath) {
   return m ? { number: m[1], slug: m[2] } : { number: null, slug: null };
 }
 
-/** Does this file name name the posting? A file the report itself links
- *  (pdf-index row, **PDF:** line) passes with one distinctive slug word or the
- *  report number, since track workers name CVs by company or by role ("…-2003-…");
- *  any other file must carry the whole slug. */
+/** Does this file name name the posting? It must carry the complete company
+ *  slug, or the report number when an exact report link owns the file. */
 export function fileNamesCompany(file, companySlug, { linked = false, reportNumber = null } = {}) {
   const slug = slugOf(companySlug);
   if (!slug) return false;
@@ -33,7 +31,7 @@ export function fileNamesCompany(file, companySlug, { linked = false, reportNumb
   if (name.includes(`-${slug}-`)) return true;
   if (!linked) return false;
   if (reportNumber != null && name.includes(`-${Number(reportNumber)}-`)) return true;
-  return slug.split('-').some((w) => w.length >= 5 && name.includes(`-${w}-`));
+  return false;
 }
 
 /** Rows of data/pdf-index.tsv as `{num, pdf}` (pdf relative to the root). */

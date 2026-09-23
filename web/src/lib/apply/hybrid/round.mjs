@@ -13,8 +13,6 @@
 // extension already loaded in the browser holds the `tabs` permission, so the
 // move runs through `chrome.tabs.move` in its service worker.
 //
-// `--headless` runs (tests, CI) get a private browser that is closed at the end.
-//
 // Each round gets a fresh Chrome profile, launched by a detached keeper
 // process (round-keeper.mjs) that holds the CDP connection through which
 // Stagehand loaded its runtime extension: Chrome disables that extension when
@@ -179,15 +177,7 @@ async function startRound() {
  * model's observe/act, and `runtimeError` says why.
  * @returns {Promise<{shBrowser, pw, context, page, reused: boolean, shared: boolean, cdpUrl: string, runtimeError?: string}>}
  */
-export async function openFormTab({ headless = false, postingUrl = null } = {}) {
-  if (headless) {
-    const port = await freePort();
-    const shBrowser = await localBrowser.launch({ port, headless: true, viewport: VIEWPORT });
-    const pw = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
-    const context = pw.contexts()[0];
-    const page = context.pages().find((p) => isFormTab(p.url()) || p.url() === 'about:blank') || (await context.newPage());
-    return { shBrowser, pw, context, page, reused: false, shared: false, cdpUrl: `http://127.0.0.1:${port}` };
-  }
+export async function openFormTab({ postingUrl = null } = {}) {
   return withLock(async () => {
     let st = readState();
     const fresh = !(st?.cdpUrl && (await alive(st.cdpUrl)));
@@ -242,10 +232,6 @@ export async function resetStagehandRuntime(round) {
  * @param {{status: string, pending: string[]}|null} standing - null closes the tab (no form on the page).
  */
 export async function settleFormTab(round, standing, { url = round.page.url(), postingUrl = null, note = null } = {}) {
-  if (!round.shared) {
-    await round.shBrowser.close().catch(() => {});
-    return { tabs: [], closedThisTab: true };
-  }
   return withLock(async () => {
     const st = readState() || { tabs: {} };
     st.tabs ||= {};
