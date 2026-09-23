@@ -236,7 +236,10 @@ export function loadCanonicalData(root, { row, reportPath } = {}) {
     }
   }
 
-  return { answers: [...reportAnswers, ...profileAnswers], sources };
+  // `answers` keeps the merged, report-first order every existing caller reads;
+  // the two halves are exposed for callers that match them in that precedence
+  // as separate stages (web/scripts/apply-hybrid.mjs).
+  return { answers: [...reportAnswers, ...profileAnswers], reportAnswers, profileAnswers, sources };
 }
 
 // ── résumé/CV attachment (deterministic — never routed through the Jev

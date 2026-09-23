@@ -1,0 +1,290 @@
+// adapters.mjs — deterministic Playwright actions, each followed by a DOM
+// re-read that decides the outcome. No model is asked whether a field is done:
+// a value that is on the page after the action is `verified`, anything else is
+// `failed`/`mismatch` with the observed state. Every adapter makes a bounded,
+// fixed sequence of attempts and never repeats an action that did not change
+// the page (the old loop clicked "Toggle flyout" until loop-detected).
+
+import { scanQuestionsInPage } from './page-scan.mjs';
+import { matchOption, normalizeText } from './answers.mjs';
+
+const ACTION_TIMEOUT_MS = 8000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Does the widget's displayed selection correspond to the clicked option?
+ *  Widgets may render a shorter form of the option (Greenhouse shows "+55"
+ *  after "Brazil +55" is chosen), so one text's tokens must appear, in order,
+ *  inside the other's. An unrelated or empty display is not a match. */
+export function sameChoice(displayed, chosen) {
+  const d = normalizeText(displayed);
+  const c = normalizeText(chosen);
+  if (!d || !c) return false;
+  return d === c || ` ${c} `.includes(` ${d} `) || ` ${d} `.includes(` ${c} `);
+}
+
+/** The question as it is on the page now: by key, or — when a re-render
+ *  replaced its node and the rescan gave it a new key — by the same widget
+ *  kind and label. Null when it is gone. */
+export async function reread(frame, q) {
+  const res = await frame.evaluate(scanQuestionsInPage);
+  const want = normalizeText(q.label);
+  return res.questions.find((x) => x.key === q.key) || res.questions.find((x) => x.kind === q.kind && normalizeText(x.label) === want) || null;
+}
+
+const control = (frame, key) => frame.locator(`[data-hyb-c="${key}"]`).first();
+const collapse = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+const digits = (s) => String(s ?? '').replace(/\D+/g, '');
+
+/** Did the page keep what was typed? Phone inputs may reformat or drop the
+ *  country prefix, so they compare digits; everything else compares text. */
+export function sameValue(observed, intended, inputType = '') {
+  if (collapse(observed) === collapse(intended)) return true;
+  if (/tel/i.test(inputType)) {
+    const a = digits(observed);
+    const b = digits(intended);
+    return a.length >= 8 && b.length >= 8 && (a.endsWith(b) || b.endsWith(a));
+  }
+  return false;
+}
+
+/** Type a canonical value and read it back. A value the page altered (a
+ *  maxlength cut, a mask that dropped digits) is not left behind looking like
+ *  an answer: the field is cleared and the outcome says what the page did. */
+export async function fillText(frame, q, value) {
+  const loc = control(frame, q.key);
+  await loc.fill(value, { timeout: ACTION_TIMEOUT_MS });
+  await loc.blur().catch(() => {});
+  const after = await reread(frame, q);
+  const got = after?.state?.value ?? '';
+  if (sameValue(got, value, q.inputType)) return { status: 'verified', observed: got };
+  if (!got) return { status: 'failed', reason: 'the value did not stay in the field', observed: got };
+  await control(frame, after.key).fill('', { timeout: 2000 }).catch(() => {});
+  return { status: 'mismatch', reason: `the page altered the value to "${got.slice(0, 60)}"; field cleared`, observed: got };
+}
+
+export async function selectNative(frame, q, index) {
+  await control(frame, q.key).selectOption({ index }, { timeout: ACTION_TIMEOUT_MS });
+  const after = await reread(frame, q);
+  const want = q.options[index];
+  const got = after?.state?.selected ?? [];
+  return got.includes(want) ? { status: 'verified', observed: want } : { status: 'failed', reason: 'the option did not stay selected', observed: got.join(', ') };
+}
+
+/** Activate option `i` of a radio/checkbox/toggle question: a visible control
+ *  is clicked, a visually hidden input through its label, else a DOM click. */
+async function activateOption(frame, key, i) {
+  const opt = frame.locator(`[data-hyb-o="${key}:${i}"]`).first();
+  if (await opt.isVisible().catch(() => false)) {
+    await opt.click({ timeout: ACTION_TIMEOUT_MS });
+    return;
+  }
+  const id = await opt.getAttribute('id').catch(() => null);
+  if (id) {
+    const lab = frame.locator(`label[for="${id.replace(/"/g, '\\"')}"]`).first();
+    if (await lab.isVisible().catch(() => false)) {
+      await lab.click({ timeout: ACTION_TIMEOUT_MS });
+      return;
+    }
+  }
+  await opt.evaluate((el) => el.click());
+}
+
+/** Select option `index` of a radio group, checkbox group, single checkbox or
+ *  yes/no toggle. An option already selected is left alone (a second click on
+ *  a checkbox would clear it). */
+export async function chooseOption(frame, q, index) {
+  const want = q.options[index];
+  if (!(q.state?.selected || []).includes(want)) await activateOption(frame, q.key, index);
+  await sleep(150);
+  const after = await reread(frame, q);
+  const got = after?.state?.selected ?? [];
+  return got.includes(want) ? { status: 'verified', observed: want } : { status: 'failed', reason: 'the option did not register as selected', observed: got.join(', ') };
+}
+
+// In-page: find the options the open dropdown offers for this combobox, tag
+// them `data-hyb-live`, and return their texts. Looks in the listbox the input
+// controls, then in the question container (react-select menus), then any
+// visible listbox on the page.
+function liveOptionsInPage(input) {
+  const vis = (el) => {
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none';
+  };
+  document.querySelectorAll('[data-hyb-live]').forEach((n) => n.removeAttribute('data-hyb-live'));
+  const ids = `${input.getAttribute('aria-controls') || ''} ${input.getAttribute('aria-owns') || ''}`.split(/\s+/).filter(Boolean);
+  let opts = [];
+  for (const id of ids) {
+    const lb = document.getElementById(id);
+    if (lb) opts = [...lb.querySelectorAll('[role=option]')];
+    if (opts.length) break;
+  }
+  if (!opts.length) {
+    const q = input.closest('[data-hyb-q]') || input.parentElement;
+    opts = [...q.querySelectorAll('[role=option], [class*=menu] [class*=option]')];
+  }
+  if (!opts.length) opts = [...document.querySelectorAll('[role=listbox] [role=option]')];
+  opts = opts.filter(vis).filter((o) => !/^(loading|searching|no options|no results|nenhum resultado|type to search|start typing)/i.test((o.textContent || '').trim()));
+  return opts.map((o, i) => {
+    o.setAttribute('data-hyb-live', String(i));
+    return (o.textContent || '').replace(/\s+/g, ' ').trim();
+  });
+}
+
+async function waitForOptions(input, timeoutMs) {
+  const end = Date.now() + timeoutMs;
+  let last = [];
+  let stableSince = 0;
+  while (Date.now() < end) {
+    const now = await input.evaluate(liveOptionsInPage).catch(() => []);
+    if (now.length && now.join('|') === last.join('|')) {
+      if (Date.now() - stableSince > 400) return now;
+    } else {
+      stableSince = Date.now();
+    }
+    last = now;
+    await sleep(150);
+  }
+  return last;
+}
+
+async function clearCombobox(input) {
+  await input.fill('', { timeout: 2000 }).catch(() => {});
+  await input.press('Escape', { timeout: 2000 }).catch(() => {});
+}
+
+/**
+ * Custom dropdown (react-select, Ashby "Start typing...", async location
+ * search): type the canonical value, read the options the widget offers,
+ * choose deterministically (else ONE Jev pick among the offered texts), click
+ * it, and re-read the widget's selected value. At most two queries (the full
+ * value, then its first segment when the full one returns nothing). On any
+ * failure the search text is cleared so no typed-but-unselected text is left
+ * looking like an answer.
+ */
+export async function selectCombobox(frame, q, desired, { pick = null } = {}) {
+  const input = control(frame, q.key);
+  const queries = [desired];
+  const head = desired.split(/[,(]/)[0].trim();
+  if (head && head !== desired) queries.push(head);
+  const steps = [];
+  let options = [];
+  let query = desired;
+  await input.click({ timeout: ACTION_TIMEOUT_MS });
+  for (query of queries) {
+    await input.fill('');
+    await input.pressSequentially(query, { delay: 20 });
+    options = await waitForOptions(input, 6000);
+    steps.push({ query, offered: options.length });
+    if (options.length) break;
+  }
+  if (!options.length) {
+    await clearCombobox(input);
+    return { status: 'failed', reason: 'the dropdown offered no option for the canonical value', steps };
+  }
+  let m = matchOption(options, desired) || (query !== desired ? matchOption(options, query) : null);
+  let how = m?.how ?? null;
+  if (!m && pick) {
+    const r = await pick(options, { label: q.label, desiredValue: desired });
+    if (r?.index != null) {
+      m = { index: r.index };
+      how = 'jev-pick';
+    }
+  }
+  if (!m) {
+    await clearCombobox(input);
+    return { status: 'no-option', reason: 'no offered option represents the canonical value', offered: options.slice(0, 12), steps };
+  }
+  const chosen = options[m.index];
+  await frame.locator(`[data-hyb-live="${m.index}"]`).first().click({ timeout: ACTION_TIMEOUT_MS });
+  // The widget may re-render (even replace its node) before showing the value:
+  // re-read for up to 2.5 s. One click, then only reads.
+  let got = [];
+  let after = null;
+  for (const end = Date.now() + 2500; Date.now() < end; ) {
+    await sleep(250);
+    after = await reread(frame, q);
+    got = after?.state?.selected ?? [];
+    const shown = got.find((g) => sameChoice(g, chosen));
+    if (shown) return { status: 'verified', observed: shown === chosen ? chosen : `${chosen} (shown as "${shown}")`, how, steps };
+  }
+  await clearCombobox(after ? control(frame, after.key) : input);
+  return { status: 'failed', reason: `clicked "${chosen}" but the widget shows "${got.join(', ') || 'nothing'}"`, how, steps };
+}
+
+/** Attach the CV and wait (bounded) for the page to show it: the input holds
+ *  the file, or the ATS consumed it and displays the filename. */
+export async function attachFile(frame, q, cvPath, cvName) {
+  await control(frame, q.key).setInputFiles(cvPath, { timeout: ACTION_TIMEOUT_MS });
+  const end = Date.now() + 8000;
+  let after = null;
+  while (Date.now() < end) {
+    after = await reread(frame, q);
+    const s = after?.state || {};
+    if ((s.files || []).includes(cvName) || String(s.text || '').includes(cvName)) return { status: 'verified', observed: cvName };
+    await sleep(400);
+  }
+  return { status: 'unverified', reason: 'the page does not show the attached file', observed: JSON.stringify(after?.state ?? null).slice(0, 160) };
+}
+
+// In-page: count controls an applicant fills (not search boxes), and find the
+// "open the application" trigger. The trigger must not sit in a form that has
+// fillable fields — that would be a final submit, which this never clicks.
+function applyProbeInPage() {
+  const vis = (el) => {
+    const r = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none';
+  };
+  const fillable = [...document.querySelectorAll('input:not([type]), input[type=text], input[type=email], input[type=tel], input[type=file], textarea')]
+    .filter((el) => (el.type === 'file' ? true : vis(el)) && !/search|busca|pesquis/i.test(`${el.getAttribute('placeholder') || ''} ${el.getAttribute('aria-label') || ''} ${el.name || ''}`));
+  document.querySelectorAll('[data-hyb-apply]').forEach((n) => n.removeAttribute('data-hyb-apply'));
+  const APPLY_RX = /\b(apply|candidat|inscrev|inscri|postul|aplicar|bewerben)/i;
+  const trigger = [...document.querySelectorAll('button, a, [role=button], input[type=submit], input[type=button]')].find((el) => {
+    if (!vis(el)) return false;
+    const text = `${el.textContent || ''} ${el.value || ''} ${el.getAttribute('aria-label') || ''}`;
+    const href = el.getAttribute('href') || el.getAttribute('formaction') || el.form?.getAttribute('action') || '';
+    if (!APPLY_RX.test(text) && !/\/(apply|job-apply|candidat)/i.test(href)) return false;
+    if (/linkedin|indeed|facebook|twitter|mailto:/i.test(href)) return false;
+    const form = el.closest('form');
+    if (form && [...form.querySelectorAll('input:not([type=hidden]), textarea, select')].some(vis)) return false;
+    return true;
+  });
+  if (trigger) trigger.setAttribute('data-hyb-apply', '1');
+  // Only a dismiss/accept control of a cookie banner, matched on whole words:
+  // "ok" inside "cookies" once clicked recrut.ai's "learn more about cookies",
+  // which opened a second tab (2026-09-22).
+  const cookie = [...document.querySelectorAll('button, [role=button]')].find((el) => {
+    const text = `${el.textContent || ''} ${el.getAttribute('aria-label') || ''}`;
+    const inBanner = /cookie/i.test(`${el.getAttribute('aria-label') || ''} ${el.closest('[class*=cookie], [id*=cookie], [aria-label*=cookie i]') ? 'cookie' : ''}`);
+    return vis(el) && inBanner && /\b(dismiss|accept|accept all|agree|ok|got it|entendi|aceitar|aceito|fechar|close)\b/i.test(text) && !/learn more|saiba mais|more info|settings|prefer[eê]ncias|configura/i.test(text);
+  });
+  if (cookie) cookie.setAttribute('data-hyb-cookie', '1');
+  return { fillable: fillable.length, trigger: trigger ? (trigger.textContent || trigger.value || trigger.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80) : null, cookie: !!cookie };
+}
+
+/**
+ * Bring the application form on screen. A page with two or more applicant
+ * fields is already the form. Otherwise click the apply trigger (a control that
+ * opens the application, never a final submit) and wait for the fields; at most
+ * two clicks.
+ */
+export async function reachApplicationForm(page) {
+  const log = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const probe = await page.evaluate(applyProbeInPage).catch(() => ({ fillable: 0, trigger: null, cookie: false }));
+    if (probe.fillable >= 2) return { reached: true, url: page.url(), log };
+    if (attempt === 2 || !probe.trigger) return { reached: false, url: page.url(), log, reason: probe.trigger ? 'no applicant fields after the apply click' : 'no applicant fields and no apply trigger' };
+    if (probe.cookie) await page.locator('[data-hyb-cookie]').first().click({ timeout: 3000 }).catch(() => {});
+    const before = page.url();
+    await page.locator('[data-hyb-apply]').first().click({ timeout: ACTION_TIMEOUT_MS });
+    await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {});
+    for (let i = 0; i < 20; i++) {
+      await sleep(500);
+      const p = await page.evaluate(applyProbeInPage).catch(() => null);
+      if (p && p.fillable >= 2) break;
+    }
+    log.push({ clicked: probe.trigger, from: before, to: page.url() });
+  }
+  return { reached: false, url: page.url(), log };
+}
