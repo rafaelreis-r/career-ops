@@ -471,6 +471,9 @@ export function answersFromProfileFacts(profile) {
   push(['Veteran Status'], told.veteran_status);
   push(['Do you need immigration support?'], told.immigration_support_needed);
   push(['GPA', 'Undergraduate GPA'], told.undergraduate_gpa);
+  // Consents the captain gave once for every form (the required one is mapped by answersFromProfile).
+  push(['Consent to receive text messages (SMS)'], aa.consent?.sms);
+  push(['Consent to automated or AI processing of the application'], aa.consent?.automated_ai_processing);
   // "use_profile_compensation": the international anchor of compensation.target_range.
   const usd = /USD\s*([\d.]+)\s*K\s*\/\s*month/i.exec(String(profile?.compensation?.target_range ?? ''));
   if (usd && aa.salary === 'use_profile_compensation') push(['Salary Expectations', 'Expected Salary'], `USD ${Math.round(Number(usd[1]) * 1000)}/month`);
