@@ -115,8 +115,70 @@ Keep these across rebases; each exists for a reason.
   and `FAST_HOSTS` (initially only `applytojob.com`); a dispatched worker on
   `apply-llm-owned` submits once after the ready gate. Interactive `apply` still
   never submits.
-- **`agent-browser` and `jev-agent-browser` are declared in `web/package.json`.**
-  Installed with `--no-save`, the next `npm install` pruned them.
+- **Hybrid apply filler.** `web/scripts/apply-hybrid.mjs` with
+  `web/src/lib/apply/hybrid/`. Per form: a DOM scan finds the application's
+  controls, then deterministic Playwright adapters handle exact-label canonical
+  answers, each re-reading the DOM after it acts. Every field they
+  miss, misfill or cannot verify goes to the model: Jev matching (report
+  answers, then profile answers), a second codex judge, Jev's yes/no judgment
+  over the canonical facts (never for a consent question), Jev option picks,
+  and a Stagehand `act()` on that field, followed by the same DOM check. The
+  canonical answers add the profile blocks arm1 does not read (address,
+  nationality, employment, the captain's form answers, the USD anchor). After
+  both passes the page is rescanned once it settles: questions it revealed and
+  verified fields it cleared are filled again. A value that does not fit the
+  field (an e-mail in "Address", a monthly amount in an annual field, another
+  currency) is never typed. Captcha frames are never scanned. The CV is always
+  this posting's PDF (`data/pdf-index.tsv`, the report's `**PDF:**` line,
+  `--cv`), checked by file name against the company; when there is none, the
+  track's `pdf` mode generates it before any field is filled, using only a JD
+  already archived in the report or its report-numbered `jds/` capture.
+
+  The whole round runs in one visible Chrome with a fresh profile (state in
+  `~/.cache/career-ops/hybrid-round.json`). A detached keeper process
+  (`round-keeper.mjs`) launches it and holds the CDP connection that loaded
+  Stagehand's runtime extension, because Chrome disables that extension when
+  the connection closes. Each form is a tab and stays open; running a posting
+  again reuses its tab as it stands. After each form the tabs are re-ordered:
+  forms that only need the captcha first, then the rest from fewest to most
+  pending items, submitted ones last. Only a posting with no form (closed or
+  removed ad) is closed.
+
+  It submits (captain, 2026-09-23), and only through one explicit final step:
+  when the gate on the final DOM finds nothing (every required field with a
+  verified canonical value, the posting's CV in the final DOM, no consent
+  without a canonical answer, no captcha), it clicks the form's single submit
+  control and counts the application only when the employer's confirmation
+  shows; the tracker row then becomes Applied through `set-status.mjs`.
+  Anything else leaves the tab filled for the human. Until that step, a lock
+  in every frame of the tab (`submit.mjs`) cancels every submission of a form
+  holding applicant fields (submit events, `submit()`, `requestSubmit()`, a
+  button without a type, Enter) and clicks on submit-like controls; it lives
+  on a heartbeat, so it lifts by itself when the driver stops.
+
+  Never opened: a posting whose tracker row is Applied or later, a company on
+  `data/blacklist.md`, and a company whose submission limit is used up across
+  every track listed in the shared `trilhas.yml`. Limits live in
+  `data/submission-limits.tsv` of the shared directory (`$CAREER_OPS_SHARED_DIR`,
+  default `~/dev/career-ops-shared`): `company`, `max_submissions`,
+  `window_days`, tab-separated; the run reports the date the window reopens.
+  Exit 0: submitted and confirmed. 3: left for the human (pending items, listed
+  by their labels, or the captcha). 4: no form. 5: not eligible. 6: submitted
+  without a confirmation, or refused by the employer. 1: failure.
+
+  It runs beside `arm1-jev-agentbrowser.mjs`; routing in `lib/apply-route.mjs`
+  is unchanged until it proves it replaces arm1:
+
+  ```sh
+  cd ~/dev/career-ops-product/web   # the track that owns the posting
+  node scripts/apply-hybrid.mjs --url <url> --row <n> --out /tmp/hybrid.json
+  ```
+
+  A track gets Stagehand from `web/package.json`: after `update-system.mjs
+  apply`, run `npm install` once in that track's `web/`.
+- **`agent-browser`, `jev-agent-browser` and `@browserbasehq/stagehand` are
+  declared in `web/package.json`.** Installed with `--no-save`, the next
+  `npm install` pruned them.
 - **`import * as yaml from "js-yaml"`** in the Jev scripts. js-yaml 5 is ESM with
   no default export; upstream already uses the namespace form everywhere.
 - **Templates:** `templates/cv-template.ops.{html,tex}`,

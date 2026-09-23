@@ -101,7 +101,7 @@ Conçu par quelqu'un qui l'a utilisé pour évaluer plus de 740 offres d'emploi,
 | **Scanner de Portails** | Plus de 45 entreprises préconfigurées (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + requêtes personnalisées sur Ashby, Greenhouse, Lever, Wellfound |
 | **Traitement en Lot** | Évaluation parallèle avec des processus de travail `claude -p` |
 | **TUI de Tableau de Bord** | Interface terminal pour explorer, filtrer et trier votre pipeline |
-| **Humain dans la Boucle** | L'IA évalue et recommande, vous décidez et agissez. Le système ne soumet jamais de candidature — vous avez toujours le dernier mot <!-- hitl: absolute guarantee. Do not add "automatically", "by itself", "without your permission" or any other hedge when translating this row. --> |
+| **Humain dans la Boucle** | Voir le [contrat actuel de soumission des candidatures](docs/APPLY_AUTOFILL.md). |
 | **Intégrité du Pipeline** | Fusion automatisée, déduplication, normalisation des statuts et vérifications de santé |
 
 ## Démarrage rapide

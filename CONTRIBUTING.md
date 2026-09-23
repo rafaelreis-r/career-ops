@@ -144,7 +144,7 @@ To propose a source (yours or anyone's): [open a source proposal](https://github
 ## What we do NOT accept
 
 - **PRs that scrape platforms prohibiting automated access** (LinkedIn, etc.). We actively reject these to respect third-party ToS.
-- **PRs that enable auto-submitting applications** without human review. career-ops is a decision-support tool, not a spam bot.
+- **PRs that enable auto-submitting applications** without human review. The narrow exception is `web/scripts/apply-hybrid.mjs`, which submits only after its pre-submit gate clears, by user instruction of 2026-09-23; career-ops otherwise remains a decision-support tool, not a spam bot.
 - **PRs that add external API dependencies** without prior discussion in an issue.
 - **Feature PRs against bundled plugins** (`plugins/apify`, `plugins/gmail`, `plugins/notion`). Bundled plugins are stable *reference seeds* — to extend one, publish your own `career-ops-plugin-<id>` and we'll register it as the maintained successor that takes precedence once installed (see [docs/PLUGINS.md](docs/PLUGINS.md)). Bundled plugins only take security/compat fixes.
 - **PRs that add centralized or hosted infrastructure to the core** (proxies, aggregation services, shared Workers). That's the separate opt-in service, not the open-core — bring it to the [direction discussion](https://github.com/career-ops-hq/career-ops/discussions/904) first.

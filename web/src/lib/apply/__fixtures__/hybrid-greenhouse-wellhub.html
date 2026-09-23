@@ -1,0 +1,70 @@
+<!doctype html>
+<!--
+  Fixture for web/tests/lib/apply-hybrid.test.mjs. Source: https://job-boards.greenhouse.io/gympass/jobs/8638136002
+  Markup captured from the live page on 2026-09-22 with chrome-devtools-axi
+  (inline scripts, style attributes and svg paths stripped; labels, ids,
+  classes and structure unchanged).
+  The <script> at the end is a test double of the site's widget behavior;
+  it is not captured code.
+-->
+<html lang="en">
+<head><meta charset="utf-8"><title>Wellhub - Greenhouse</title>
+<style>.none{display:none}.visually-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}</style>
+</head>
+<body>
+<form id="application-form">
+<div class="text-input-wrapper"><div class="input-wrapper"><label id="first_name-label" for="first_name" class="label label">First Name<span aria-hidden="true">*</span></label><input id="first_name" class="input input__single-line" aria-label="First Name" aria-describedby="first_name-description first_name-error first_name-help" aria-invalid="false" aria-errormessage="first_name-error" aria-required="true" type="text" maxlength="255" autocomplete="given-name" value=""></div></div>
+<div class="select__container"><label id="question_37369062002-label" for="question_37369062002" class="label select__label">Please select your Country Phone Code<span aria-hidden="true">*</span></label><div class="select-shell remix-css-b62m3t-container"><span id="react-select-question_37369062002-live-region" class="remix-css-7pg0cj-a11yText"></span><span aria-live="polite" aria-atomic="false" aria-relevant="additions text" role="log" class="remix-css-7pg0cj-a11yText"></span><div><div class="select__control remix-css-13cymwt-control"><div class="select__value-container remix-css-hlgwow"><div class="select__placeholder remix-css-1jqq78o-placeholder" id="react-select-question_37369062002-placeholder">Select...</div><div class="select__input-container remix-css-19bb58m" data-value=""><input class="select__input" autocapitalize="none" autocomplete="off" autocorrect="off" id="question_37369062002" spellcheck="false" tabindex="0" type="text" aria-autocomplete="list" aria-expanded="false" aria-haspopup="true" aria-errormessage="question_37369062002-error" aria-invalid="false" aria-labelledby="question_37369062002-label" aria-required="true" role="combobox" aria-activedescendant="" aria-describedby="react-select-question_37369062002-placeholder question_37369062002-error" enterkeyhint="done" value=""></div></div><div class="select__indicators remix-css-1wy0on6"><button type="button" class="icon-button icon-button--sm" aria-label="Toggle flyout" tabindex="-1"><svg aria-hidden="true"></svg></button></div></div></div><input required="" tabindex="-1" aria-hidden="true" class="remix-css-1a0ro4n-requiredInput" value=""></div></div>
+<div role="group" aria-labelledby="upload-label-resume" aria-required="true" class="file-upload" data-allow-s3="false"><div id="upload-label-resume" class="label upload-label">Resume/CV<span class="required">*</span></div><div class="file-upload__wrapper"><div class="button-container"><div class="secondary-button"><div><button type="button" class="btn btn--pill">Attach</button><label class="visually-hidden" for="resume">Attach</label><input id="resume" class="visually-hidden" type="file" accept=".pdf,.doc,.docx,.txt,.rtf"></div></div><div class="secondary-button"><button type="button" class="btn btn--pill" data-testid="resume-dropbox">Dropbox</button></div><div class="secondary-button"><button type="button" class="btn btn--pill">Google Drive</button></div><div class="secondary-button"><div><button type="button" class="btn btn--pill" data-testid="resume-text">Enter manually</button><label class="visually-hidden" for="resume_text">Enter manually</label></div></div><p id="accepted-filetypes" class="file-upload__filetypes">Accepted file types: pdf, doc, docx, txt, rtf</p></div></div></div>
+<div class="text-input-wrapper"><div class="input-wrapper"><label id="question_37369068002-label" for="question_37369068002" class="label label">(FOR COMMISSIONED ROLES ONLY) What is your average monthly variable compensation or commission? (In reais).<span aria-hidden="true">*</span></label><input id="question_37369068002" class="input input__single-line" aria-label="(FOR COMMISSIONED ROLES ONLY) What is your average monthly variable compensation or commission? (In reais)." aria-describedby="question_37369068002-description question_37369068002-error question_37369068002-help" aria-invalid="false" aria-errormessage="question_37369068002-error" aria-required="true" type="text" maxlength="255" value=""></div></div>
+<div class="text-input-wrapper"><div class="input-wrapper"><label id="question_37369069002-label" for="question_37369069002" class="label label">What is your expected base salary for this role? (in reais)<span aria-hidden="true">*</span></label><input id="question_37369069002" class="input input__single-line" aria-label="What is your expected base salary for this role? (in reais)" aria-describedby="question_37369069002-description question_37369069002-error question_37369069002-help" aria-invalid="false" aria-errormessage="question_37369069002-error" aria-required="true" type="text" maxlength="255" value=""></div></div>
+</form>
+<script>
+// Minimal react-select behavior for the captured Greenhouse combobox: typing
+// opens a menu of the real option texts filtered by the search text; clicking
+// an option renders .select__single-value and clears the search text. With
+// window.__INERT set, option clicks are ignored (a widget that never registers
+// the selection, as seen on 2026-09-22).
+const OPTIONS = ["BRA (+55)","USA (+1)","ARG (+54)","MEX (+52)","CHL (+56)","ESP (+34)","PRT (+351)","DEU (+49)","NLD (+31)","ITA (+39)","GBR (+44)","FRA (+33)"];
+const input = document.getElementById('question_37369062002');
+const control = input.closest('.select__control');
+const valueBox = control.querySelector('.select__value-container');
+const shell = control.closest('.select-shell');
+function closeMenu() { shell.querySelector('.select__menu')?.remove(); input.setAttribute('aria-expanded', 'false'); }
+function openMenu() {
+  closeMenu();
+  const q = input.value.toLowerCase();
+  const menu = document.createElement('div');
+  menu.className = 'select__menu';
+  const list = document.createElement('div');
+  list.className = 'select__menu-list';
+  list.setAttribute('role', 'listbox');
+  for (const text of OPTIONS.filter((o) => o.toLowerCase().includes(q))) {
+    const opt = document.createElement('div');
+    opt.className = 'select__option';
+    opt.setAttribute('role', 'option');
+    opt.textContent = text;
+    opt.addEventListener('click', () => {
+      window.__clicks = (window.__clicks || 0) + 1;
+      if (window.__INERT) return;
+      valueBox.querySelector('.select__placeholder')?.remove();
+      valueBox.querySelector('.select__single-value')?.remove();
+      const single = document.createElement('div');
+      single.className = 'select__single-value';
+      single.textContent = text;
+      valueBox.prepend(single);
+      shell.parentElement.querySelector('input[aria-hidden=true][required]')?.remove();
+      input.value = '';
+      closeMenu();
+    });
+    list.appendChild(opt);
+  }
+  menu.appendChild(list);
+  control.after(menu);
+  input.setAttribute('aria-expanded', 'true');
+}
+input.addEventListener('input', openMenu);
+input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { input.value = ''; closeMenu(); } });
+</script>
+</body>
+</html>

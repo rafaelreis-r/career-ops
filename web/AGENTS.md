@@ -18,7 +18,8 @@ before changing anything under `web/`.
    that bypasses it.
 
 3. **Nothing is ever submitted automatically.** The apply flow fills in and previews;
-   a human presses send. There is no exception, no flag, and no "just for testing".
+   a human presses send. Exception: `web/scripts/apply-hybrid.mjs` submits only after
+   its pre-submit gate clears, by user instruction of 2026-09-23.
 
 ## A missing file is not a malformed file
 

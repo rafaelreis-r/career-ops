@@ -11,9 +11,10 @@
     "test": "node --test \"tests/**/*.test.mjs\""
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.18.0"
   },
   "dependencies": {
+    "@browserbasehq/stagehand": "^4.1.0",
     "@paper-design/shaders-react": "^0.0.80",
     "agent-browser": "^0.38.1",
     "class-variance-authority": "^0.7.1",

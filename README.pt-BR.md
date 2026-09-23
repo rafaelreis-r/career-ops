@@ -95,7 +95,7 @@ Construído por alguém que usou isso para avaliar 740+ vagas, gerar 100+ CVs pe
 | **Scanner de portais**               | 45+ empresas pré-configuradas (Anthropic, OpenAI, ElevenLabs, Retool, n8n...) + consultas customizadas em Ashby, Greenhouse, Lever e Wellfound |
 | **Processamento em lote**            | Avaliação paralela com workers `claude -p`                                                                                                     |
 | **Dashboard TUI**                    | Interface no terminal para navegar, filtrar e ordenar seu pipeline                                                                             |
-| **Humano no loop**                   | A IA avalia e recomenda, você decide e age. O sistema nunca envia candidatura -- a decisão final é sempre sua <!-- hitl: absolute guarantee. Do not add "automatically", "by itself", "without your permission" or any other hedge when translating this row. -->                  |
+| **Humano no loop**                   | Consulte o [contrato atual de envio de candidaturas](docs/APPLY_AUTOFILL.md). |
 | **Integridade do pipeline**          | Merge automatizado, deduplicação, normalização de status e health checks                                                                       |
 
 ## Início rápido
@@ -269,7 +269,7 @@ O career-ops roda em qualquer uma das principais CLIs de programação com IA �
 O career-ops roda no Windows. Se o carregamento de habilidades falhar com um erro de symlink durante a instalação, a correção está em [docs/FAQ.md](docs/FAQ.md). O passo a passo completo está em [docs/SETUP.md](docs/SETUP.md).
 
 **O career-ops se candidata automaticamente às vagas por mim?**
-Não. O career-ops é um filtro, não um disparador automático de candidaturas em massa. A IA avalia, ranqueia e cria rascunhos; você revisa e decide. Ele nunca envia, encaminha ou clica em nada — a palavra final é sempre sua. Esse design com o humano no controle (human-in-the-loop) é o objetivo central do projeto.
+Não como fluxo em massa ou em segundo plano. O modo interativo `apply` deixa o envio com você; o driver híbrido, executado separadamente, pode enviar uma única candidatura elegível somente depois de passar pelo gate final. Consulte as [regras completas de envio](docs/APPLY_AUTOFILL.md).
 
 **O career-ops é gratuito e de código aberto?**
 Sim. O career-ops é gratuito e de código aberto, e sempre será para o candidato — é a primeira implementação de referência do [CareerOps Manifesto](https://career-ops.org). Leia e, se ele disser o que você acredita, assine.

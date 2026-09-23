@@ -115,7 +115,7 @@ career-ops 是 [CareerOps Manifesto](https://career-ops.org/manifesto?utm_source
 | **平台掃描器**   | 預設超過 45 家企業（Anthropic、OpenAI、ElevenLabs、Retool、n8n...）+ 跨 Ashby、Greenhouse、Lever、Wellfound 的自訂查詢 |
 | **批次處理**     | 使用 `claude -p` 工作器並行評估                                                                                        |
 | **儀表板 TUI**   | 在終端機 UI 中瀏覽、篩選及排序你的求職管道                                                                             |
-| **人機協作**     | AI 負責評估與建議，你負責決策與行動。系統絕不送出應徵 — 最終決定永遠在你手上 <!-- hitl: absolute guarantee. Do not add "automatically", "by itself", "without your permission" or any other hedge when translating this row. -->                                       |
+| **人機協作**     | 請參閱[目前的應徵提交規則](docs/APPLY_AUTOFILL.md)。 |
 | **管道完整性**   | 自動合併、去重、狀態正規化、健康檢查                                                                                   |
 
 ## 快速開始
