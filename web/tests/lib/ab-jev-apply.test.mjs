@@ -149,6 +149,48 @@ function makeFixtureJevStub() {
   };
 }
 
+test("report answers fill motivation text but not factual text or selections", async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "co-ab-jev-report-"));
+  t.after(() => { fs.rmSync(root, { recursive: true, force: true }); });
+  const reports = path.join(root, "reports");
+  fs.mkdirSync(reports);
+  const report = path.join(reports, "042-example-2026-09-23.md");
+  fs.writeFileSync(report, "# Example\n\n## Application Answers\n\n**Date:** 2026-09-23\n**State:** filled\n\n### Free-text answers\n\n1. **Why this role?**\n\n> Yes\n\n### Selections made\n\n- None captured.\n");
+  const { answers } = loadCanonicalData(root, { reportPath: report });
+  assert.deepEqual(answers, [{ label: "Why this role?", value: "Yes", source: "report" }]);
+
+  let browser;
+  try {
+    browser = await chromium.launch({ channel: "chrome", headless: true, timeout: 5000 });
+  } catch (err) {
+    t.skip(`chrome not available (${err.message})`);
+    return;
+  }
+  t.after(async () => { await browser.close(); });
+  const page = await browser.newPage();
+  await page.setContent('<label for="years">Years of experience</label><input id="years"><label for="eligible">Eligibility</label><select id="eligible"><option value="">Choose</option><option>Yes</option><option>No</option></select><label for="why">Why this role?</label><textarea id="why"></textarea>');
+
+  const drive = async (operation, label) => driveLoop(page, "full", async () => true, 1, answers, {
+    request: async (state, questions) => {
+      if (questions.match) return null;
+      const target = operation === "SELECT" ? questions.select_target : questions.type_target;
+      const ref = Object.entries(target.criteria).find(([, description]) => description.includes(`"${label}"`))?.[0];
+      assert.ok(ref, `${label} is offered as a destination`);
+      return { operation: { choice: operation }, [operation === "SELECT" ? "select_target" : "type_target"]: { choice: ref } };
+    },
+  });
+
+  const selection = await drive("SELECT", "Eligibility");
+  assert.equal(selection.skippedNoData[0].label, "Eligibility");
+  assert.equal(await page.locator("#eligible").inputValue(), "");
+  const factualText = await drive("TYPE_TEXT", "Years of experience");
+  assert.equal(factualText.skippedNoData[0].label, "Years of experience");
+  assert.equal(await page.locator("#years").inputValue(), "");
+  const motivation = await drive("TYPE_TEXT", "Why this role?");
+  assert.equal(motivation.skippedNoData.length, 0);
+  assert.equal(await page.locator("#why").inputValue(), "Yes");
+});
+
 test("CV attaches, the optional no-data field is skipped without looping, verification passes, and the submit phase reaches SUBMIT — fixture only, never a live site", async (t) => {
   const root = makeTempRoot();
   t.after(() => { fs.rmSync(root, { recursive: true, force: true }); });
