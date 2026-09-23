@@ -57,7 +57,7 @@ import { chromium } from "playwright-core";
 import * as yaml from "js-yaml";
 import { isMainModule } from "../../lib/is-main-module.mjs";
 import { parseApplicationAnswersSection } from "../../application-answers.mjs";
-import { isReportMotivationLabel } from "../src/lib/apply/hybrid/answers.mjs";
+import { isReportMotivationLabel, reportAnswerAllowedFor } from "../src/lib/apply/hybrid/answers.mjs";
 import {
   isJevDriveEnabled,
   classifyElement,
@@ -261,7 +261,7 @@ export function loadCanonicalData(root, { row, reportPath } = {}) {
     const text = fs.readFileSync(resolvedReportPath, "utf8");
     const snap = parseApplicationAnswersSection(text);
     if (snap) {
-      for (const e of snap.freeText) if (e.answer?.trim() && isReportMotivationLabel(e.question)) reportAnswers.push({ label: e.question, value: e.answer.trim() });
+      for (const e of snap.freeText) if (e.answer?.trim() && isReportMotivationLabel(e.question)) reportAnswers.push({ label: e.question, value: e.answer.trim(), source: 'report' });
       sources.report = resolvedReportPath;
     }
   }
@@ -456,6 +456,15 @@ export async function snapshotRefs(frame) {
   });
 }
 
+function answersForRef(ref, answers) {
+  const question = {
+    label: ref?.label,
+    kind: ref?.kind === "select" ? "select" : ref?.itype === "textarea" ? "textarea" : ref?.kind === "type" ? "text" : null,
+    inputType: ref?.itype,
+  };
+  return answers.filter((answer) => reportAnswerAllowedFor(question, answer));
+}
+
 // ── the drive loop (mirrors driveSessionJev turn-for-turn; see file header) ───
 
 /**
@@ -558,7 +567,7 @@ export async function driveLoop(page, goal, isFormReady, budget, answers, option
           await Promise.all([page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {}), loc.click({ timeout: 6000 })]);
         }
       } else if (decision.operation === "TYPE_TEXT" && loc) {
-        const value = await resolveTypeTextValue(ref?.label || "", answers, request);
+        const value = await resolveTypeTextValue(ref?.label || "", answersForRef(ref, answers), request);
         if (value == null) {
           const label = ref?.label || decision.ref;
           recordNoData(label, ref?.required);
@@ -572,7 +581,7 @@ export async function driveLoop(page, goal, isFormReady, budget, answers, option
           filledAnswers[decision.ref] = value;
         }
       } else if (decision.operation === "SELECT" && loc) {
-        const value = await resolveTypeTextValue(ref?.label || "", answers, request);
+        const value = await resolveTypeTextValue(ref?.label || "", answersForRef(ref, answers), request);
         if (value == null) {
           const label = ref?.label || decision.ref;
           recordNoData(label, ref?.required);
