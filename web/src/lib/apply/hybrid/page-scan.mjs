@@ -261,7 +261,7 @@ export function scanQuestionsInPage() {
       questions.push({ ...q, kind: 'combobox', reactSelect, options: null, state: { selected, typed } });
     } else {
       const value = norm(el.isContentEditable ? el.textContent : el.value);
-      questions.push({ ...q, kind: tag === 'textarea' || el.isContentEditable ? 'textarea' : 'text', inputType: el.getAttribute('type') || tag, state: { value } });
+      questions.push({ ...q, kind: tag === 'textarea' || el.isContentEditable ? 'textarea' : 'text', inputType: el.type || tag, state: { value } });
     }
   }
 
