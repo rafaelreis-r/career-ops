@@ -62,6 +62,7 @@ function lockInPage(ttl) {
       return nativeRequestSubmit.apply(this, args);
     };
     const FINAL_RX = /^(submit|send|apply|enviar|finalizar|concluir|candidatar|postular|aplicar|bewerben|confirmar)\b|submit application|send application|enviar candidatura|finalizar candidatura/i;
+    const UPLOAD_RX = /\b(attach|upload|anexar|carregar|choose file|browse)\b|^(send|enviar)\b.*\b(resume|résumé|cv|curr[ií]culo|file|arquivo|documento)\b/i;
     w.addEventListener(
       'click',
       (e) => {
@@ -69,6 +70,7 @@ function lockInPage(ttl) {
         const c = e.target && e.target.closest ? e.target.closest('button, input[type=submit], input[type=image], [role=button], a') : null;
         if (!c) return;
         const text = `${c.textContent || ''} ${c.value || ''} ${c.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
+        if (UPLOAD_RX.test(text)) return;
         const formSubmit = (c.type === 'submit' || c.type === 'image') && c.form && applicantControls(c.form).length > 0;
         if (!formSubmit && !(FINAL_RX.test(text) && hasApplicantData(document))) return;
         e.preventDefault();
@@ -131,12 +133,13 @@ function submitControlsInPage() {
   };
   const applicantControls = (root) => root.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]), textarea, select').length;
   const FINAL_RX = /^(submit|send|apply|enviar|finalizar|concluir|candidatar|postular|aplicar|bewerben|confirmar)\b|submit application|send application|enviar candidatura|finalizar candidatura/i;
+  const UPLOAD_RX = /\b(attach|upload|anexar|carregar|choose file|browse)\b|^(send|enviar)\b.*\b(resume|résumé|cv|curr[ií]culo|file|arquivo|documento)\b/i;
   document.querySelectorAll('[data-hyb-submit]').forEach((n) => n.removeAttribute('data-hyb-submit'));
   const found = [];
   for (const c of document.querySelectorAll('button, input[type=submit], input[type=image], [role=button]')) {
     if (!vis(c) || c.disabled) continue;
     const text = `${c.textContent || ''} ${c.value || ''} ${c.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
-    if (/^(attach|upload|anexar|carregar|remove|remover|cancel|cancelar|back|voltar|save|salvar)\b/i.test(text)) continue;
+    if (UPLOAD_RX.test(text) || /^(remove|remover|cancel|cancelar|back|voltar|save|salvar)\b/i.test(text)) continue;
     const formSubmit = (c.type === 'submit' || c.type === 'image') && c.form && applicantControls(c.form) > 0;
     const finalText = FINAL_RX.test(text);
     if (!formSubmit && !finalText) continue;
@@ -183,7 +186,7 @@ function newMatch(rx, before, after) {
  *
  * @returns {Promise<{status: 'confirmed'|'refused'|'unconfirmed'|'no-control', control?: string, evidence?: string, url?: string, reason?: string}>}
  */
-export async function submitApplication(page, { timeoutMs = 30_000 } = {}) {
+export async function submitApplication(page, { timeoutMs = 30_000, beforeClick = null } = {}) {
   let target = null;
   for (const frame of page.frames()) {
     const found = await frame.evaluate(submitControlsInPage).catch(() => []);
@@ -196,9 +199,17 @@ export async function submitApplication(page, { timeoutMs = 30_000 } = {}) {
   if (!target) return { status: 'no-control', reason: 'no submit control on the form' };
   const before = page.url();
   const beforeText = await pageText(page);
+  if (beforeClick) {
+    const permission = await beforeClick(target.control);
+    if (permission?.ok === false) return { status: 'unconfirmed', control: target.control.text, url: page.url(), reason: permission.reason };
+  }
   await eachFrame(page, setArmedInPage, true);
   try {
-    await target.frame.locator(`[data-hyb-submit="${target.control.index}"]`).first().click({ timeout: 10_000 });
+    try {
+      await target.frame.locator(`[data-hyb-submit="${target.control.index}"]`).first().click({ timeout: 10_000 });
+    } catch (e) {
+      return { status: 'unconfirmed', control: target.control.text, url: page.url(), reason: `submit click failed: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}` };
+    }
     for (const end = Date.now() + timeoutMs; Date.now() < end; ) {
       await new Promise((r) => setTimeout(r, 1000));
       const text = await pageText(page);

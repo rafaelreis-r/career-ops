@@ -150,7 +150,6 @@ async function startRound() {
   const profiles = path.join(stateDir(), 'hybrid-round-profiles');
   pruneRoundProfiles(profiles);
   const userDataDir = path.join(profiles, new Date().toISOString().replace(/[:.]/g, '-'));
-  fs.rmSync(stateFile(), { force: true });
   const keeper = spawn(process.execPath, [fileURLToPath(new URL('./round-keeper.mjs', import.meta.url)), stateFile(), String(port), userDataDir], {
     detached: true,
     stdio: 'ignore',
@@ -164,6 +163,42 @@ async function startRound() {
     if (Date.now() > end) throw new Error('the round browser did not start within 120 s');
     await sleep(300);
   }
+}
+
+const sameSubmission = (attempt, postingUrl, reportNumber) =>
+  (postingUrl && attempt.postingUrl === postingUrl) || (reportNumber != null && attempt.reportNumber != null && Number(attempt.reportNumber) === Number(reportNumber));
+
+export function submissionAttemptFor(postingUrl, reportNumber = null) {
+  return (readState()?.submissionAttempts || []).find((attempt) => sameSubmission(attempt, postingUrl, reportNumber)) || null;
+}
+
+export async function claimSubmissionAttempt(postingUrl, reportNumber = null) {
+  return withLock(async () => {
+    const st = readState() || { tabs: {} };
+    st.submissionAttempts ||= [];
+    const existing = st.submissionAttempts.find((attempt) => sameSubmission(attempt, postingUrl, reportNumber));
+    if (existing) return { claimed: false, attempt: existing };
+    const attempt = { postingUrl, reportNumber: reportNumber == null ? null : Number(reportNumber), status: 'claimed', attemptedAt: new Date().toISOString() };
+    st.submissionAttempts.push(attempt);
+    writeState(st);
+    return { claimed: true, attempt };
+  });
+}
+
+export async function recordSubmissionResult(postingUrl, reportNumber, result) {
+  return withLock(async () => {
+    const st = readState() || { tabs: {} };
+    st.submissionAttempts ||= [];
+    const attempt = st.submissionAttempts.find((entry) => sameSubmission(entry, postingUrl, reportNumber));
+    if (!attempt) return false;
+    attempt.status = result.status;
+    attempt.control = result.control ?? null;
+    attempt.evidence = result.evidence ?? null;
+    attempt.reason = result.reason ?? null;
+    attempt.updatedAt = new Date().toISOString();
+    writeState(st);
+    return true;
+  });
 }
 
 /**

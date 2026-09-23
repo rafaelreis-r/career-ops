@@ -110,7 +110,7 @@ export function valueFitsField(question, value) {
   if (EMAIL_VALUE_RX.test(v) && !wantsEmail) return { reason: 'an e-mail address in a field that does not ask for one' };
   if (wantsEmail && !EMAIL_VALUE_RX.test(v)) return { reason: 'the field asks for an e-mail address' };
   if (URL_VALUE_RX.test(v) && !wantsUrl) return { reason: 'a URL in a field that does not ask for one' };
-  if ((v.match(/\d/g) || []).length >= 10 && /^\+?[\d\s().-]+$/.test(v) && !wantsPhone) return { reason: 'a phone number in a field that does not ask for one' };
+  if (v.startsWith('+') && (v.match(/\d/g) || []).length >= 10 && /^\+[\d\s().-]+$/.test(v) && !wantsPhone) return { reason: 'a phone number in a field that does not ask for one' };
   const fieldPeriod = periodOf(question.label);
   const valuePeriod = periodOf(v);
   if (fieldPeriod && valuePeriod && fieldPeriod !== valuePeriod) return { reason: `a ${valuePeriod} amount in a field that asks for ${fieldPeriod}` };

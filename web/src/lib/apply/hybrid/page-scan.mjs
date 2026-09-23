@@ -300,7 +300,7 @@ const CAPTCHA_FRAME_RX = /recaptcha|hcaptcha|turnstile|challenges\.cloudflare|ar
  *  on 2026-09-22) or its own document title. Each question carries `frame` (an
  *  index into `frameObjs`) so the adapters act in the frame it lives in. */
 export async function scanPage(page) {
-  const out = { url: page.url(), questions: [], captcha: { present: false, visibleWidgets: [] }, frameObjs: [] };
+  const out = { url: page.url(), questions: [], captcha: { present: false, visibleWidgets: [] }, frameObjs: [], frameErrors: [] };
   for (const f of page.frames()) {
     let tag = f.url();
     if (f !== page.mainFrame()) {
@@ -315,8 +315,9 @@ export async function scanPage(page) {
     let res;
     try {
       res = await f.evaluate(scanQuestionsInPage);
-    } catch {
-      continue; // detached, or mid-navigation
+    } catch (e) {
+      out.frameErrors.push({ url: f.url(), reason: e instanceof Error ? e.message.split('\n')[0] : String(e) });
+      continue;
     }
     const idx = out.frameObjs.push(f) - 1;
     if (res.captcha.present) out.captcha.present = true;

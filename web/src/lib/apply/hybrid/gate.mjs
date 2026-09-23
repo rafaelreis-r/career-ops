@@ -49,6 +49,7 @@ export function cvInFinalDom(finalScan, cvName) {
  */
 export function evaluateGate(finalScan, outcomes, { cvName = '', cvReason = null } = {}) {
   const blockers = [];
+  for (const frame of finalScan.frameErrors || []) blockers.push({ kind: 'frame-scan', key: null, label: frame.url || 'embedded application frame', reason: `frame could not be scanned: ${frame.reason}` });
   for (const q of finalScan.questions) {
     if (!q.visible) continue;
     const o = outcomes.get(q.key);

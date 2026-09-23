@@ -13,10 +13,9 @@
 //   2. Round: the form opens as a tab of the round's single browser, and a
 //      submit lock goes on in every frame before the posting loads.
 //   3. Reach the form (click the apply trigger when the page has no fields).
-//      A posting with no PDF of its own gets one now, from the track's pdf
-//      mode and the posting text read before the click.
-//   4. Stagehand observe() once: which controls belong to the application.
-//   5. DOM scan: label, required flag and state of every question.
+//      A posting with no PDF of its own gets one now from the track's pdf mode,
+//      but only when its report already has an archived job description.
+//   4. DOM scan: label, required flag and state of every question.
 //   6. Deterministic pass: exact-label canonical answers through adapters that
 //      act and re-read the DOM. Progress is what the page shows, not a model's
 //      opinion. The CV goes to the input identified as the résumé.
@@ -79,8 +78,8 @@ import {
   selectNative,
   verifyQuestion,
 } from '../src/lib/apply/hybrid/adapters.mjs';
-import { createCodexGenerate, createFormAgent, mapActionsToQuestions } from '../src/lib/apply/hybrid/stagehand.mjs';
-import { openFormTab, rememberFormTab, resetStagehandRuntime, settleFormTab } from '../src/lib/apply/hybrid/round.mjs';
+import { createCodexGenerate, createFormAgent } from '../src/lib/apply/hybrid/stagehand.mjs';
+import { claimSubmissionAttempt, openFormTab, recordSubmissionResult, rememberFormTab, resetStagehandRuntime, settleFormTab, submissionAttemptFor } from '../src/lib/apply/hybrid/round.mjs';
 import { generatePostingCv, parseReportName, resolvePostingCv } from '../src/lib/apply/hybrid/cv.mjs';
 import { postingEligibility } from '../src/lib/apply/hybrid/tracker-row.mjs';
 
@@ -207,21 +206,26 @@ async function main() {
   const profile = loaded.sources.profileYml ? yaml.load(fs.readFileSync(loaded.sources.profileYml, 'utf8')) : null;
   const answers = buildAnswers(loaded.reportAnswers, [...loaded.profileAnswers, ...answersFromProfileFacts(profile)]);
   const reportPath = findReport(root, args);
+  const reportNumber = parseReportName(reportPath).number ?? args.row;
   const companySlug = parseReportName(reportPath).slug || deriveCompanySlug({ url: args.url });
   console.log(`[hybrid] canonical sources: ${JSON.stringify(loaded.sources)}; report: ${reportPath || 'none'}`);
   console.log(`[hybrid] ${answers.length} canonical answer(s)`);
 
   // 0. Never a posting already sent, a blacklisted company, or a company whose
   // submission limit is used up across the tracks: no tab is opened for it.
-  const eligibility = postingEligibility({ root, reportNumber: parseReportName(reportPath).number ?? args.row, company: companySlug });
+  const priorSubmission = submissionAttemptFor(args.url, reportNumber);
+  if (priorSubmission) {
+    console.log(`[hybrid] not opened: submit was already attempted at ${priorSubmission.attemptedAt} (${priorSubmission.status}); check the employer and tracker before any retry`);
+    process.exit(5);
+  }
+  const eligibility = postingEligibility({ root, reportNumber, company: companySlug });
   if (!eligibility.eligible) {
     for (const reason of eligibility.reasons) console.log(`[hybrid] not opened: ${reason}`);
     process.exit(5);
   }
 
   const calls = { observe: 0, act: 0, judge: 0, jev: 0, stagehandSeconds: 0, cvGeneration: 0 };
-  let stagehandPurpose = 'observe';
-  const stagehandGenerate = createCodexGenerate({ onCall: ({ ms }) => { calls[stagehandPurpose]++; calls.stagehandSeconds += ms / 1000; } });
+  const stagehandGenerate = createCodexGenerate({ onCall: ({ ms }) => { calls.act++; calls.stagehandSeconds += ms / 1000; } });
   const judgeGenerate = createCodexGenerate({ onCall: () => { calls.judge++; } });
   const ask = (a) => { calls.jev++; return jevAsk(a); };
   const choice = (a) => { calls.jev++; return jevChoice(a); };
@@ -241,8 +245,8 @@ async function main() {
 
   const metrics = { driver: 'hybrid (deterministic first, model for gaps)', url: args.url, row: args.row ?? null, report: reportPath, startedAt: new Date(t0).toISOString(), canonicalSources: loaded.sources, phases };
 
-  // 0. The posting's CV, before anything is filled (generated below, from the
-  // live posting, when the posting has none of its own).
+  // 0. The posting's CV, before anything is filled (generated below from an
+  // archived JD when the posting has none of its own).
   let cv = resolvePostingCv({ root, reportPath, companySlug, explicitCv: args.cv });
   metrics.cv = { resolved: cv.path, source: cv.source, rejected: cv.rejected };
   let cvName = cv.path ? path.basename(cv.path) : '';
@@ -289,7 +293,6 @@ async function main() {
     // its head (title, location) is what "the country where this position is
     // based" refers to.
     const pageText = await page.evaluate(() => `${document.title}\n${document.body?.innerText || ''}`).catch(() => '');
-    const jobText = cv.path ? '' : pageText;
     const postingHeader = pageText.slice(0, 800);
     const reach = await phase('reachForm', () => reachApplicationForm(page));
     await rememberFormTab(round, args.url);
@@ -305,7 +308,7 @@ async function main() {
     if (!cv.path) {
       console.log(`[hybrid] no CV of this posting (${cv.rejected.map((r) => `${path.basename(r.path)}: ${r.reason}`).join('; ') || 'none linked'}); generating it with the pdf mode`);
       calls.cvGeneration++;
-      const gen = await phase('cvGeneration', () => generatePostingCv({ root, codeRoot: CODE_ROOT, reportPath, companySlug, jobUrl: args.url, jobText }));
+      const gen = await phase('cvGeneration', () => generatePostingCv({ root, codeRoot: CODE_ROOT, reportPath, companySlug }));
       metrics.cv.generation = gen;
       if (gen.path) {
         cv = { ...cv, path: gen.path, source: 'generated' };
@@ -335,15 +338,7 @@ async function main() {
         }
       }
     }
-    const obs = agent ? await phase('observe', () => agent.observe({ timeoutMs: 150_000 })) : { ok: false, ms: 0, actions: [], error: metrics.agentError };
-    let observed = new Set();
-    if (obs.ok) {
-      const mapped = await phase('mapObserved', () => mapActionsToQuestions(page, obs.actions));
-      observed = mapped.keys;
-      metrics.discovery = { method: 'stagehand-observe', ms: obs.ms, actions: obs.actions.length, questionsObserved: observed.size, unmapped: mapped.unmapped, cache: obs.cache, questionsScanned: scan.questions.length };
-    } else {
-      metrics.discovery = { method: 'dom-scan (observe failed)', ms: obs.ms, error: obs.error, questionsScanned: scan.questions.length };
-    }
+    metrics.discovery = { method: 'dom-scan', questionsScanned: scan.questions.length };
     const targets = scan.questions.filter((q) => q.kind !== 'file' && q.visible);
     console.log(`[hybrid] discovery: ${metrics.discovery.method}, ${targets.length} of ${scan.questions.length} scanned question(s) targeted`);
 
@@ -443,7 +438,6 @@ async function main() {
           const instruction = choiceKind
             ? `In the question labeled "${q.label}", select the option that means "${d.answer.value}". Change nothing else and do not click any submit or apply button.`
             : `Enter "${d.answer.value}" in the field labeled "${q.label}". If the field states a format (for example digits only with area code), enter the same value in that format without adding or removing information. Change nothing else and do not click any submit or apply button.`;
-          stagehandPurpose = 'act';
           const act = await agent.act(instruction);
           const v = await run(q, () => verifyQuestion(frameOf(q), q, d.answer.value, { equivalent, fits: valueFitsField }));
           r = { ...v, how: 'stagehand-act', act: act.ok ? 'ok' : act.error || act.message, prior: r.reason ?? r.status };
@@ -474,7 +468,6 @@ async function main() {
         if (t) {
           let r = await run(t, (live) => attachFile(frameOf(t), live, cv.path, cvName));
           if (r.status !== 'verified' && agent) {
-            stagehandPurpose = 'act';
             const chooser = page.waitForEvent('filechooser', { timeout: 120_000 }).catch(() => null);
             await agent.act(`Click the button or link that uploads the resume/CV file for "${t.label || 'Resume'}". Do not click any submit or apply button.`);
             const fc = await Promise.race([chooser, new Promise((res) => setTimeout(() => res(null), 5000))]);
@@ -531,11 +524,24 @@ async function main() {
       if (formBlock) standing = { ...standing, status: 'incomplete', pending: [formBlock, ...standing.pending] };
       else if (failed) standing = { ...standing, status: 'incomplete', pending: [...standing.pending, `run error: ${stoppedAt}`] };
       else if (gate.ready) {
-        submission = await phase('submit', () => submitApplication(round.page));
+        let claimed = null;
+        submission = await phase('submit', () =>
+          submitApplication(round.page, {
+            beforeClick: async () => {
+              claimed = await claimSubmissionAttempt(args.url, reportNumber);
+              return claimed.claimed
+                ? { ok: true }
+                : { ok: false, reason: `submit was already attempted at ${claimed.attempt.attemptedAt} (${claimed.attempt.status}); check the employer and tracker before any retry` };
+            },
+          }),
+        );
+        if (claimed?.claimed) {
+          await recordSubmissionResult(args.url, reportNumber, submission);
+        }
         metrics.submission = submission;
         if (submission.status === 'confirmed') {
           standing = { status: 'submitted', pending: [] };
-          metrics.tracker = markApplied(root, parseReportName(reportPath).number, submission);
+          metrics.tracker = markApplied(root, reportNumber, submission);
         } else {
           standing = { status: 'incomplete', pending: [`submit: ${submission.reason}`] };
         }

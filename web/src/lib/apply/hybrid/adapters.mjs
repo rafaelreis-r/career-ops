@@ -147,12 +147,17 @@ async function activateOption(frame, key, i) {
  *  a checkbox would clear it). */
 export async function chooseOption(frame, q, index) {
   const want = q.options[index];
-  if (!(q.state?.selected || []).includes(want)) await activateOption(frame, q.key, index);
+  const changed = !(q.state?.selected || []).includes(want);
+  if (changed) await activateOption(frame, q.key, index);
   await sleep(150);
   const after = await reread(frame, q);
   const got = after?.state?.selected ?? [];
   const conflicts = after ? conflictingBinarySelections(after, want, got) : [];
-  if (conflicts.length) return { status: 'mismatch', reason: `the incompatible option is also selected: "${conflicts.join(', ')}"`, observed: got.join(', ') };
+  if (conflicts.length) {
+    if (changed) await activateOption(frame, after.key, after.options.indexOf(want)).catch(() => {});
+    const restored = await reread(frame, after).catch(() => after);
+    return { status: 'mismatch', reason: `the incompatible option is already selected: "${conflicts.join(', ')}"; the new selection was undone`, observed: (restored?.state?.selected ?? got).join(', ') };
+  }
   return got.includes(want) ? { status: 'verified', observed: want } : { status: 'failed', reason: 'the option did not register as selected', observed: got.join(', ') };
 }
 

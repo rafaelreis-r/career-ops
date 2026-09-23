@@ -24,11 +24,11 @@ import { scanPage, scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-s
 import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, lockFor, matchAnswers, matchExact, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
 import { evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
-import { resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
+import { generatePostingCv, resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
 import { attachFile, chooseOption, fillText, reachApplicationForm, sameChoice, selectCombobox, verifyQuestion } from '../../src/lib/apply/hybrid/adapters.mjs';
 import { mapActionsToQuestions } from '../../src/lib/apply/hybrid/stagehand.mjs';
 import { trackerStanding } from '../../src/lib/apply/hybrid/tracker-row.mjs';
-import { rememberFormTab } from '../../src/lib/apply/hybrid/round.mjs';
+import { claimSubmissionAttempt, recordSubmissionResult, rememberFormTab, submissionAttemptFor } from '../../src/lib/apply/hybrid/round.mjs';
 
 const FIXTURES = path.join(import.meta.dirname, '..', '..', 'src', 'lib', 'apply', '__fixtures__');
 
@@ -189,8 +189,15 @@ test('Storyteller: a Yes/No checkbox group is not verified while both answers ar
   group = byLabel(await scan(page), STORY_SCHEDULE);
   const contradictory = await chooseOption(page.mainFrame(), group, group.options.indexOf('No'));
   assert.equal(contradictory.status, 'mismatch');
-  assert.deepEqual(byLabel(await scan(page), STORY_SCHEDULE).state.selected, ['Yes', 'No']);
+  assert.deepEqual(byLabel(await scan(page), STORY_SCHEDULE).state.selected, ['Yes']);
   assert.equal((await verifyQuestion(page.mainFrame(), group, 'No')).status, 'mismatch');
+});
+
+test('CPF, CNPJ, RG and matrícula values are not classified as phone numbers', () => {
+  for (const [label, value] of [['CPF', '123.456.789-09'], ['CNPJ', '12.345.678/0001-90'], ['RG', '12.345.678-9'], ['Matrícula', '12345678901']]) {
+    assert.equal(lockFor({ label }, { label, value }), null, label);
+  }
+  assert.match(lockFor({ label: 'Address' }, { label: 'Phone', value: '+55 31 98427-7956' }).text, /phone number/);
 });
 
 test('the form reacher never clicks Apply inside a form with one hidden CV input', async (t) => {
@@ -531,6 +538,36 @@ test('a CV the report links and names by report number (not by company) is this 
   }
 });
 
+test('a report number never matches a date segment in another posting CV', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-cv-'));
+  try {
+    for (const d of ['reports', 'output', 'data']) fs.mkdirSync(path.join(root, d));
+    const report = path.join(root, 'reports', '022-acme-2026-09-22.md');
+    const other = path.join(root, 'output', 'cv-rafael-reis-othercorp-2026-09-22.pdf');
+    fs.writeFileSync(report, `# Acme\n\n**PDF:** output/${path.basename(other)}\n`);
+    fs.writeFileSync(other, '%PDF-1.4 unrelated\n');
+    const found = resolvePostingCv({ root, reportPath: report });
+    assert.equal(found.path, null);
+    assert.match(found.rejected[0].reason, /does not name/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('CV generation stops before launching an agent when the report has no archived JD', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-cv-'));
+  try {
+    fs.mkdirSync(path.join(root, 'reports'));
+    const report = path.join(root, 'reports', '022-acme-2026-09-22.md');
+    fs.writeFileSync(report, '# Acme\n\n**URL:** https://jobs.example.test/22\n');
+    const result = await generatePostingCv({ root, reportPath: report, companySlug: 'acme', bin: 'this-command-must-not-run' });
+    assert.equal(result.path, null);
+    assert.match(result.error, /no archived job description/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('the round leaves forms that only need the human first, then the fewest pending items', () => {
   const tab = (url, blockers) => ({ url, ...tabStatus({ ready: !blockers.length, blockers }) });
   const captcha = { kind: 'captcha', key: null, label: 'captcha', reason: '' };
@@ -555,6 +592,25 @@ test('an interrupted posting keeps ownership of its transitioned application tab
     await rememberFormTab({ page }, 'https://itrecruiter.jobs.recrut.ai/itrtechgroup/job/S8TTFW', 'interrupted by SIGINT');
     const state = JSON.parse(fs.readFileSync(path.join(stateDir, 'hybrid-round.json'), 'utf8'));
     assert.equal(state.tabs[page.url()].postingUrl, 'https://itrecruiter.jobs.recrut.ai/itrtechgroup/job/S8TTFW');
+  } finally {
+    if (previous === undefined) delete process.env.CAREER_OPS_HYBRID_STATE_DIR;
+    else process.env.CAREER_OPS_HYBRID_STATE_DIR = previous;
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a durable submit claim blocks both the eligibility lookup and a second submit claim', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-round-'));
+  const previous = process.env.CAREER_OPS_HYBRID_STATE_DIR;
+  process.env.CAREER_OPS_HYBRID_STATE_DIR = stateDir;
+  try {
+    const url = 'https://jobs.example.test/apply/42';
+    const first = await claimSubmissionAttempt(url, 42);
+    assert.equal(first.claimed, true);
+    assert.equal((await claimSubmissionAttempt(url, 42)).claimed, false);
+    await recordSubmissionResult(url, 42, { status: 'unconfirmed', control: 'Submit', reason: 'no confirmation' });
+    assert.equal(submissionAttemptFor(url, 42).status, 'unconfirmed');
+    assert.equal(submissionAttemptFor('https://jobs.example.test/changed', 42).status, 'unconfirmed', 'the report number survives a URL change');
   } finally {
     if (previous === undefined) delete process.env.CAREER_OPS_HYBRID_STATE_DIR;
     else process.env.CAREER_OPS_HYBRID_STATE_DIR = previous;

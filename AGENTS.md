@@ -365,7 +365,7 @@ Two separate axes:
 
 **This system is designed for quality, not quantity** — genuine matches, never mass-application spam.
 
-- **NEVER submit an application without the user reviewing it first.** Fill forms, draft answers, generate PDFs -- but always STOP before clicking Submit/Send/Apply. The user makes the final call. Exception: a worker already dispatched on `apply-llm-owned` submits once after the ready gate (see `modes/apply-llm-owned.md`); interactive `apply` is unchanged.
+- **NEVER submit an application without the user reviewing it first.** Fill forms, draft answers, generate PDFs -- but always STOP before clicking Submit/Send/Apply. The user makes the final call. Exceptions: a worker already dispatched on `apply-llm-owned` submits once after its ready gate (see `modes/apply-llm-owned.md`), and `web/scripts/apply-hybrid.mjs` submits once after its pre-submit gate clears, by user instruction of 2026-09-23; interactive `apply` is unchanged.
 - **Strongly discourage low-fit applications.** Below 4.0/5, explicitly recommend against applying; only proceed if the user has a specific reason to override.
 - **Quality over speed.** A well-targeted application to 5 companies beats a generic blast to 50. Guide the user toward fewer, better applications.
 - **Respect recruiters' time.** Only send what's worth reading.

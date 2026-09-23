@@ -118,6 +118,43 @@ test("Camunda's refusal is not a submission", async (t) => {
   assert.match(r.reason, /We limit submissions/);
 });
 
+test('upload wording is neither blocked as submission nor selected as the final submit control', async (t) => {
+  const page = await openPage(
+    t,
+    `<label>Email<input type="email"></label><button id="upload" type="button">Enviar currículo</button><button id="submit" type="button">Enviar candidatura</button>
+     <script>upload.onclick=()=>window.__upload=(window.__upload||0)+1; submit.onclick=()=>window.__submit=(window.__submit||0)+1;</script>`,
+  );
+  if (!page) return;
+  await holdSubmitLock(page);
+  await page.fill('input', 'fixture@example.com');
+  await page.click('#upload');
+  assert.equal(await page.evaluate(() => window.__upload), 1);
+  assert.equal(await page.evaluate(() => window.__submit || 0), 0);
+  const r = await submitApplication(page, { timeoutMs: 20 });
+  assert.equal(r.control, 'Enviar candidatura');
+  assert.equal(await page.evaluate(() => window.__submit), 1);
+});
+
+test('a detached submit control is returned as an unconfirmed outcome', async (t) => {
+  const page = await openPage(t, '<label>Email<input type="email" value="fixture@example.com"></label><button type="button">Apply</button>');
+  if (!page) return;
+  const r = await submitApplication(page, {
+    timeoutMs: 20,
+    beforeClick: async () => {
+      await page.locator('button').evaluate((button) => button.remove());
+      return { ok: true };
+    },
+  });
+  assert.equal(r.status, 'unconfirmed');
+  assert.match(r.reason, /submit click failed/);
+});
+
+test('a frame scan failure blocks the final gate', () => {
+  const gate = evaluateGate({ questions: [], captcha: { present: false }, frameErrors: [{ url: 'https://ats.example.test/form', reason: 'detached' }] }, new Map(), { cvReason: 'missing' });
+  assert.equal(gate.ready, false);
+  assert.ok(gate.blockers.some((b) => b.kind === 'frame-scan'));
+});
+
 test('two unrelated submit-like controls are ambiguous: nothing is clicked', () => {
   assert.equal(chooseSubmitControl([{ index: 0, text: 'Send code', formSubmit: false, finalText: true }, { index: 1, text: 'Apply filters', formSubmit: false, finalText: true }]).control, null);
   assert.equal(chooseSubmitControl([{ index: 0, text: 'Upload', formSubmit: true, finalText: false }, { index: 1, text: 'Submit Application', formSubmit: true, finalText: true }]).control.index, 1);

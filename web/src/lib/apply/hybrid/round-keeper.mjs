@@ -29,6 +29,14 @@ function write(state) {
   fs.renameSync(tmp, stateFile);
 }
 
+function priorAttempts() {
+  try {
+    return JSON.parse(fs.readFileSync(stateFile, 'utf8')).submissionAttempts || [];
+  } catch {
+    return [];
+  }
+}
+
 async function alive() {
   try {
     return (await fetch(`${cdpUrl}/json/version`, { signal: AbortSignal.timeout(1500) })).ok;
@@ -52,10 +60,11 @@ try {
     keeperPid: process.pid,
     startedAt: new Date().toISOString(),
     tabs: {},
+    submissionAttempts: priorAttempts(),
   });
   while (await alive()) await sleep(5000);
   process.exit(0);
 } catch (e) {
-  write({ cdpUrl: null, error: e instanceof Error ? e.message : String(e), keeperPid: process.pid, tabs: {} });
+  write({ cdpUrl: null, error: e instanceof Error ? e.message : String(e), keeperPid: process.pid, tabs: {}, submissionAttempts: priorAttempts() });
   process.exit(1);
 }

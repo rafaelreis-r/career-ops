@@ -116,10 +116,9 @@ Keep these across rebases; each exists for a reason.
   `apply-llm-owned` submits once after the ready gate. Interactive `apply` still
   never submits.
 - **Hybrid apply filler.** `web/scripts/apply-hybrid.mjs` with
-  `web/src/lib/apply/hybrid/`. Per form: one Stagehand `observe()` to find the
-  application's controls (its model is a local `codex exec` callback, no
-  provider key), then deterministic Playwright adapters for exact-label
-  canonical answers, each re-reading the DOM after it acts. Every field they
+  `web/src/lib/apply/hybrid/`. Per form: a DOM scan finds the application's
+  controls, then deterministic Playwright adapters handle exact-label canonical
+  answers, each re-reading the DOM after it acts. Every field they
   miss, misfill or cannot verify goes to the model: Jev matching (report
   answers, then profile answers), a second codex judge, Jev's yes/no judgment
   over the canonical facts (never for a consent question), Jev option picks,
@@ -132,7 +131,8 @@ Keep these across rebases; each exists for a reason.
   currency) is never typed. Captcha frames are never scanned. The CV is always
   this posting's PDF (`data/pdf-index.tsv`, the report's `**PDF:**` line,
   `--cv`), checked by file name against the company; when there is none, the
-  track's `pdf` mode generates it before any field is filled.
+  track's `pdf` mode generates it before any field is filled, using only a JD
+  already archived in the report or its report-numbered `jds/` capture.
 
   The whole round runs in one visible Chrome with a fresh profile (state in
   `~/.cache/career-ops/hybrid-round.json`). A detached keeper process
