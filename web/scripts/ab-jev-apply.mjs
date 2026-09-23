@@ -181,6 +181,19 @@ export function answersFromProfile(profile) {
  *  answers are placed FIRST so they win bestLabelMatch()'s tie-break (the
  *  report's Application Answers section, when present, is posting-specific
  *  and already vetted; profile.yml is the generic fallback). */
+export function findReportForRow(root, row) {
+  const number = Number(row);
+  if (!Number.isInteger(number) || number <= 0) return null;
+  const dir = path.join(root, "reports");
+  const hit = fs.existsSync(dir)
+    ? fs.readdirSync(dir).find((file) => {
+        const match = /^(\d+)-/.exec(file);
+        return match && Number(match[1]) === number && file.endsWith(".md");
+      })
+    : null;
+  return hit ? path.join(dir, hit) : null;
+}
+
 export function loadCanonicalData(root, { row, reportPath } = {}) {
   const sources = { profileYml: null, cvFactsJson: null, cvMd: null, report: null };
   const profileAnswers = [];
@@ -219,11 +232,7 @@ export function loadCanonicalData(root, { row, reportPath } = {}) {
 
   let resolvedReportPath = reportPath ? path.resolve(reportPath) : null;
   if (!resolvedReportPath && row != null) {
-    const dir = path.join(root, "reports");
-    if (fs.existsSync(dir)) {
-      const hit = fs.readdirSync(dir).find((f) => f.startsWith(`${row}-`) && f.endsWith(".md"));
-      if (hit) resolvedReportPath = path.join(dir, hit);
-    }
+    resolvedReportPath = findReportForRow(root, row);
   }
   if (resolvedReportPath && fs.existsSync(resolvedReportPath)) {
     const text = fs.readFileSync(resolvedReportPath, "utf8");

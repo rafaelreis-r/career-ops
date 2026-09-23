@@ -25,9 +25,10 @@ import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLo
 import { selectResumeTarget, validateResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
 import { alignOutcomes, evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
 import { generatePostingCv, resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
-import { attachFile, chooseOption, fillText, reachApplicationForm, sameChoice, selectCombobox, verifyQuestion } from '../../src/lib/apply/hybrid/adapters.mjs';
+import { attachFile, chooseOption, fillText, reachApplicationForm, reread, sameChoice, selectCombobox, verifyQuestion } from '../../src/lib/apply/hybrid/adapters.mjs';
 import { trackerStanding } from '../../src/lib/apply/hybrid/tracker-row.mjs';
 import { claimSubmissionAttempt, recordSubmissionResult, rememberFormTab, submissionAttemptFor } from '../../src/lib/apply/hybrid/round.mjs';
+import { findReportForRow, loadCanonicalData } from '../../scripts/ab-jev-apply.mjs';
 
 const FIXTURES = path.join(import.meta.dirname, '..', '..', 'src', 'lib', 'apply', '__fixtures__');
 
@@ -91,6 +92,38 @@ test('duplicate labels never share a fallback outcome after rerender', () => {
   );
   assert.equal(aligned.size, 0);
   assert.equal(alignOutcomes([{ key: 'new', kind: 'text', label: 'Email' }], new Map([['old', { kind: 'text', label: 'Email', status: 'verified' }]])).get('new').status, 'verified');
+  assert.equal(
+    alignOutcomes([{ key: 'q0', kind: 'text', label: 'Current Company' }], new Map([['q0', { kind: 'text', label: 'Full Name', status: 'verified' }]])).size,
+    0,
+    'a reused generated key cannot transfer an outcome to another control',
+  );
+});
+
+test('reread rejects a reused key and requires an unambiguous signature', async () => {
+  const expected = { key: 'q0', kind: 'text', label: 'Full Name' };
+  const frame = { evaluate: async () => ({ questions: [{ key: 'q0', kind: 'text', label: 'Current Company' }, { key: 'q1', kind: 'text', label: 'Full Name' }] }) };
+  assert.equal((await reread(frame, expected)).key, 'q1');
+  frame.evaluate = async () => ({ questions: [{ key: 'q0', kind: 'text', label: 'Current Company' }, { key: 'q1', kind: 'text', label: 'Full Name' }, { key: 'q2', kind: 'text', label: 'Full Name' }] });
+  assert.equal(await reread(frame, expected), null);
+});
+
+test('numeric report lookup treats padded and unpadded selectors identically', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-report-'));
+  try {
+    fs.mkdirSync(path.join(root, 'reports'));
+    const report = path.join(root, 'reports', '022-acme-2026-09-22.md');
+    fs.writeFileSync(
+      report,
+      '# Acme\n\n## Application Answers\n\n**Date:** 2026-09-22\n**State:** filled\n\n### Free-text answers\n\n1. **Email**\n\n> padded@example.com\n\n### Selections made\n\n- None captured.\n\n### Other field values\n\n- None captured.\n\n### Files used\n\n- None captured.\n',
+    );
+    assert.equal(findReportForRow(root, 22), report);
+    assert.equal(findReportForRow(root, '022'), report);
+    const loaded = loadCanonicalData(root, { row: 22 });
+    assert.equal(loaded.sources.report, report);
+    assert.deepEqual(loaded.reportAnswers, [{ label: 'Email', value: 'padded@example.com' }]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('an option is chosen only when it represents the canonical value uniquely', () => {

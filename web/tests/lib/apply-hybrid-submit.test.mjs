@@ -208,7 +208,7 @@ test('the gate reads the CV and consents from the final DOM', () => {
   assert.deepEqual(cleared.blockers.map((b) => b.kind).sort(), ['consent', 'resume'], 'a CV attached earlier but gone from the page blocks; an unanswered consent blocks');
   const answered = evaluateGate(scan([cvName]), new Map([...outcomes, ['q22', { status: 'verified' }]]), { cvName });
   assert.equal(answered.ready, false, 'a file is not accepted until its chosen resume key is supplied');
-  assert.equal(evaluateGate(scan([cvName]), new Map([...outcomes, ['q22', { status: 'verified' }]]), { cvName, resumeKey: 'q2' }).ready, true);
+  assert.equal(evaluateGate(scan([cvName]), new Map([...outcomes, ['q22', { status: 'verified' }]]), { cvName, resumeQuestion: { key: 'q2', kind: 'file', label: 'Resume' } }).ready, true);
 });
 
 test('a filename in supporting text or the wrong file input is not CV proof', () => {
@@ -216,15 +216,16 @@ test('a filename in supporting text or the wrong file input is not CV proof', ()
   const finalScan = {
     captcha: { present: false },
     questions: [
-      { key: 'resume', kind: 'file', label: 'Resume', required: false, visible: true, state: { files: [], text: '' } },
-      { key: 'cover', kind: 'file', label: 'Cover Letter', required: false, visible: true, state: { files: [cvName], text: cvName } },
+      { key: 'new-resume', kind: 'file', label: 'Resume', required: false, visible: true, state: { files: [], text: '' } },
+      { key: 'resume', kind: 'file', label: 'Cover Letter', required: false, visible: true, state: { files: [cvName], text: cvName } },
       { key: 'notes', kind: 'textarea', label: 'Supporting information', required: false, visible: true, state: { value: `See ${cvName}` } },
     ],
   };
-  const gate = evaluateGate(finalScan, new Map(), { cvName, resumeKey: 'resume' });
+  const resumeQuestion = { key: 'resume', kind: 'file', label: 'Resume' };
+  const gate = evaluateGate(finalScan, new Map(), { cvName, resumeQuestion });
   assert.ok(gate.blockers.some((b) => b.kind === 'resume'));
   finalScan.questions[0].state.text = cvName;
-  assert.equal(evaluateGate(finalScan, new Map(), { cvName, resumeKey: 'resume' }).blockers.some((b) => b.kind === 'resume'), false);
+  assert.equal(evaluateGate(finalScan, new Map(), { cvName, resumeQuestion }).blockers.some((b) => b.kind === 'resume'), false);
 });
 
 test('the captured applytojob submit anchor is locked until the final step', async (t) => {

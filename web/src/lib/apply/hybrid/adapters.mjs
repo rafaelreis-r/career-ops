@@ -6,7 +6,7 @@
 // the page (the old loop clicked "Toggle flyout" until loop-detected).
 
 import { scanQuestionsInPage } from './page-scan.mjs';
-import { matchOption, normalizeText } from './answers.mjs';
+import { findQuestionByIdentity, matchOption, normalizeText } from './answers.mjs';
 
 const ACTION_TIMEOUT_MS = 8000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -46,8 +46,7 @@ function conflictingBinarySelections(question, desired, selected) {
  *  kind and label. Null when it is gone. */
 export async function reread(frame, q) {
   const res = await frame.evaluate(scanQuestionsInPage);
-  const want = normalizeText(q.label);
-  return res.questions.find((x) => x.key === q.key) || res.questions.find((x) => x.kind === q.kind && normalizeText(x.label) === want) || null;
+  return findQuestionByIdentity(res.questions, q);
 }
 
 const control = (frame, key) => frame.locator(`[data-hyb-c="${key}"]`).first();

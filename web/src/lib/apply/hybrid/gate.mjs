@@ -10,7 +10,7 @@
 // not answer blocks, required or not. A captcha is a human step and always
 // blocks. `ready` (no blocker at all) is the only state the driver submits in.
 
-import { normalizeText, valueFitsField } from './answers.mjs';
+import { findQuestionByIdentity, questionSignature, valueFitsField } from './answers.mjs';
 
 const CONSENT_RX = /consent|\bi agree\b|\bagree to\b|concordo|aceito|autorizo|privacy policy|pol[ií]tica de privacidade|termos de uso|terms of (use|service)/i;
 
@@ -31,32 +31,30 @@ export function isEmptyState(q, cvName = '') {
 
 /** Does the chosen resume input still hold this CV, or does its preserved ATS
  *  container show the filename after consuming the input? */
-export function cvInFinalDom(finalScan, cvName, resumeKey = null) {
-  if (!cvName || !resumeKey) return false;
-  return finalScan.questions.some((q) => {
-    if (q.kind !== 'file' || q.key !== resumeKey) return false;
-    const s = q.state || {};
-    return (s.files || []).includes(cvName) || String(s.text ?? '').includes(cvName);
-  });
+export function cvInFinalDom(finalScan, cvName, resumeQuestion = null) {
+  if (!cvName || !resumeQuestion) return false;
+  const question = findQuestionByIdentity(finalScan.questions, resumeQuestion);
+  if (!question || question.kind !== 'file') return false;
+  const state = question.state || {};
+  return (state.files || []).includes(cvName) || String(state.text ?? '').includes(cvName);
 }
 
 export function alignOutcomes(finalQuestions, outcomes) {
-  const signature = (q) => `${q.kind}|${normalizeText(q.label)}`;
   const prior = new Map();
   for (const outcome of outcomes.values()) {
-    const key = signature(outcome);
+    const key = questionSignature(outcome);
     if (!prior.has(key)) prior.set(key, []);
     prior.get(key).push(outcome);
   }
   const finalCounts = new Map();
-  for (const q of finalQuestions) finalCounts.set(signature(q), (finalCounts.get(signature(q)) || 0) + 1);
+  for (const q of finalQuestions) finalCounts.set(questionSignature(q), (finalCounts.get(questionSignature(q)) || 0) + 1);
   return new Map(
     finalQuestions
       .map((q) => {
         const direct = outcomes.get(q.key);
-        if (direct) return [q.key, direct];
-        const matches = prior.get(signature(q)) || [];
-        return finalCounts.get(signature(q)) === 1 && matches.length === 1 ? [q.key, matches[0]] : null;
+        if (direct && questionSignature(direct) === questionSignature(q)) return [q.key, direct];
+        const matches = prior.get(questionSignature(q)) || [];
+        return finalCounts.get(questionSignature(q)) === 1 && matches.length === 1 ? [q.key, matches[0]] : null;
       })
       .filter(Boolean),
   );
@@ -65,10 +63,10 @@ export function alignOutcomes(finalQuestions, outcomes) {
 /**
  * @param {{questions: object[], captcha: {present: boolean}}} finalScan
  * @param {Map<string, {status: string, reason?: string}>} outcomes - per-question fill outcome, by key.
- * @param {{cvName?: string, cvReason?: string|null, resumeKey?: string|null}} [opts]
+ * @param {{cvName?: string, cvReason?: string|null, resumeQuestion?: object|null}} [opts]
  * @returns {{ready: boolean, blockers: Array<{kind: string, key: string|null, label: string, reason: string}>}}
  */
-export function evaluateGate(finalScan, outcomes, { cvName = '', cvReason = null, resumeKey = null } = {}) {
+export function evaluateGate(finalScan, outcomes, { cvName = '', cvReason = null, resumeQuestion = null } = {}) {
   const blockers = [];
   for (const frame of finalScan.frameErrors || []) blockers.push({ kind: 'frame-scan', key: null, label: frame.url || 'embedded application frame', reason: `frame could not be scanned: ${frame.reason}` });
   for (const q of finalScan.questions) {
@@ -89,7 +87,7 @@ export function evaluateGate(finalScan, outcomes, { cvName = '', cvReason = null
       if (misfit) blockers.push({ kind: 'type-mismatch', key: q.key, label: q.label, reason: `value does not fit the field: ${misfit.reason}` });
     }
   }
-  if (!cvInFinalDom(finalScan, cvName, resumeKey) && !blockers.some((b) => /resume|cv|curr[ií]culo/i.test(b.label))) {
+  if (!cvInFinalDom(finalScan, cvName, resumeQuestion) && !blockers.some((b) => /resume|cv|curr[ií]culo/i.test(b.label))) {
     blockers.push({ kind: 'resume', key: null, label: 'Resume/CV', reason: `the posting's CV is not in the final DOM: ${cvReason || (cvName ? `${cvName} not shown by any file input` : 'no CV for this posting')} (driver defect)` });
   }
   if (finalScan.captcha?.present) blockers.push({ kind: 'captcha', key: null, label: 'captcha', reason: 'captcha on the page: a human must complete it' });

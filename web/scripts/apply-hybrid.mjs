@@ -48,7 +48,7 @@ import { isMainModule } from '../../lib/is-main-module.mjs';
 import { getCareerOpsRoot, resolveTrackerPath } from '../../path-resolver.mjs';
 import { jevAsk, jevChoice, jevNoul } from '../../lib/jev-client.mjs';
 import { answerBool, pickOption, resolveApplyThreshold } from '../../lib/jev-apply-helpers.mjs';
-import { loadCanonicalData, deriveCompanySlug } from './ab-jev-apply.mjs';
+import { deriveCompanySlug, findReportForRow, loadCanonicalData } from './ab-jev-apply.mjs';
 import { scanPage } from '../src/lib/apply/hybrid/page-scan.mjs';
 import {
   answersFromProfileFacts,
@@ -61,6 +61,7 @@ import {
   matchExact,
   matchOption,
   pickOfferedOptions,
+  questionSignature,
   truthyAnswer,
   valueFitsField,
 } from '../src/lib/apply/hybrid/answers.mjs';
@@ -134,9 +135,7 @@ tab opened), 6 submitted without confirmation or refused, 1 run failure.`;
 function findReport(root, { row, report }) {
   if (report) return path.resolve(report);
   if (row == null) return null;
-  const dir = path.join(root, 'reports');
-  const hit = fs.existsSync(dir) ? fs.readdirSync(dir).find((f) => f.startsWith(`${row}-`) && f.endsWith('.md')) : null;
-  return hit ? path.join(dir, hit) : null;
+  return findReportForRow(root, row);
 }
 
 const STATIC_CHOICE = new Set(['select', 'radio', 'checkbox-group', 'toggle']);
@@ -270,7 +269,7 @@ async function main() {
   let formBlock = null;
   let agent = null;
   let cvStatus = { attached: false, reason: 'not attempted' };
-  let resumeKey = null;
+  let resumeQuestion = null;
   let lock = null;
   let submission = null;
   const onSignal = async (sig) => {
@@ -354,6 +353,14 @@ async function main() {
     for (const q of scan.questions) q.frameObj = scan.frameObjs[q.frame];
     const frameOf = (q) => q.frameObj || scan.frameObjs[q.frame] || page.mainFrame();
     const record = (q, r, extra) => outcomes.set(q.key, { ...r, label: q.label, kind: q.kind, ...extra });
+    const entryFor = (map, q, peers = null) => {
+      const signature = questionSignature(q);
+      const direct = map.get(q.key);
+      if (direct && questionSignature(direct) === signature) return direct;
+      if (peers && peers.filter((peer) => questionSignature(peer) === signature).length !== 1) return null;
+      const matches = [...map.values()].filter((entry) => questionSignature(entry) === signature);
+      return matches.length === 1 ? matches[0] : null;
+    };
     const run = async (q0, fn) => {
       const q = await reread(frameOf(q0), q0).catch(() => null);
       if (!q) return { status: 'failed', reason: 'the question left the page' };
@@ -371,7 +378,7 @@ async function main() {
         const exact = matchExact(q, answers);
         if (!exact) continue;
         const lock = lockFor(q, exact);
-        decided.set(q.key, { answer: exact, lock, source: 'exact' });
+        decided.set(q.key, { answer: exact, lock, source: 'exact', label: q.label, kind: q.kind });
         if (lock) {
           record(q, { status: 'locked', reason: lock.text }, { via: 'deterministic', answerLabel: exact.label });
           continue;
@@ -386,7 +393,7 @@ async function main() {
     metrics.cv.target = target.target ? { key: target.target.key, label: target.target.label, evidence: target.evidence ?? null } : null;
     metrics.cv.considered = target.considered;
     if (cv.path && target.target) {
-      resumeKey = target.target.key;
+      resumeQuestion = { key: target.target.key, kind: target.target.kind, label: target.target.label };
       const r = await phase('attachCv', () => run(target.target, (live) => attachFile(frameOf(target.target), live, cv.path, cvName)));
       record(target.target, r, { via: 'deterministic', source: 'cv' });
       cvStatus = r.status === 'verified' ? { attached: true, how: r.how, via: 'deterministic' } : { attached: false, reason: r.reason };
@@ -395,17 +402,17 @@ async function main() {
     }
 
     // 6. Model pass: every field the deterministic pass left open.
-    const verified = (q) => outcomes.get(q.key)?.status === 'verified';
+    const verified = (q, peers) => entryFor(outcomes, q, peers)?.status === 'verified';
     const modelPass = async (list) => {
-      const gaps = list.filter((q) => !verified(q) && outcomes.get(q.key)?.status !== 'locked');
-      const needValue = gaps.filter((q) => !decided.has(q.key));
+      const gaps = list.filter((q) => !verified(q, list) && entryFor(outcomes, q, list)?.status !== 'locked');
+      const needValue = gaps.filter((q) => !entryFor(decided, q, gaps));
       if (needValue.length) {
         const { decisions } = await matchAnswers(needValue, answers, { ask });
         for (const q of needValue) {
           const d = decisions.get(q.key);
-          if (d?.answer) decided.set(q.key, { answer: d.answer, lock: d.lock, source: 'jev', confidence: d.confidence });
+          if (d?.answer) decided.set(q.key, { answer: d.answer, lock: d.lock, source: 'jev', confidence: d.confidence, label: q.label, kind: q.kind });
         }
-        const stillOpen = needValue.filter((q) => !decided.has(q.key));
+        const stillOpen = needValue.filter((q) => !entryFor(decided, q, needValue));
         if (stillOpen.length) {
           const picks = await judgeWithModel(stillOpen, answers, judgeGenerate).catch((e) => {
             metrics.judgeError = errText(e);
@@ -413,31 +420,34 @@ async function main() {
           });
           for (const [key, a] of picks) {
             const q = stillOpen.find((x) => x.key === key);
-            decided.set(key, { answer: a, lock: lockFor(q, a), source: 'model-judge' });
+            decided.set(key, { answer: a, lock: lockFor(q, a), source: 'model-judge', label: q.label, kind: q.kind });
           }
         }
         // A yes/no question needs a yes or a no: a matched fact ("Citizenship:
         // Citizen of Brazil" on Wellhub's "Are you a citizen or permanent
         // resident...?") is evidence for the judgment, not a value to type.
         const notYesNo = (d) => d && d.source !== 'exact' && truthyAnswer(String(d.answer.value).split(/[,(.;]/)[0]) === null;
-        const yesNoOpen = needValue.filter((q) => !decided.has(q.key) || (isYesNoQuestion(q) && notYesNo(decided.get(q.key))));
+        const yesNoOpen = needValue.filter((q) => !entryFor(decided, q, needValue) || (isYesNoQuestion(q) && notYesNo(entryFor(decided, q, needValue))));
         const yesNo = await answerYesNoFromFacts(yesNoOpen, answers, { posting: postingHeader, bool: (question, facts) => answerBool(question, facts, { jev: noul }) });
-        for (const [key, d] of yesNo) decided.set(key, { answer: d.answer, lock: null, source: 'jev-yes-no', confidence: d.confidence });
+        for (const [key, d] of yesNo) {
+          const q = yesNoOpen.find((item) => item.key === key);
+          decided.set(key, { answer: d.answer, lock: null, source: 'jev-yes-no', confidence: d.confidence, label: q.label, kind: q.kind });
+        }
       }
-      const optionDecisions = new Map(gaps.filter((q) => decided.has(q.key)).map((q) => [q.key, { answer: decided.get(q.key).answer, lock: decided.get(q.key).lock }]));
+      const optionDecisions = new Map(gaps.filter((q) => entryFor(decided, q, gaps)).map((q) => [q.key, { answer: entryFor(decided, q, gaps).answer, lock: entryFor(decided, q, gaps).lock }]));
       await pickOfferedOptions(gaps.filter((q) => optionDecisions.has(q.key)), optionDecisions, { ask });
 
       for (const q of gaps) {
-        const d = decided.get(q.key);
+        const d = entryFor(decided, q, gaps);
         if (!d) {
-          if (!outcomes.has(q.key)) record(q, { status: 'no-answer', reason: 'no canonical answer (deterministic, Jev, the second judge and the yes/no judgment found none)' }, { via: 'model' });
+          if (!entryFor(outcomes, q, gaps)) record(q, { status: 'no-answer', reason: 'no canonical answer (deterministic, Jev, the second judge and the yes/no judgment found none)' }, { via: 'model' });
           continue;
         }
         if (d.lock) {
           record(q, { status: 'locked', reason: d.lock.text }, { via: 'model', answerLabel: d.answer.label, source: d.source });
           continue;
         }
-        const prior = outcomes.get(q.key);
+        const prior = entryFor(outcomes, q, gaps);
         let r = prior?.status === 'verified' ? prior : null;
         if (!r || d.source !== 'exact') {
           r = await run(q, (live) => fillQuestion(frameOf(q), live, d.answer.value, { option: optionDecisions.get(q.key)?.option, pick }));
@@ -476,7 +486,7 @@ async function main() {
           }
         }
         if (t) {
-          resumeKey = t.key;
+          resumeQuestion = { key: t.key, kind: t.kind, label: t.label };
           metrics.cv.target = { key: t.key, label: t.label, evidence: 'model-selected and validated' };
           let r = await run(t, (live) => attachFile(frameOf(t), live, cv.path, cvName));
           if (r.status !== 'verified' && agent) {
@@ -498,19 +508,30 @@ async function main() {
     // only after an answer (recrut.ai shows the address number once the CEP is
     // in), and verified fields it cleared (recrut.ai empties the CEP when País
     // is chosen after it). Rescan and run both passes on those, up to 3 times.
-    const handled = new Set(targets.map((q) => q.key));
+    const handled = targets.map((q) => ({ key: q.key, kind: q.kind, label: q.label }));
     for (let round = 0; round < 3; round++) {
       await settled(page);
       const again = await scanPage(page);
       for (const q of again.questions) q.frameObj = again.frameObjs[q.frame];
       const live = again.questions.filter((q) => q.kind !== 'file' && q.visible);
-      const revealed = live.filter((q) => !handled.has(q.key));
-      const cleared = live.filter((q) => outcomes.get(q.key)?.status === 'verified' && isEmptyState(q));
+      const liveCounts = new Map();
+      const handledCounts = new Map();
+      for (const q of live) liveCounts.set(questionSignature(q), (liveCounts.get(questionSignature(q)) || 0) + 1);
+      for (const q of handled) handledCounts.set(questionSignature(q), (handledCounts.get(questionSignature(q)) || 0) + 1);
+      const wasHandled = (q) =>
+        handled.some((old) => old.key === q.key && questionSignature(old) === questionSignature(q)) ||
+        (liveCounts.get(questionSignature(q)) === 1 && handledCounts.get(questionSignature(q)) === 1);
+      const revealed = live.filter((q) => !wasHandled(q));
+      const liveOutcomes = alignOutcomes(live, outcomes);
+      const cleared = live.filter((q) => liveOutcomes.get(q.key)?.status === 'verified' && isEmptyState(q));
       if (!revealed.length && !cleared.length) break;
       if (revealed.length) console.log(`[hybrid] ${revealed.length} question(s) appeared after filling: ${revealed.map((q) => q.label).join(' | ')}`);
       if (cleared.length) console.log(`[hybrid] the page cleared ${cleared.length} verified field(s), refilling: ${cleared.map((q) => q.label).join(' | ')}`);
-      for (const q of revealed) handled.add(q.key);
-      for (const q of cleared) outcomes.delete(q.key);
+      for (const q of revealed) handled.push({ key: q.key, kind: q.kind, label: q.label });
+      for (const q of cleared) {
+        const direct = outcomes.get(q.key);
+        if (direct && questionSignature(direct) === questionSignature(q)) outcomes.delete(q.key);
+      }
       const redo = [...revealed, ...cleared];
       await phase('deterministic', () => deterministicPass(redo));
       await phase('model', () => modelPass(redo));
@@ -527,12 +548,12 @@ async function main() {
     if (round && !noForm) {
       await settled(round.page);
       const finalScan = await phase('finalScan', () => scanPage(round.page));
-      const finalCvAttached = cvInFinalDom(finalScan, cvName, resumeKey);
+      const finalCvAttached = cvInFinalDom(finalScan, cvName, resumeQuestion);
       cvStatus = finalCvAttached
         ? { ...cvStatus, attached: true, via: cvStatus.via || 'final-dom' }
         : { attached: false, reason: cvName ? `${cvName} not shown by any file input in the final DOM` : cvStatus.reason || 'no CV for this posting' };
       const finalOutcomes = alignOutcomes(finalScan.questions, outcomes);
-      gate = evaluateGate(finalScan, finalOutcomes, { cvName, cvReason: cvStatus.attached ? null : cvStatus.reason, resumeKey });
+      gate = evaluateGate(finalScan, finalOutcomes, { cvName, cvReason: cvStatus.attached ? null : cvStatus.reason, resumeQuestion });
       metrics.questions = finalScan.questions.map((q) => ({ key: q.key, kind: q.kind, label: q.label, required: q.required, requiredBy: q.requiredBy, visible: q.visible, outcome: finalOutcomes.get(q.key) ?? null }));
       metrics.captcha = finalScan.captcha;
       standing = tabStatus(gate);

@@ -27,6 +27,18 @@ export function normalizeText(s) {
     .trim();
 }
 
+export function questionSignature(question) {
+  return `${question?.kind ?? ''}|${normalizeText(question?.label)}`;
+}
+
+export function findQuestionByIdentity(questions, expected) {
+  const signature = questionSignature(expected);
+  const direct = questions.find((question) => question.key === expected?.key && questionSignature(question) === signature);
+  if (direct) return direct;
+  const matches = questions.filter((question) => questionSignature(question) === signature);
+  return matches.length === 1 ? matches[0] : null;
+}
+
 const NON_ANSWER_RX = /^\s*(not answered|unanswered|open|left blank|pending|tbd|todo|n\/?a|none captured)\b|candidate confirmation required/i;
 
 /** Does a recorded answer say that the question is still open? */
