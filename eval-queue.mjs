@@ -12,8 +12,9 @@
  *              --force (which overrides the cutoff for a ranked posting).
  *   held       already evaluated (URL in a report's `**URL:**` header or in the
  *              tracker), already queued in batch-input.tsv, a duplicate of an
- *              earlier pending row, no cal-v1 rank yet (waits for the daily
- *              rank run), or ranked below the cutoff.
+ *              equivalent pending row with an equal or higher rank, no cal-v1
+ *              rank yet (waits for the daily rank run), or ranked below the
+ *              cutoff.
  *
  * URLs compare on `normalizeUrlForDedup`, the scanners' key, so a LinkedIn
  * posting matches on its job id whatever tracking URL it arrived under.

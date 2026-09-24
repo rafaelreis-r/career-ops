@@ -43,7 +43,7 @@ batch/
   tracker-additions/            # Tracker lines (gitignored)
 ```
 
-To queue the pending rows of `data/pipeline.md`, run `node eval-queue.mjs`: it appends only the rows that pass the cal-v1 forwarding gate and lists what it held and why (see `modes/pipeline.md` → Forwarding gate).
+To queue eligible pending rows of `data/pipeline.md`, run `node eval-queue.mjs` (see `docs/SCRIPTS.md` → eval-queue).
 
 ## Mode A: Conductor --chrome
 

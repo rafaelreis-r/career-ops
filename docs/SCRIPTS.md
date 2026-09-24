@@ -971,7 +971,8 @@ stays scored against the apply-worthy floor in force then, 3.3
 `lib/rank-calibration.mjs`), raised on 2026-09-22 after 246 applications
 produced no offer; the replay reports it beside the measured one
 (`applyWorthyFloor`), along with a per-rank `bands` table and the outcome of
-the default forwarding cutoff (`forwardCutoff`). `eval-queue` below uses both.
+the default forwarding cutoff (`forwardCutoff`). The gate below uses the
+configured cal-v1 cutoff; the replay floors are measurement context only.
 
 Writes go through `pipeline-lock.mjs`, the same lock `scan.mjs` and
 `scan-ats-full.mjs` use, and the file is re-read inside the lock — so a
@@ -994,7 +995,7 @@ It prints two lists, with one reason per row:
   - already evaluated: the URL is in a report's `**URL:**` header under
     `reports/`, or in the tracker;
   - already queued in `batch-input.tsv`;
-  - a duplicate of an earlier pending row;
+  - another pending row for the same posting has an equal or higher cal-v1 rank;
   - no `cal-v1` rank yet: the row stays pending until the daily rank run scores it;
   - ranked below the cutoff.
 

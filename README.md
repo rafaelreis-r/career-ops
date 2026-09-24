@@ -320,7 +320,7 @@ career-ops uses a shared command router. In CLIs that register slash commands, i
 ```
 /career-ops           → Show all available commands
 /career-ops {JD}      → AUTO-PIPELINE: evaluate + report + PDF + tracker (paste text or URL)
-/career-ops pipeline  → Process pending URLs from inbox (data/pipeline.md)
+/career-ops pipeline  → Process ranked URLs that pass the forwarding gate in data/pipeline.md (see docs/SCRIPTS.md → eval-queue)
 /career-ops oferta    → Evaluation only A-F (no auto PDF)
 /career-ops ofertas   → Compare and rank multiple offers
 /career-ops contacto  → LinkedIn power move: find contacts + draft message
