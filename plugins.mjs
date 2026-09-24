@@ -28,7 +28,8 @@ import {
 import { loadRegistry, findInRegistry, classifySource, sourceBadge, successorFor } from './plugins/_registry.mjs';
 import { readLock, writeLockEntry, removeLockEntry, hashPluginTree, consentSurface } from './plugins/_lock.mjs';
 import { installFromRepo, scaffoldNew, parseRepoArg } from './plugin-install.mjs';
-import { appendToPipeline } from './scan.mjs';
+import { appendToPipeline, loadSeenUrls, normalizeUrlForDedup } from './scan.mjs';
+import { getCareerOpsRoot, resolveTrackerPath } from './path-resolver.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
@@ -70,15 +71,6 @@ function parseMarkdownTable(md) {
     rows.push(Object.freeze(row));
   }
   return rows;
-}
-
-/** URLs already present in data/pipeline.md, for additive de-duplication. */
-function existingPipelineUrls() {
-  const urls = new Set();
-  if (!existsSync(PIPELINE_PATH)) return urls;
-  const text = readFileSync(PIPELINE_PATH, 'utf8');
-  for (const m of text.matchAll(/- \[[ xX]\]\s+(\S+)/g)) urls.add(m[1]);
-  return urls;
 }
 
 /** Frozen, read-only view of the user's tracker for `export` hooks. No file handle. */
@@ -157,13 +149,23 @@ async function cmdRun(args) {
     if (hook === 'search' && !payload) { console.error(`search needs a query: node plugins.mjs run ${id} search "<query>"`); process.exit(1); }
     const results = filterResultsForId(await runHook(hook, payload, { root: ROOT, dryRun, pluginId: id }), id);
     const found = results.filter(r => r.ok && Array.isArray(r.result)).flatMap(r => r.result).map(sanitizeJob).filter(Boolean);
-    // Additive de-dup: never re-add a URL already in the pipeline.
-    const known = existingPipelineUrls();
-    const seen = new Set();
-    const jobs = found.filter(j => !known.has(j.url) && !seen.has(j.url) && seen.add(j.url));
+    // Additive de-dup against the queue, the scan history and the tracker, on
+    // the same normalized key the scanners use: a LinkedIn posting keys on its
+    // job id, so a digest's tracking-URL spelling of a known job is not new.
+    const applicationsPath = resolveTrackerPath(getCareerOpsRoot());
+    const { seen } = loadSeenUrls({}, { applicationsPath });
+    const jobs = found.filter(j => {
+      const key = normalizeUrlForDedup(j.url);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     console.log(`${id} ${hook}: ${found.length} found, ${jobs.length} new.`);
     if (dryRun) { jobs.slice(0, 20).forEach(j => console.log(`  • ${j.title} — ${j.url}`)); console.log('(--dry-run: pipeline not written)'); return; }
-    if (jobs.length) { await appendToPipeline(jobs); console.log(`→ Appended ${jobs.length} to data/pipeline.md. Run /career-ops pipeline to evaluate.`); }
+    if (jobs.length) {
+      const appended = await appendToPipeline(jobs, { dedupe: true, applicationsPath });
+      console.log(`→ Appended ${appended} to data/pipeline.md. Run /career-ops pipeline to evaluate.`);
+    }
     return;
   }
 

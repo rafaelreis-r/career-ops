@@ -48,6 +48,7 @@ utilities run via `node <script>` directly.
 | `npm run reposts` | `detect-reposts.mjs` | Flag re-listed (ghost) postings from scan history |
 | `node rank-pipeline.mjs` | `rank-pipeline.mjs` | Opt-in calibrated relevance ranker — annotates pending pipeline rows with a score + reason (off by default) |
 | `node rank-calibration-replay.mjs` | `rank-calibration-replay.mjs` | Replay the rank calibration against its 84-pair fixture and persist the metrics under ignored user data |
+| `node eval-queue.mjs` | `eval-queue.mjs` | Forwarding gate: queue pending pipeline rows with a cal-v1 rank at or above the cutoff (default 2.5) for the long evaluation, listing what was held and why |
 | `npm run gemini:eval` | `gemini-eval.mjs` | Evaluate a JD with Google Gemini (free-tier alternative) |
 | `npm run ollama:eval` | `ollama-eval.mjs` | Evaluate a JD with a local Ollama model |
 | `npm run openai:eval` | `openai-eval.mjs` | Evaluate a JD via any OpenAI-compatible endpoint |
@@ -964,9 +965,78 @@ node rank-calibration-replay.mjs --write-canonical
 node rank-calibration-replay.mjs        # replay an existing fixture
 ```
 
+The replay's threshold table (`thresholds`) is the 2026-09-21 measurement and
+stays scored against the apply-worthy floor in force then, 3.3
+(`measuredApplyWorthyFloor`). The current floor is 3.5 (`APPLY_WORTHY_FLOOR` in
+`lib/rank-calibration.mjs`), raised on 2026-09-22 after 246 applications
+produced no offer; the replay reports it beside the measured one
+(`applyWorthyFloor`), along with a per-rank `bands` table and the outcome of
+the default forwarding cutoff (`forwardCutoff`). The gate below uses the
+configured cal-v1 cutoff; the replay floors are measurement context only.
+
 Writes go through `pipeline-lock.mjs`, the same lock `scan.mjs` and
 `scan-ats-full.mjs` use, and the file is re-read inside the lock — so a
 concurrent scan cannot lose rows to this script.
+
+---
+
+## eval-queue
+
+The forwarding gate in front of the long A-G evaluation. `rank-pipeline` only
+annotates; this command decides which pending rows of `data/pipeline.md` go on
+to the evaluation and appends them to `batch/batch-input.tsv`, the queue
+`batch/batch-runner.sh` reads. It never writes `data/pipeline.md`.
+
+It prints two lists, with one reason per row:
+
+- **Forwarded:** `rank: cal-v1 {score}/5` at or above the cutoff, highest first,
+  or ranked and named by `--force`.
+- **Held:**
+  - already evaluated: the URL is in a report's `**URL:**` header under
+    `reports/`, or in the tracker;
+  - already queued in `batch-input.tsv`;
+  - another pending row for the same posting has an equal or higher cal-v1 rank;
+  - no `cal-v1` rank yet: the row stays pending until the daily rank run scores it;
+  - ranked below the cutoff.
+
+URLs compare on the scanners' dedupe key (`normalizeUrlForDedup`), so a
+LinkedIn posting matches on its job id whatever tracking URL it arrived under.
+
+The cutoff is `rank_forward_threshold` in `config/profile.yml`, on the cal-v1
+scale (0-5), default **2.5**, the cutoff used on 2026-09-23. A value outside
+0-5 stops the command with an error.
+`--force <url>` (repeatable) sends a ranked pending row to the evaluation even
+below the cutoff. An unranked row stays held with a reason, including when
+forced. It does not re-queue a posting that is already evaluated or queued.
+
+New queue rows get ids above every id in `batch-input.tsv` and
+`batch-state.tsv`, so they cannot collide with earlier runs. A `local:` JD row is
+queued with `jd=<path>` in its notes, which the runner seeds as the JD.
+
+```bash
+node eval-queue.mjs --dry-run            # print both lists, write nothing
+node eval-queue.mjs                      # append the forwarded rows to batch/batch-input.tsv
+node eval-queue.mjs --force https://jobs.example.com/123
+```
+
+**Hit rate per cal-v1 rank**, from the 84-pair replay of 2026-09-21
+(`node rank-calibration-replay.mjs`, field `bands`). Each row is one persisted
+one-decimal cal-v1 score that the measured pairs calibrated to.
+
+| cal-v1 rank | Pairs | Mean final score | Final ≥ 3.3 (floor when measured) | Final ≥ 3.5 (current floor) |
+|---:|---:|---:|---:|---:|
+| 5.0 | 1 | 4.10 | 1 | 1 |
+| 3.2 | 8 | 2.71 | 1 | 0 |
+| 2.8 | 45 | 2.58 | 7 | 0 |
+| 2.2 | 5 | 2.38 | 1 | 0 |
+| 2.1 | 16 | 2.32 | 2 | 0 |
+| 1.6 | 2 | 2.15 | 0 | 0 |
+| 0.8 | 7 | 1.87 | 0 | 0 |
+
+At the default 2.5 cutoff the gate forwards the 5.0, 3.2 and 2.8 bands: 54 of
+the 84 pairs, forwarding 9 of the 12 that cleared 3.3 and the single pair that
+cleared 3.5. Only the 5.0 band reached 3.5 in the sample; a cutoff above
+2.8 would additionally hold seven postings that cleared 3.3.
 
 ---
 

@@ -31,6 +31,7 @@
  */
 
 import { DEFAULT_USER_AGENT } from './user-agent.mjs';
+import { linkedInJobId } from './url-key.mjs';
 
 const TIMEOUT_MS = 8_000;
 // Strict path-segment charset. Anything with a slash, dot-dot, or other char is
@@ -149,8 +150,9 @@ const ATS_PROVIDERS = [
   },
   {
     id: 'linkedin',
-    // linkedin.com/jobs/view/{id} · .../jobs/view/{title-slug}-{id} · any page that
-    // carries the posting in ?currentJobId= (search and collection views).
+    // linkedin.com/jobs/view/{id} · .../jobs/view/{title-slug}-{id} · the /comm/
+    // mirror of either · any page that carries the posting in ?currentJobId=
+    // (search and collection views). See linkedInJobId in url-key.mjs.
     //
     // LinkedIn had no rung here, so every LinkedIn URL fell through to Playwright —
     // where /jobs/view/{id} redirects to a generic search page and no verdict can be
@@ -159,11 +161,8 @@ const ATS_PROVIDERS = [
     // ones, so liveness has to come from the body (`interpret`), never from the
     // status code alone.
     match(u) {
-      if (!/(^|\.)linkedin\.com$/.test(u.hostname)) return null;
-      const path = u.pathname.match(/^\/jobs\/view\/(?:.*-)?(\d+)\/?$/);
-      if (path) return { id: path[1] };
-      const current = u.searchParams.get('currentJobId');
-      return current && /^\d+$/.test(current) ? { id: current } : null;
+      const id = linkedInJobId(u);
+      return id ? { id } : null;
     },
     api: ({ id }) => `https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${id}`,
     // The endpoint is unauthenticated and rate-limited. Space our calls; the

@@ -204,7 +204,7 @@ try {
       && thresholdTable[3].truePositives === 2
       && Math.abs(thresholdTable[3].precision - 2 / 9) < 1e-12
       && Math.abs(thresholdTable[3].coverage - 2 / 12) < 1e-12);
-  check('3.3 replay keeps the apply-worthy floor separate',
+  check('3.3 replay keeps the measured 2026-09-21 floor separate',
     thresholdTable[3.3].forwarded === 1
       && thresholdTable[3.3].truePositives === 1
       && thresholdTable[3.3].precision === 1
@@ -214,6 +214,20 @@ try {
       && thresholdTable[2.8].truePositives === 9
       && Math.abs(thresholdTable[2.8].precision - 1 / 6) < 1e-12
       && Math.abs(thresholdTable[2.8].coverage - 3 / 4) < 1e-12);
+  check('the threshold table stays pinned to the floor it was measured against',
+    replay.measuredApplyWorthyFloor === 3.3 && replay.measuredApplyWorthyCount === 12);
+  check('the current apply-worthy floor is 3.5, reported beside the measured one',
+    replay.applyWorthyFloor === 3.5 && replay.applyWorthyCount === 1);
+  const bands = Object.fromEntries(replay.bands.map(band => [band.rank, band]));
+  check('every pair lands in exactly one cal-v1 band',
+    replay.bands.reduce((sum, band) => sum + band.pairs, 0) === 84);
+  check('the 2.8 band holds 45 pairs, 7 reaching the measured floor and none the current one',
+    bands[2.8].pairs === 45 && bands[2.8].reachedMeasuredFloor === 7 && bands[2.8].reachedApplyWorthyFloor === 0);
+  check('the default 2.5 cutoff forwards the bands at and above 2.8',
+    replay.forwardCutoff.threshold === 2.5
+      && replay.forwardCutoff.forwarded === 54
+      && replay.forwardCutoff.reachedMeasuredFloor === 9
+      && replay.forwardCutoff.reachedApplyWorthyFloor === 1);
 
   const testDir = mkdtempSync(join(tmpdir(), 'career-ops-ranker-offline-'));
   try {

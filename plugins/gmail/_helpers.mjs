@@ -39,6 +39,14 @@ const ASSET_HOST_PREFIXES = ['cdn.', 'static.', 'assets.', 'img.', 'images.', 'm
 const ASSET_HOSTS = [/(^|\.)cloudinary\.com$/, /\.blob\.core\.windows\.net$/, /(^|\.)cloudfront\.net$/];
 
 /**
+ * Newsletter click-redirect hosts. The link is an opaque hash only the sender's
+ * redirector can resolve, and beehiiv's answers a non-browser fetch with a
+ * Cloudflare challenge (403, `cf-mitigated: challenge`), so ingestion can never
+ * learn which posting, if any, sits behind it. Such a row carries no job to judge.
+ */
+const OPAQUE_REDIRECT_HOSTS = [/(^|\.)mail\.beehiiv\.com$/];
+
+/**
  * LinkedIn routes that only ever carry navigation or telemetry, never a posting.
  * Matched as path prefixes so a query string cannot smuggle one past the gate.
  */
@@ -75,6 +83,7 @@ export function isCleanUrl(url) {
     if (hostname === 'fonts.googleapis.com' || hostname === 'fonts.gstatic.com') return false;
     if (ASSET_HOST_PREFIXES.some(prefix => hostname.startsWith(prefix))) return false;
     if (ASSET_HOSTS.some(re => re.test(hostname))) return false;
+    if (OPAQUE_REDIRECT_HOSTS.some(re => re.test(hostname))) return false;
 
     if (isLinkedInHost(hostname)) {
       let path = u.pathname.toLowerCase();

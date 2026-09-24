@@ -294,6 +294,19 @@ cover_letter:
 # generate a PDF for every offer.
 # auto_pdf_score_threshold: 4.0
 
+# ── Forwarding gate for the long evaluation ────────────────────────────────
+#
+# `node eval-queue.mjs` builds the queue for the long A-G evaluation from
+# data/pipeline.md. A pending row goes on only when its `rank: cal-v1 X/5`
+# (written by `node rank-pipeline.mjs`) is at or above this cutoff. Unranked
+# rows wait for the next rank run; `--force <url>` can send a ranked row below
+# the cutoff.
+# The scale is the calibrated cal-v1 rank (0-5), not the final score. The
+# hit rate per rank behind the default is in docs/SCRIPTS.md → eval-queue.
+#
+# Default (key absent OR commented out): 2.5.
+# rank_forward_threshold: 2.5
+
 # ── Re-apply Cooldown Windows ──────────────────────────────────────────────
 #
 # Define cooldown windows for companies where you've recently applied.

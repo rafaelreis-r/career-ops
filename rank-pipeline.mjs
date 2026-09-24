@@ -148,6 +148,19 @@ export function appendRankAnnotation(rawLine, score, reason) {
   return `${withoutLegacyRank(rawLine)} | ${segment}`;
 }
 
+const CURRENT_RANK_SCORE = new RegExp(`\\|\\s*rank:\\s*${RANK_CALIBRATION_VERSION}\\s+(\\d+(?:\\.\\d+)?)/5\\b`);
+
+/**
+ * The current-version calibrated score a row carries, or null when it has none.
+ * An unversioned `rank: {n}/5` segment is pre-calibration and reads as none.
+ * @param {string} rawLine
+ * @returns {number | null}
+ */
+export function readRankScore(rawLine) {
+  const match = CURRENT_RANK_SCORE.exec(String(rawLine ?? ''));
+  return match ? Number(match[1]) : null;
+}
+
 /**
  * Apply pending annotations to the pipeline text, consuming each exactly once.
  *
