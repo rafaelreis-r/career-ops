@@ -73,6 +73,10 @@ export function reportAnswerAllowedFor(question, answer) {
   return answer.source !== 'report' || isReportEligibleQuestion(question);
 }
 
+function modelAnswerAllowed(answer) {
+  return answer.private !== true;
+}
+
 /** Canonical answers as `{id, label, value, source}`, non-answers dropped,
  *  first occurrence of a label kept. The posting's report answers come first
  *  (they are specific to this form), then the profile's. */
@@ -85,7 +89,7 @@ export function buildAnswers(reportAnswers = [], profileAnswers = []) {
       const key = normalizeText(a.label);
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      out.push({ id: `a${out.length}`, label: a.label, value: String(a.value).trim(), source });
+      out.push({ id: `a${out.length}`, label: a.label, value: String(a.value).trim(), source, ...(a.period ? { period: a.period } : {}), ...(a.private === true ? { private: true } : {}) });
     }
   };
   add(reportAnswers, 'report');
@@ -163,7 +167,7 @@ export function valueFitsField(question, value) {
   if (wantsUrl && !URL_VALUE_RX.test(v)) return { reason: 'the field asks for a URL' };
   if (wantsPhone && !phoneValue) return { reason: 'the field asks for a phone number' };
   if (v.startsWith('+') && (v.match(/\d/g) || []).length >= 10 && /^\+[\d\s().-]+$/.test(v) && !wantsPhone) return { reason: 'a phone number in a field that does not ask for one' };
-  const fieldPeriod = periodOf(question.label);
+  const fieldPeriod = periodOf(`${question.label ?? ''} ${question.placeholder ?? ''}`);
   const valuePeriod = periodOf(v);
   if (fieldPeriod && valuePeriod && fieldPeriod !== valuePeriod) return { reason: `a ${valuePeriod} amount in a field that asks for ${fieldPeriod}` };
   return null;
@@ -259,7 +263,7 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
   }
 
   const jev = { requests: 0, error: null, enabled: true };
-  const stages = ['report', 'profile'].map((s) => answers.filter((a) => a.source === s)).filter((list) => list.length);
+  const stages = ['report', 'profile'].map((s) => answers.filter((a) => a.source === s && modelAnswerAllowed(a))).filter((list) => list.length);
   for (const stageAnswers of stages) {
     if (!pending.length) break;
     const batch = pending.filter((q) => stageAnswers.every((a) => reportAnswerAllowedFor(q, a)));
@@ -316,6 +320,10 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
 
 export function lockFor(question, answer) {
   if (!reportAnswerAllowedFor(question, answer)) return { reason: 'report-source-mismatch', text: 'report-source-mismatch' };
+  if (answer.private && normalizeText(question.label) !== normalizeText(answer.label)) return { reason: 'private-answer-mismatch', text: 'private-answer-mismatch' };
+  const fieldPeriod = periodOf(`${question.label ?? ''} ${question.placeholder ?? ''}`);
+  const answerPeriod = answer.period ?? periodOf(`${answer.label ?? ''} ${answer.value ?? ''}`);
+  if (fieldPeriod && answerPeriod && fieldPeriod !== answerPeriod) return { reason: 'period-mismatch', text: `period-mismatch: ${answerPeriod} amount in a field that asks for ${fieldPeriod}` };
   const semantic = semanticMismatch(question, answer);
   if (semantic) return { reason: 'semantic-mismatch', text: `semantic-mismatch: ${semantic}` };
   const currency = currencyLock(question, answer);
@@ -378,7 +386,7 @@ function semanticMismatch(question, answer) {
 export async function judgeWithModel(questions, answers, complete) {
   const picks = new Map();
   if (!questions.length || !answers.length) return picks;
-  const relevant = answers.filter((a) => questions.some((q) => reportAnswerAllowedFor(q, a)));
+  const relevant = answers.filter((a) => modelAnswerAllowed(a) && questions.some((q) => reportAnswerAllowedFor(q, a)));
   if (!relevant.length) return picks;
   const payload = {
     fields: questions.map((q) => ({ key: q.key, label: q.label, kind: q.kind, offered_options: q.options ?? null })),
@@ -454,7 +462,7 @@ export async function pickOfferedOptions(questions, decisions, { ask = jevAsk, t
     if (!STATIC_CHOICE_KINDS.has(q.kind) || !d.answer || d.lock || !q.options?.length) continue;
     const m = matchOption(q.options, d.answer.value);
     if (m) d.option = m;
-    else pending.push(q);
+    else if (modelAnswerAllowed(d.answer)) pending.push(q);
   }
   if (!pending.length) return { requests: 0, error: null };
   const state = JSON.stringify({
@@ -534,7 +542,7 @@ export async function answerYesNoFromFacts(questions, answers, { bool = answerBo
   const facts = {};
   const values = new Set();
   for (const a of answers) {
-    if (a.source === 'report' || a.value.length > 200 || values.has(a.value)) continue;
+    if (a.source === 'report' || !modelAnswerAllowed(a) || a.value.length > 200 || values.has(a.value)) continue;
     values.add(a.value);
     facts[a.label] = a.value;
   }
@@ -563,6 +571,7 @@ function parseCompensationTargets(text) {
     return {
       currency: m[1].toUpperCase(),
       amount: Math.round(Number(m[2]) * 1000),
+      period: 'monthly',
       regime: regimeOf(t.slice(m.index + m[0].length, windowEnd)),
     };
   });
@@ -583,9 +592,9 @@ function parseCompensationTargets(text) {
  */
 export function answersFromProfileFacts(profile) {
   const out = [];
-  const push = (labels, value) => {
+  const push = (labels, value, metadata = {}) => {
     const v = value == null ? '' : typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value).trim();
-    if (v) for (const label of labels) out.push({ label, value: v });
+    if (v) for (const label of labels) out.push({ label, value: v, ...metadata });
   };
   const c = profile?.candidate || {};
   const aa = profile?.application_answers || {};
@@ -637,13 +646,13 @@ export function answersFromProfileFacts(profile) {
     for (const target of parseCompensationTargets(profile?.compensation?.target_range)) {
       const value = String(target.amount);
       if (target.currency === 'USD') {
-        push(['Salary Expectations', 'Expected Salary', 'Desired Salary (USD)', 'Pretensão salarial internacional (USD)'], value);
+        push(['Salary Expectations', 'Expected Salary', 'Desired Salary (USD)', 'Pretensão salarial internacional (USD)'], value, { period: target.period });
       } else if (target.currency === 'BRL' && target.regime === 'CLT') {
-        push(['Desired Salary (CLT, BRL)', 'Pretensão salarial CLT (BRL)'], value);
+        push(['Desired Salary (CLT, BRL)', 'Pretensão salarial CLT (BRL)'], value, { period: target.period });
       } else if (target.currency === 'BRL' && target.regime === 'PJ') {
-        push(['Desired Salary (PJ, BRL)', 'Pretensão salarial PJ (BRL)'], value);
+        push(['Desired Salary (PJ, BRL)', 'Pretensão salarial PJ (BRL)'], value, { period: target.period });
       } else if (target.currency === 'BRL') {
-        push(['Desired Salary (BRL)'], value);
+        push(['Desired Salary (BRL)'], value, { period: target.period });
       }
     }
   }
@@ -651,15 +660,15 @@ export function answersFromProfileFacts(profile) {
   // confirmed decision — these are only offered, never auto-checked).
   // Labels verbatim from the Pismo/Workday form, 2026-09-23.
   const sd = aa.self_declaration || {};
-  push(['What is your disability?'], sd.disability_category);
+  push(['What is your disability?'], sd.disability_category, { private: true });
   if (sd.disability_cid && sd.disability) {
-    push(['Enter your CID and details about your disability.'], `CID ${sd.disability_cid} - ${sd.disability}.`);
+    push(['Enter your CID and details about your disability.'], `CID ${sd.disability_cid} - ${sd.disability}.`, { private: true });
   }
-  if (sd.accessibility_needs != null) {
-    const none = normalizeText(String(sd.accessibility_needs)) === 'none';
+  if (normalizeText(sd.accessibility_needs) === 'none') {
     push(
       ['If you are a person with a disability, will you need any accessibility resources during the process?...'],
-      none ? 'No accessibility resources needed.' : String(sd.accessibility_needs),
+      'No accessibility resources needed.',
+      { private: true },
     );
   }
   return out;

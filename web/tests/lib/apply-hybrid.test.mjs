@@ -21,7 +21,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { scanPage, scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
-import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, isReportEligibleQuestion, judgeWithModel, lockFor, matchAnswers, matchExact, matchOption, matchSalary, regimeOf } from '../../src/lib/apply/hybrid/answers.mjs';
+import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, isReportEligibleQuestion, judgeWithModel, lockFor, matchAnswers, matchExact, matchOption, matchSalary, pickOfferedOptions, regimeOf } from '../../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
 import { alignOutcomes, evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
 import { fileNamesCompany, generatePostingCv, resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
@@ -681,6 +681,22 @@ test('the USD anchor binds to a field that names USD and nothing else', () => {
   assert.equal(lockFor(field, picked), null);
 });
 
+test('monthly salary anchors lock annual fields in USD and both BRL regimes', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  for (const [label, value] of [
+    ['Yearly Salary Expectations (in USD)*', '8000'],
+    ['What are your annual salary requirements in $USD*', '8000'],
+    ['Pretensão salarial anual como CLT (BRL)*', '28000'],
+    ['Pretensão salarial anual PJ (BRL)*', '30000'],
+  ]) {
+    const field = { label };
+    const picked = matchExact(field, answers) || matchSalary(field, answers);
+    assert.equal(picked?.value, value, label);
+    assert.equal(picked.period, 'monthly', label);
+    assert.equal(lockFor(field, picked)?.reason, 'period-mismatch', label);
+  }
+});
+
 test('a BRL field that names no regime is left unmatched rather than guess between CLT and PJ', () => {
   const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
   const field = { label: 'Pretensão salarial (BRL)*' };
@@ -735,6 +751,54 @@ test('Pismo (Workday): the disability, CID and accessibility fields all bind fro
   const accessPick = matchExact(accessibility, answers);
   assert.equal(accessPick?.value, 'No accessibility resources needed.');
   assert.equal(lockFor(accessibility, accessPick), null);
+});
+
+test('medical self-declaration never reaches models for unrelated fields', async () => {
+  const profile = { ...PISMO_PROFILE, candidate: { full_name: 'Taylor Example' } };
+  const answers = buildAnswers([], answersFromProfileFacts(profile));
+  const unrelated = { key: 'other', kind: 'text', label: 'Preferred first name' };
+  const medicalText = /F84\.5|Autism Spectrum Disorder|Psychosocial|No accessibility resources needed/;
+  let jevCalls = 0;
+  await matchAnswers([unrelated], answers, { ask: async (request) => {
+    jevCalls++;
+    assert.doesNotMatch(JSON.stringify(request), medicalText);
+    return { answers: {} };
+  } });
+  assert.equal(jevCalls, 1);
+
+  let judgeCalls = 0;
+  await judgeWithModel([unrelated], answers, async (request) => {
+    judgeCalls++;
+    assert.doesNotMatch(JSON.stringify(request), medicalText);
+    return { structuredContent: { matches: [] } };
+  });
+  assert.equal(judgeCalls, 1);
+
+  const yesNo = { key: 'available', kind: 'radio', label: 'Are you available?', options: ['Yes', 'No'] };
+  let boolCalls = 0;
+  await answerYesNoFromFacts([yesNo], answers, { bool: async (_question, facts) => {
+    boolCalls++;
+    assert.doesNotMatch(JSON.stringify(facts), medicalText);
+    return { bool: null };
+  } });
+  assert.equal(boolCalls, 1);
+
+  const disability = { key: 'disability', kind: 'select', label: 'What is your disability?*', options: ['Physical', 'Visual'] };
+  const picked = matchExact(disability, answers);
+  assert.equal(picked?.value, 'Psychosocial');
+  assert.equal(lockFor(unrelated, picked)?.reason, 'private-answer-mismatch');
+  const decisions = new Map([[disability.key, { answer: picked, lock: null }]]);
+  await pickOfferedOptions([disability], decisions, { ask: async () => {
+    assert.fail('medical self-declaration was sent to the option model');
+  } });
+  assert.equal(decisions.get(disability.key).option, null);
+});
+
+test('accessibility text is offered only for the approved none value', () => {
+  const profile = structuredClone(PISMO_PROFILE);
+  profile.application_answers.self_declaration.accessibility_needs = 'Custom assistance';
+  const answers = answersFromProfileFacts(profile);
+  assert.equal(answers.some((a) => a.label.startsWith('If you are a person with a disability')), false);
 });
 
 // --- SMG (applytojob, 2026-09-22): the three errors the live round shipped ---
