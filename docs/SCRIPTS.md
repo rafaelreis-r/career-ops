@@ -873,6 +873,59 @@ npm run reconcile
 
 ---
 
+## reconcile-email
+
+Reconciles `data/applications.md` of every track with the Gmail inbox. The
+tracks come from the shared registry `trilhas.yml` (`$CAREER_OPS_SHARED_DIR`,
+default `~/dev/career-ops-shared`; see [FORK.md](FORK.md)); without one, only
+the current install is read.
+
+```bash
+node reconcile-email.mjs                 # dry-run over the last 40 days
+node reconcile-email.mjs --days 14       # shorter window
+node reconcile-email.mjs --apply         # write the proposed changes
+node reconcile-email.mjs --json          # machine-readable report
+```
+
+1. **Gmail, read-only.** Two searches through `gog`: applicant-tracking mail
+   (known ATS sender domains, or application/interview subjects) and mail from
+   recruiters as people (LinkedIn InMail, or a non-automated sender in the
+   Personal category writing about a role). Each thread body comes from
+   `gog gmail thread get --sanitize-content`. Every call carries `--readonly
+   --no-input --gmail-no-send --json --wrap-untrusted`. The account is
+   `--account`, else `candidate.email` of `config/profile.yml`.
+2. **Candidates.** Up to five rows, across all tracks, whose company or Via
+   the e-mail names (sender, display name, subject or body: the sender is
+   usually an ATS or a recruiter, not the employer). Only when no company is
+   named does an exact role title qualify a row.
+3. **Jev** (`lib/jev-client.mjs`, one request per e-mail, 16 in parallel):
+   kind (`confirmation`, `rejection`, `interview`, `recruiter_request`,
+   `incomplete`, `not_job`), the next action asked of the candidate, and
+   which candidate row the e-mail is about, or none. Requires
+   `TYPESAFE_API_KEY`. E-mail text travels only in the Jev state.
+4. **Forward-only changes**, in e-mail date order: confirmation → Applied,
+   rejection → Rejected, interview → Interview, recruiter request → Responded,
+   only when the move is forward in `templates/states.yml` (SKIP counts as
+   Evaluated). A match or kind probability below 0.7 is never written; it goes
+   to the review list. A backward move is refused and listed, except stale
+   ones (a confirmation, or a row already further along in a non-terminal
+   state), which are only counted.
+5. **`--apply`** copies each touched tracker to
+   `applications.md.bak-reconcile-email-<timestamp>`, then writes each change
+   through `set-status.mjs --row N --role R --on <e-mail date> --note …`. The
+   note (`rejected by e-mail on 2026-09-22 from no-reply@ashbyhq.com
+   (reconcile-email)`) is deterministic, so a second run adds nothing.
+
+The report lists the changes (track, row, before → after, e-mail date and
+sender), recruiter requests, pending actions (technical assessment, AI
+interview, incomplete registration, interview scheduling) with any deadline
+the e-mail states, live processes, refused moves and the review list.
+
+**Exit codes:** `0` done, `1` usage, gog, Jev or tracker failure, `2` some
+writes failed.
+
+---
+
 ## cover-letter
 
 Renders a cover-letter JSON payload to PDF: fills
@@ -1061,6 +1114,7 @@ These have no `npm run` binding — modes and agents call them with
 | `node followup-cadence.mjs [--summary]` | Follow-up cadence per active application; flags overdue entries |
 | `node followup-seed.mjs [--backfill]` | Seed `data/follow-ups.md` with a pinned first follow-up date when a row turns Applied |
 | `node reply-watch.mjs` | Classify employer replies from `data/reply-candidates.json`, match to tracker rows, print a review digest |
+| `node reconcile-email.mjs [--days N] [--apply]` | Reconcile every track's tracker with Gmail (gog, read-only) and Jev; dry-run by default. See [reconcile-email](#reconcile-email) |
 | `node process-quality.mjs [--summary]` | Aggregate `[process-friction]` tags from `data/active-interviews.md` per company |
 | `node reserve-report-num.mjs [--count N]` | Atomically reserve report numbers inside the required `config/profile.yml` `report_number_range` (fixes the #749 race); `--collisions <installation> <installation> [...]` performs a read-only cross-installation identity audit |
 | `node agent-inbox.mjs add "..."` | Append a request to the queue the agent drains at the next session start |

@@ -126,6 +126,7 @@ AI-powered, CLI-agnostic job search automation: pipeline tracking, offer evaluat
 | `set-status.mjs` | Canonical tracker-row update: `node set-status.mjs <report#\|company> <State> [--note] [--force]` — strict states.yml validation, report-link mismatch guard, shared lock, atomic write |
 | `invite-match.mjs` | Fuzzy-match a pasted interview invite (company, date, req ID) against the tracker, ranking candidates when a company has multiple entries (JSON or `--summary`) |
 | `paste-reply.mjs` | Manual/no-Gmail input into reply-watch classification — normalizes a pasted/file email (subject/from/body) and appends to `data/reply-candidates.json`; never overwrites entries, never classifies, never touches the tracker |
+| `reconcile-email.mjs` | Reconciles every track's tracker (shared `trilhas.yml`) with Gmail through `gog` (read-only) and Jev: proposes forward-only status changes, lists recruiter requests, pending actions with deadlines, live processes and low-confidence matches. Dry-run by default; `--apply` backs up and writes through `set-status.mjs` |
 | `analyze-patterns.mjs` | Pattern analysis incl. per-ATS-vendor advance rate (JSON) |
 | `upskill.mjs` | Weighted skill-gap map from tracked reports; known skills from `cv.md`/`config/profile.yml` excluded (JSON) |
 | `stats.mjs` | Lifetime pipeline stats: tracker roll-up, canonical `ever*` funnel, scan totals, portal coverage, follow-up compliance, scan-run trends (JSON or `--summary`) |
@@ -348,6 +349,7 @@ Two separate axes:
 | Wants to build or enrich the profile from documents they already have (master CV, LinkedIn export, diplomas, references) | `intake` — scans `documents/`, extracts text locally (`intake.mjs`), proposes source-annotated additions to `config/profile.yml`/`cv.md`/`modes/_profile.md`; writes nothing without explicit confirm |
 | Asks about follow-ups or application cadence | `followup` |
 | Wants to classify application replies and review updates | `reply-watch` — classifies replies, matches to applications, suggests tracker updates |
+| Asks to reconcile the tracker with e-mail ("reconciliar com email") | `node reconcile-email.mjs` (dry-run), show its lists, then `--apply` only after the user approves the proposed changes |
 | Wants to record application outcome & archive artifacts | `outcome` |
 | Wants to update the system | `update` |
 | Wants to queue a request for later / check the inbox between sessions | `agent-inbox` — append-only checklist drained next session; nothing auto-submits |
