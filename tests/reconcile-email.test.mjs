@@ -98,10 +98,9 @@ function stubAsk() {
 
 // ── gog: safety flags, both searches, sanitized bodies ──────────────────
 {
-  const fake = path.join(tmp, 'fake-gog.mjs');
-  fs.writeFileSync(fake, '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({ argv: process.argv.slice(2) }));\n');
-  fs.chmodSync(fake, 0o755);
-  const res = await runGog('me@example.com', ['gmail', 'search', 'x'], { bin: fake });
+  const res = await runGog('me@example.com', ['gmail', 'search', 'x'], {
+    exec: (_bin, argv, _options, callback) => callback(null, JSON.stringify({ argv }), ''),
+  });
   ok('runGog passes --account and every safety flag before the command',
     JSON.stringify(res.argv.slice(0, 2 + GOG_SAFETY_FLAGS.length)) === JSON.stringify(['--account', 'me@example.com', ...GOG_SAFETY_FLAGS]));
   ok('the safety flags are read-only, non-interactive, no-send, JSON, untrusted-wrapped',
@@ -123,7 +122,7 @@ function stubAsk() {
   const { emails, searched } = await fetchEmails({ account: 'me@example.com', days: 40, now: 1790000300000, run });
   const searches = calls.filter((c) => c[1] === 'search');
   ok('two searches run: the ATS one and the recruiter-as-person one',
-    searches.length === 2 && searches.every((c) => c[2].startsWith('newer_than:40d ')) && searches.some((c) => c[2].includes('ashbyhq.com')));
+    searches.length === 2 && searches.every((c) => c[2].startsWith('newer_than:40d ')) && searches.some((c) => c[2].split(/\s+/).some((term) => term === 'ashbyhq.com')));
   ok('a thread found by both searches is fetched once', calls.filter((c) => c[1] === 'thread').length === 2 && searched.threads === 2);
   ok('every thread body is fetched with --sanitize-content', calls.filter((c) => c[1] === 'thread').every((c) => c.includes('--sanitize-content')));
   const a1 = emails.find((e) => e.threadId === 'a1');

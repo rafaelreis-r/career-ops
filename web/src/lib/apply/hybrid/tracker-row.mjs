@@ -8,19 +8,46 @@
 // a 30-day period"; the two counted were track B's 1068 and 1087, which a
 // track-A run cannot see in its own tracker).
 //
-// Tracks and their trackers come from lib/tracks.mjs (shared registry
-// `trilhas.yml`); limits from `data/submission-limits.tsv` beside the shared
-// `data/blacklist.md`. Without a registry only the current track is read.
+// Tracks come from the shared registry `trilhas.yml`; limits from
+// `data/submission-limits.tsv` beside the shared `data/blacklist.md`. The
+// shared directory is $CAREER_OPS_SHARED_DIR, or ~/dev/career-ops-shared
+// (docs/FORK.md). Without a registry only the current track is read.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { normalizeTextKey, parseBlacklist, resolveCanonicalState } from '../../../../../tracker-parse.mjs';
-import { readTrackerRows, sharedDir, statesFor, trackRoots } from '../../../../../lib/tracks.mjs';
+import { fileURLToPath } from 'node:url';
+import * as yaml from 'js-yaml';
+import { resolveTrackerPath } from '../../../../../path-resolver.mjs';
+import { canonicalStatesFromDocument, extractTrackerReportNumbers, isHeaderRow, isSeparatorRow, normalizeTextKey, parseBlacklist, parseTrackerRow, resolveCanonicalState, resolveColumns } from '../../../../../tracker-parse.mjs';
+
+const FORK_STATES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../../templates/states.yml');
 
 /** Canonical states that mean the application was already sent. */
 export const SENT_STATES = new Set(['Applied', 'Responded', 'Interview', 'Offer', 'Rejected', 'Hired']);
 
+const statesFor = (root) => {
+  const own = path.join(root, 'templates', 'states.yml');
+  const statesPath = fs.existsSync(own) ? own : FORK_STATES;
+  return canonicalStatesFromDocument(yaml.load(fs.readFileSync(statesPath, 'utf8')), statesPath);
+};
+
 const normalizeCompany = normalizeTextKey;
+
+function trackerRows(root) {
+  const tracker = resolveTrackerPath(root);
+  if (!fs.existsSync(tracker)) return { tracker, rows: [] };
+  const lines = fs.readFileSync(tracker, 'utf8').split('\n');
+  const colmap = resolveColumns(lines);
+  const states = statesFor(root);
+  const rows = [];
+  for (const line of lines) {
+    if (isHeaderRow(line) || isSeparatorRow(line)) continue;
+    const row = parseTrackerRow(line, colmap);
+    if (row) rows.push({ ...row, canonical: resolveCanonicalState(row.status, states), reports: extractTrackerReportNumbers(row.report, row.notes) });
+  }
+  return { tracker, rows };
+}
 
 /**
  * The tracker row of this report, and whether its status says the application
@@ -29,11 +56,36 @@ const normalizeCompany = normalizeTextKey;
  * @returns {{row: number|null, company: string|null, status: string|null, canonical: string|null, sent: boolean, tracker: string}}
  */
 export function trackerStanding(root, reportNumber) {
-  const { tracker, rows } = readTrackerRows(root);
+  const { tracker, rows } = trackerRows(root);
   const num = Number(reportNumber);
   const hit = Number.isInteger(num) && num > 0 ? rows.find((r) => r.reports.includes(num)) : null;
   if (!hit) return { row: null, company: null, status: null, canonical: null, sent: false, tracker };
   return { row: hit.num, company: hit.company, status: hit.status, canonical: hit.canonical, sent: SENT_STATES.has(hit.canonical), tracker };
+}
+
+/** The shared directory (registry, shared data), or null when absent. */
+export function sharedDir() {
+  const dir = process.env.CAREER_OPS_SHARED_DIR?.trim() || path.join(os.homedir(), 'dev', 'career-ops-shared');
+  return fs.existsSync(dir) ? dir : null;
+}
+
+/** Every track root the registry lists, plus `root`; each once. */
+export function trackRoots(root, shared = sharedDir()) {
+  const roots = [path.resolve(root)];
+  const registry = shared && path.join(shared, 'trilhas.yml');
+  if (registry && fs.existsSync(registry)) {
+    const doc = yaml.load(fs.readFileSync(registry, 'utf8'));
+    for (const t of doc?.trilhas || []) {
+      if (t?.dir) roots.push(path.resolve(String(t.dir).replace(/^~(?=$|\/)/, os.homedir())));
+    }
+  }
+  const seen = new Set();
+  return roots.filter((r) => {
+    const real = fs.existsSync(r) ? fs.realpathSync(r) : r;
+    if (seen.has(real)) return false;
+    seen.add(real);
+    return true;
+  });
 }
 
 /** `data/submission-limits.tsv`: company, max_submissions, window_days, ... (header row, tab-separated). */
@@ -90,7 +142,7 @@ export function postingEligibility({ root, reportNumber = null, company = null, 
     const since = addDays(today, -rule.days);
     const submissions = [];
     for (const r of trackRoots(root, shared)) {
-      const { tracker, rows } = readTrackerRows(r);
+      const { tracker, rows } = trackerRows(r);
       for (const row of rows) {
         if (normalizeCompany(row.company) !== key || !SENT_STATES.has(row.canonical)) continue;
         const sent = sentDate(r, tracker, row);
