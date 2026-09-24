@@ -989,7 +989,7 @@ to the evaluation and appends them to `batch/batch-input.tsv`, the queue
 It prints two lists, with one reason per row:
 
 - **Forwarded:** `rank: cal-v1 {score}/5` at or above the cutoff, highest first,
-  or named by `--force`.
+  or ranked and named by `--force`.
 - **Held:**
   - already evaluated: the URL is in a report's `**URL:**` header under
     `reports/`, or in the tracker;
@@ -1004,9 +1004,9 @@ LinkedIn posting matches on its job id whatever tracking URL it arrived under.
 The cutoff is `rank_forward_threshold` in `config/profile.yml`, on the cal-v1
 scale (0-5), default **2.5**, the cutoff used on 2026-09-23. A value outside
 0-5 stops the command with an error.
-`--force <url>` (repeatable) sends one pending row to the evaluation even
-below the cutoff or unranked. It does not re-queue a posting that is already
-evaluated or already queued.
+`--force <url>` (repeatable) sends a ranked pending row to the evaluation even
+below the cutoff. An unranked row stays held with a reason, including when
+forced. It does not re-queue a posting that is already evaluated or queued.
 
 New queue rows get ids above every id in `batch-input.tsv` and
 `batch-state.tsv`, so they cannot collide with earlier runs. A `local:` JD row is

@@ -9,7 +9,7 @@
  * two lists, each with its reason:
  *
  *   forwarded  `rank: cal-v1 {score}/5` at or above the cutoff, or named by
- *              --force (which overrides the cutoff and a missing rank).
+ *              --force (which overrides the cutoff for a ranked posting).
  *   held       already evaluated (URL in a report's `**URL:**` header or in the
  *              tracker), already queued in batch-input.tsv, a duplicate of an
  *              earlier pending row, no cal-v1 rank yet (waits for the daily
@@ -41,6 +41,7 @@ import { isMainModule } from './lib/is-main-module.mjs';
 import { DEFAULT_FORWARD_THRESHOLD } from './lib/rank-calibration.mjs';
 import { RANK_CALIBRATION_VERSION, readRankScore } from './rank-pipeline.mjs';
 import { collectSeenUrls, normalizeUrlForDedup } from './scan.mjs';
+import { withPipelineLock } from './pipeline-lock.mjs';
 
 const CODE_ROOT = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = getCareerOpsRoot();
@@ -55,7 +56,7 @@ const USAGE = `
 
     cutoff              rank_forward_threshold in config/profile.yml,
                          else ${DEFAULT_FORWARD_THRESHOLD}
-    --force <url>        forward this pending row even below the cutoff or unranked;
+    --force <url>        forward this ranked pending row even below the cutoff;
                          repeatable
     --dry-run            print the plan, write nothing
 `;
@@ -158,7 +159,7 @@ const fmt = score => score.toFixed(1);
  * @param {number} input.threshold
  * @param {Map<string, string>} input.evaluated - from collectEvaluated.
  * @param {Map<string, string>} input.queued - normalized URL -> batch id.
- * @param {string[]} [input.force] - URLs to forward regardless of rank.
+ * @param {string[]} [input.force] - ranked URLs to forward regardless of cutoff.
  */
 export function planQueue({ rows, threshold, evaluated, queued, force = [] }) {
   const forced = new Set(force.map(normalizeUrlForDedup));
@@ -177,14 +178,14 @@ export function planQueue({ rows, threshold, evaluated, queued, force = [] }) {
     if (representative.get(key) !== row) { hold(`duplicate of pipeline.md line ${representative.get(key).line}`); continue; }
     if (evaluated.has(key)) { hold(`already evaluated (${evaluated.get(key)})`); continue; }
     if (queued.has(key)) { hold(`already queued (batch-input id ${queued.get(key)})`); continue; }
-    const ranked = row.rank !== null;
-    if (forced.has(key)) {
-      forward(ranked
-        ? `forced: ${RANK_CALIBRATION_VERSION} ${fmt(row.rank)}${row.rank < threshold ? ` below cutoff ${fmt(threshold)}` : ''}`
-        : `forced: no ${RANK_CALIBRATION_VERSION} rank`);
+    if (row.rank === null) {
+      hold(`no ${RANK_CALIBRATION_VERSION} rank yet, waits for the daily rank run${forced.has(key) ? '; --force requires a cal-v1 rank' : ''}`);
       continue;
     }
-    if (!ranked) { hold(`no ${RANK_CALIBRATION_VERSION} rank yet, waits for the daily rank run`); continue; }
+    if (forced.has(key)) {
+      forward(`forced: ${RANK_CALIBRATION_VERSION} ${fmt(row.rank)}${row.rank < threshold ? ` below cutoff ${fmt(threshold)}` : ''}`);
+      continue;
+    }
     if (row.rank < threshold) { hold(`${RANK_CALIBRATION_VERSION} ${fmt(row.rank)} below cutoff ${fmt(threshold)}`); continue; }
     forward(`${RANK_CALIBRATION_VERSION} ${fmt(row.rank)} at or above cutoff ${fmt(threshold)}`);
   }
@@ -233,7 +234,7 @@ function printPlan(plan, write) {
   if (write) console.log(`\n${write}`);
 }
 
-function main(argv) {
+async function main(argv) {
   let values;
   try {
     ({ values } = parseArgs({
@@ -261,36 +262,39 @@ function main(argv) {
   }
 
   const batchInput = DEFAULT_BATCH_INPUT;
-  const inputRows = parseBatchRows(readIfExists(batchInput));
-  const stateRows = parseBatchRows(readIfExists(join(dirname(batchInput), 'batch-state.tsv')));
-  const plan = planQueue({
-    rows: parsePendingRows(readIfExists(join(DATA_ROOT, 'data', 'pipeline.md'))),
-    threshold,
-    evaluated: collectEvaluated({
-      applicationsText: readIfExists(resolveTrackerPath(DATA_ROOT)),
-      reports: readReports(join(DATA_ROOT, 'reports')),
-    }),
-    queued: inputRows.byKey,
-    force: values.force,
+  const result = await withPipelineLock(batchInput, () => {
+    const existing = readIfExists(batchInput);
+    const inputRows = parseBatchRows(existing);
+    const stateRows = parseBatchRows(readIfExists(join(dirname(batchInput), 'batch-state.tsv')));
+    const plan = planQueue({
+      rows: parsePendingRows(readIfExists(join(DATA_ROOT, 'data', 'pipeline.md'))),
+      threshold,
+      evaluated: collectEvaluated({
+        applicationsText: readIfExists(resolveTrackerPath(DATA_ROOT)),
+        reports: readReports(join(DATA_ROOT, 'reports')),
+      }),
+      queued: inputRows.byKey,
+      force: values.force,
+    });
+    if (plan.unknownForce.length) return { plan, written: '' };
+
+    let written = '';
+    if (!values['dry-run'] && plan.forwarded.length) {
+      const firstId = Math.max(inputRows.maxId, stateRows.maxId) + 1;
+      const base = existing.trim() ? existing.replace(/\n*$/, '\n') : `${BATCH_INPUT_HEADER}\n`;
+      writeFileSync(batchInput, `${base}${formatBatchRows(plan.forwarded, firstId).join('\n')}\n`);
+      written = `Appended ${plan.forwarded.length} row(s) to ${batchInput} (ids ${firstId}-${firstId + plan.forwarded.length - 1}).`;
+    } else if (values['dry-run']) {
+      written = '--dry-run: nothing written.';
+    }
+    return { plan, written };
   });
-  if (plan.unknownForce.length) {
-    console.error(`--force names no pending row in data/pipeline.md: ${plan.unknownForce.join(', ')}`);
+  if (result.plan.unknownForce.length) {
+    console.error(`--force names no pending row in data/pipeline.md: ${result.plan.unknownForce.join(', ')}`);
     return 2;
   }
-
-  let written = '';
-  if (!values['dry-run'] && plan.forwarded.length) {
-    const firstId = Math.max(inputRows.maxId, stateRows.maxId) + 1;
-    const existing = readIfExists(batchInput);
-    const base = existing.trim() ? existing.replace(/\n*$/, '\n') : `${BATCH_INPUT_HEADER}\n`;
-    writeFileSync(batchInput, `${base}${formatBatchRows(plan.forwarded, firstId).join('\n')}\n`);
-    written = `Appended ${plan.forwarded.length} row(s) to ${batchInput} (ids ${firstId}-${firstId + plan.forwarded.length - 1}).`;
-  } else if (values['dry-run']) {
-    written = '--dry-run: nothing written.';
-  }
-
-  printPlan(plan, written);
+  printPlan(result.plan, result.written);
   return 0;
 }
 
-if (isMainModule(import.meta.url)) process.exit(main(process.argv.slice(2)));
+if (isMainModule(import.meta.url)) process.exitCode = await main(process.argv.slice(2));

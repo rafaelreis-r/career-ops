@@ -7,15 +7,15 @@
 //   2. Already-evaluated postings (report `**URL:**` header or tracker) never
 //      re-enter the queue, whatever URL spelling they come back under.
 //   3. An unranked row waits; it is not forwarded and not dropped.
-//   4. --force overrides the cutoff and a missing rank, nothing else.
+//   4. --force overrides the cutoff for ranked rows, nothing else.
 //   5. The queue file grows with ids that cannot collide with batch state, and
 //      pipeline.md is never written.
 import { pass, fail, ROOT, NODE, rmSync } from './helpers.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
-import { execFileSync } from 'child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'fs';
-import { tmpdir } from 'os';
+import { execFile, execFileSync } from 'child_process';
+import { promisify } from 'util';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'fs';
 
 console.log('\neval-queue — cal-v1 forwarding gate');
 
@@ -94,8 +94,8 @@ try {
   const forcedReason = url => [...forced.forwarded, ...forced.held].find(r => r.url === url)?.reason ?? '';
   check('--force forwards a row below the cutoff and says so',
     forcedReason('https://x.test/low') === 'forced: cal-v1 2.1 below cutoff 2.5');
-  check('--force forwards an unranked row',
-    forcedReason('https://x.test/unranked') === 'forced: no cal-v1 rank');
+  check('--force holds an unranked row with a reason',
+    forcedReason('https://x.test/unranked') === 'no cal-v1 rank yet, waits for the daily rank run; --force requires a cal-v1 rank');
   check('--force does not re-queue an evaluated posting',
     /^already evaluated/.test(forcedReason('https://x.test/tracked')));
   check('--force naming no pending row is reported',
@@ -115,10 +115,14 @@ try {
     lines[1].split('\t')[3].startsWith('jd=jds/iota-sre.md '));
 
   // ── end to end: config, write path, ids, pipeline.md untouched ──
-  const root = mkdtempSync(join(tmpdir(), 'career-ops-eval-queue-'));
-  const repoBatchInput = join(ROOT, 'batch', 'batch-input.tsv');
-  const previousBatchInput = existsSync(repoBatchInput) ? readFileSync(repoBatchInput, 'utf8') : null;
+  const root = mkdtempSync(join(ROOT, 'tests', '.eval-queue-'));
   try {
+    copyFileSync(join(ROOT, 'eval-queue.mjs'), join(root, 'eval-queue.mjs'));
+    for (const file of ['path-resolver.mjs', 'rank-pipeline.mjs', 'scan.mjs', 'pipeline-lock.mjs']) {
+      symlinkSync(join(ROOT, file), join(root, file));
+    }
+    symlinkSync(join(ROOT, 'lib'), join(root, 'lib'), 'dir');
+    symlinkSync(join(ROOT, 'node_modules'), join(root, 'node_modules'), 'dir');
     mkdirSync(join(root, 'data'));
     mkdirSync(join(root, 'config'));
     mkdirSync(join(root, 'reports'));
@@ -128,8 +132,13 @@ try {
     writeFileSync(join(root, 'data', 'applications.md'), '# Applications\n');
     writeFileSync(join(root, 'reports', '3025-zeta-2026-09-23.md'), '**URL:** https://www.linkedin.com/jobs/view/4460239794\n');
     writeFileSync(join(root, 'config', 'profile.yml'), 'rank_forward_threshold: 3.0\n');
-    const run = (...args) => execFileSync(NODE, [join(ROOT, 'eval-queue.mjs'), ...args], {
-      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CAREER_OPS_ROOT: root },
+    const batchInput = join(root, 'batch', 'batch-input.tsv');
+    writeFileSync(join(root, 'batch', 'batch-state.tsv'),
+      'id\turl\tstatus\tstarted_at\tcompleted_at\treport_num\tscore\terror\tretries\n41\thttps://old.test/1\tcompleted\t\t\t\t\t\t0\n');
+    const command = join(root, 'eval-queue.mjs');
+    const env = { ...process.env, CAREER_OPS_ROOT: root };
+    const run = (...args) => execFileSync(NODE, [command, ...args], {
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env,
     });
 
     check('config/profile.yml sets the cutoff', loadForwardThreshold(join(root, 'config', 'profile.yml')) === 3);
@@ -139,14 +148,17 @@ try {
     check('the configured cutoff reaches the plan',
       dry.includes('Forwarding cutoff: cal-v1 >= 3.0')
         && dry.includes('Forwarded to the long evaluation (3):'));
-    check('--dry-run leaves the queue file untouched',
-      previousBatchInput === null ? !existsSync(repoBatchInput) : readFileSync(repoBatchInput, 'utf8') === previousBatchInput);
+    check('--dry-run leaves the queue file untouched', !existsSync(batchInput));
+    const forcedUnranked = run('--dry-run', '--force', 'https://x.test/unranked');
+    check('the CLI holds a forced unranked row and explains why',
+      forcedUnranked.includes('https://x.test/unranked | Delta | SRE\n      no cal-v1 rank yet, waits for the daily rank run; --force requires a cal-v1 rank')
+        && !existsSync(batchInput));
 
     const out = run('--force', 'https://x.test/low');
-    const queueText = readFileSync(repoBatchInput, 'utf8');
+    const queueText = readFileSync(batchInput, 'utf8');
     const queue = queueText.trim().split('\n');
     check('a fresh queue file gets the runner header', queue[0] === 'id\turl\tsource\tnotes');
-    check('ids start at the first free id', queue[1].startsWith('1\t'));
+    check('ids start above the state file', queue[1].startsWith('42\t'));
     check('the queue holds exactly the forwarded rows',
       queue.slice(1).map(l => l.split('\t')[1]).join(' ')
         === 'https://x.test/queued https://x.test/tracked https://x.test/high https://x.test/low');
@@ -157,6 +169,17 @@ try {
     check('a second run holds what the first one queued',
       again.includes('Forwarded to the long evaluation (0)') && (again.match(/already queued/g) ?? []).length === 4);
 
+    writeFileSync(pipelinePath, pipeline.replace('## Processed',
+      '- [ ] https://x.test/concurrent | Lambda | SRE | rank: cal-v1 4.5/5\n\n## Processed'));
+    const execAsync = promisify(execFile);
+    const simultaneous = await Promise.all([0, 1].map(() => execAsync(NODE, [command], { env, encoding: 'utf8' })));
+    const finalRows = readFileSync(batchInput, 'utf8').trim().split('\n').slice(1);
+    check('concurrent runs append one row with a unique id',
+      finalRows.length === 5
+        && finalRows.filter(line => line.split('\t')[1] === 'https://x.test/concurrent').length === 1
+        && new Set(finalRows.map(line => line.split('\t')[0])).size === 5
+        && simultaneous.filter(({ stdout }) => stdout.includes('Forwarded to the long evaluation (1)')).length === 1);
+
     let status = 0;
     try { run('--dry-run', '--force', 'https://x.test/absent'); } catch (err) { status = err.status; }
     check('--force naming no pending row exits non-zero', status === 2);
@@ -165,8 +188,6 @@ try {
     try { run('--dry-run'); } catch (err) { status = err.status; }
     check('an invalid profile cutoff exits non-zero', status === 2);
   } finally {
-    if (previousBatchInput === null) rmSync(repoBatchInput, { force: true });
-    else writeFileSync(repoBatchInput, previousBatchInput);
     rmSync(root, { recursive: true, force: true });
   }
 } catch (err) {

@@ -12,7 +12,7 @@ node eval-queue.mjs --dry-run
 
 It lists every `- [ ]` row as **forwarded** or **held**, each with its reason. A row is forwarded when its `rank: cal-v1 {score}/5` is at or above the cutoff (`rank_forward_threshold` in `config/profile.yml`, default `2.5`). It is held when it is already evaluated (its URL is in a report under `reports/` or in the tracker), already queued in `batch/batch-input.tsv`, a duplicate of an earlier pending row, ranked below the cutoff, or not ranked yet. An unranked row stays pending until the daily `node rank-pipeline.mjs` run scores it. Show the user both lists.
 
-Process only the forwarded URLs. Leave held rows exactly as they are. To send one specific posting to the evaluation below the cutoff or before it is ranked, re-run with `--force <url>` for that URL. The batch path (`batch/batch-runner.sh`) gets the same queue from `node eval-queue.mjs` without `--dry-run`, which appends the forwarded rows to `batch/batch-input.tsv`. See `docs/SCRIPTS.md` → eval-queue for the hit rate per cal-v1 rank behind the default cutoff.
+Process only the forwarded URLs. Leave held rows exactly as they are. To send one specific ranked posting to the evaluation below the cutoff, re-run with `--force <url>` for that URL. An unranked posting remains held with a reason even when forced. The batch path (`batch/batch-runner.sh`) gets the same queue from `node eval-queue.mjs` without `--dry-run`, which appends the forwarded rows to `batch/batch-input.tsv`. See `docs/SCRIPTS.md` → eval-queue for the hit rate per cal-v1 rank behind the default cutoff.
 
 ## Liveness sweep
 

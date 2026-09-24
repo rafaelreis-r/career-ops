@@ -299,7 +299,8 @@ cover_letter:
 # `node eval-queue.mjs` builds the queue for the long A-G evaluation from
 # data/pipeline.md. A pending row goes on only when its `rank: cal-v1 X/5`
 # (written by `node rank-pipeline.mjs`) is at or above this cutoff. Unranked
-# rows wait for the next rank run; `--force <url>` sends one row regardless.
+# rows wait for the next rank run; `--force <url>` can send a ranked row below
+# the cutoff.
 # The scale is the calibrated cal-v1 rank (0-5), not the final score. The
 # hit rate per rank behind the default is in docs/SCRIPTS.md → eval-queue.
 #
