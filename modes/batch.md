@@ -35,13 +35,15 @@ Read `spend_tier` from `config/profile.yml` (see `modes/_shared.md` -- Spend Tie
 
 ```text
 batch/
-  batch-input.tsv               # URLs (from conductor or manual)
+  batch-input.tsv               # URLs (from conductor, `node eval-queue.mjs`, or manual)
   batch-state.tsv               # Progress (auto-generated, gitignored)
   batch-runner.sh               # Standalone orchestrator script
   batch-prompt.md               # Prompt template for workers
   logs/                         # One log per job (gitignored)
   tracker-additions/            # Tracker lines (gitignored)
 ```
+
+To queue eligible pending rows of `data/pipeline.md`, run `node eval-queue.mjs` (see `docs/SCRIPTS.md` → eval-queue).
 
 ## Mode A: Conductor --chrome
 

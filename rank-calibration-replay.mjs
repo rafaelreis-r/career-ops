@@ -4,12 +4,15 @@ import { dirname, join, resolve } from 'path';
 import { flagValue } from './lib/cli-flags.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
-import { calibrateRankScore } from './lib/rank-calibration.mjs';
+import { APPLY_WORTHY_FLOOR, DEFAULT_FORWARD_THRESHOLD, calibrateRankScore } from './lib/rank-calibration.mjs';
 
 export const DEFAULT_REPLAY_DIR = join(getCareerOpsRoot(), 'data', 'rank-calibration');
 export const DEFAULT_FIXTURE_PATH = join(DEFAULT_REPLAY_DIR, 'rank-final-2026-09-21.json');
 export const DEFAULT_OUTPUT_PATH = join(DEFAULT_REPLAY_DIR, 'rank-final-2026-09-21.replay.json');
-export const APPLY_WORTHY_FLOOR = 3.3;
+// The apply-worthy floor in force when the 84 pairs were measured on
+// 2026-09-21. The threshold table below is that measurement and stays pinned to
+// it; the current floor (APPLY_WORTHY_FLOOR) is reported alongside it.
+export const MEASURED_APPLY_WORTHY_FLOOR = 3.3;
 export const REPLAY_THRESHOLDS = Object.freeze([4.0, 3.6, 3.3, 3.0, 2.8]);
 
 const block = (rank, finals) => finals.map(final => ({ rank, final }));
@@ -77,10 +80,10 @@ export function replayCalibration(pairs, thresholds = REPLAY_THRESHOLDS) {
   });
   const calibrated = rows.map(row => row.calibrated);
   const finals = rows.map(row => row.final);
-  const positives = rows.filter(row => row.final >= APPLY_WORTHY_FLOOR).length;
+  const positives = rows.filter(row => row.final >= MEASURED_APPLY_WORTHY_FLOOR).length;
   const thresholdMetrics = thresholds.map(threshold => {
     const forwardedRows = rows.filter(row => row.persisted >= threshold);
-    const truePositives = forwardedRows.filter(row => row.final >= APPLY_WORTHY_FLOOR).length;
+    const truePositives = forwardedRows.filter(row => row.final >= MEASURED_APPLY_WORTHY_FLOOR).length;
     return {
       threshold,
       forwarded: forwardedRows.length,
@@ -91,18 +94,50 @@ export function replayCalibration(pairs, thresholds = REPLAY_THRESHOLDS) {
   });
   const calibratedStddev = stddev(calibrated);
   const finalStddev = stddev(finals);
+  const forwarded = rows.filter(row => row.persisted >= DEFAULT_FORWARD_THRESHOLD);
   return {
     pairCount: rows.length,
+    measuredApplyWorthyFloor: MEASURED_APPLY_WORTHY_FLOOR,
+    measuredApplyWorthyCount: positives,
     applyWorthyFloor: APPLY_WORTHY_FLOOR,
-    applyWorthyCount: positives,
+    applyWorthyCount: rows.filter(row => row.final >= APPLY_WORTHY_FLOOR).length,
     bias: mean(rows.map(row => row.calibrated - row.final)),
     spearman: correlation(tiedRanks(calibrated), tiedRanks(finals)),
     calibratedStddev,
     finalStddev,
     stddevRatio: calibratedStddev / finalStddev,
     thresholds: thresholdMetrics,
+    bands: rankBands(rows),
+    forwardCutoff: {
+      threshold: DEFAULT_FORWARD_THRESHOLD,
+      forwarded: forwarded.length,
+      reachedMeasuredFloor: forwarded.filter(row => row.final >= MEASURED_APPLY_WORTHY_FLOOR).length,
+      reachedApplyWorthyFloor: forwarded.filter(row => row.final >= APPLY_WORTHY_FLOOR).length,
+    },
     rows,
   };
+}
+
+/**
+ * Hit rate per persisted cal-v1 score: how many pairs landed on each one-decimal
+ * rank, their mean final score, and how many reached each apply-worthy floor.
+ * Highest rank first, so the table reads the way the forwarding cutoff cuts it.
+ */
+function rankBands(rows) {
+  const byRank = new Map();
+  for (const row of rows) {
+    if (!byRank.has(row.persisted)) byRank.set(row.persisted, []);
+    byRank.get(row.persisted).push(row.final);
+  }
+  return [...byRank.entries()]
+    .sort(([a], [b]) => b - a)
+    .map(([rank, finals]) => ({
+      rank,
+      pairs: finals.length,
+      meanFinal: mean(finals),
+      reachedMeasuredFloor: finals.filter(final => final >= MEASURED_APPLY_WORTHY_FLOOR).length,
+      reachedApplyWorthyFloor: finals.filter(final => final >= APPLY_WORTHY_FLOOR).length,
+    }));
 }
 
 export function writeCanonicalReplay(fixturePath = DEFAULT_FIXTURE_PATH, outputPath = DEFAULT_OUTPUT_PATH) {
@@ -137,6 +172,8 @@ function main(args) {
     finalStddev: replay.finalStddev,
     stddevRatio: replay.stddevRatio,
     thresholds: replay.thresholds,
+    bands: replay.bands,
+    forwardCutoff: replay.forwardCutoff,
   }));
   return 0;
 }

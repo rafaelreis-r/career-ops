@@ -78,7 +78,7 @@ import { printScanSummaryHeader } from './lib/scan-summary-marker.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { SCAN_HISTORY_COLUMNS, parseScanHistoryLine } from './lib/scan-history-columns.mjs';
 import { escapeFormulaCell } from './lib/tsv-formula-escape.mjs';
-import { promoteKnownFragmentIdentity } from './url-key.mjs';
+import { canonicalLinkedInJobUrl, promoteKnownFragmentIdentity } from './url-key.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { checkLivenessViaApi } from './liveness-api.mjs';
 
@@ -1632,6 +1632,11 @@ const DEDUP_STRIP_PARAMS = new Set([
  * (Greenhouse's `gh_jid`), which is also why DEDUP_STRIP_PARAMS is an
  * allowlist rather than a blanket strip.
  *
+ * A LinkedIn posting keys on its job id alone (`canonicalLinkedInJobUrl`): the
+ * digest mail links one posting several times, each through the `/comm/`
+ * mirror with its own `trackingId`/`refId`/`trk`, and a regional host or a
+ * title slug is the same posting again.
+ *
  * Falls back to the raw string when the URL is malformed, preserving the
  * old byte-for-byte behavior for unparsable history rows.
  *
@@ -1646,6 +1651,8 @@ export function normalizeUrlForDedup(url) {
   } catch {
     return url;
   }
+  const linkedIn = canonicalLinkedInJobUrl(parsed);
+  if (linkedIn) return linkedIn;
   for (const param of Array.from(parsed.searchParams.keys())) {
     if (DEDUP_STRIP_PARAMS.has(param.toLowerCase())) {
       parsed.searchParams.delete(param);
@@ -3282,10 +3289,20 @@ const PROCESSED_MARKERS = ['## Processed', '## Procesadas'];
 // read-modify-write and silently drop each other's offers.
 // Same seam as loadSeenUrls above: the default is the CAREER_OPS_ROOT-anchored
 // module constant; a caller with its own lane (or a fixture) passes the path.
-export async function appendToPipeline(offers, { pipelinePath = PIPELINE_PATH } = {}) {
-  if (offers.length === 0) return;
+export async function appendToPipeline(offers, { pipelinePath = PIPELINE_PATH, dedupe = false, applicationsPath } = {}) {
+  if (offers.length === 0) return 0;
 
-  await withPipelineLock(pipelinePath, async () => {
+  return withPipelineLock(pipelinePath, async () => {
+    if (dedupe) {
+      const { seen } = loadSeenUrls({}, { pipelinePath, applicationsPath });
+      offers = offers.filter(offer => {
+        const key = normalizeUrlForDedup(offer.url);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+    if (offers.length === 0) return 0;
     // Auto-create with standard skeleton if missing (fresh-install guard).
     let text = existsSync(pipelinePath)
       ? readFileSync(pipelinePath, 'utf-8')
@@ -3314,6 +3331,7 @@ export async function appendToPipeline(offers, { pipelinePath = PIPELINE_PATH } 
     }
 
     atomicWriteFile(pipelinePath, text);
+    return offers.length;
   });
 }
 
