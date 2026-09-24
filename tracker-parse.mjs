@@ -276,6 +276,7 @@ export function resolveColumns(lines) {
  *
  * Header and separator rows (non-numeric `num` cell) and malformed rows return
  * null. The raw line is preserved so callers can locate/replace the exact line.
+ * The set-status.mjs note-append write path resolves rows through this parser.
  *
  * @param {string} line - One line from applications.md.
  * @param {Object<string,number>} [colmap] - From resolveColumns(); defaults to legacy.
@@ -284,16 +285,8 @@ export function resolveColumns(lines) {
 export function parseTrackerRow(line, colmap = LEGACY_COLMAP) {
   if (typeof line !== 'string' || !line.startsWith('|')) return null;
   const parts = line.split('|').map(s => s.trim());
-  // Dynamic width guard: a complete row splits into leading '' + one cell per
-  // column (+ trailing '' when the row ends with a pipe). Anything shorter is
-  // missing a cell, and a missing INTERIOR cell shifts every later column one
-  // left while the trailing empty cell keeps the count plausible — so require
-  // the full width rather than mere coverage of the highest mapped index.
-  // Hand-edited rows without the trailing pipe are one part narrower but
-  // still complete (tracker-utils rebuildRow supports them).
-  const width = (colmap.columnCount ?? Math.max(...Object.values(colmap))) + (line.trimEnd().endsWith('|') ? 2 : 1);
-  if (parts.length < width) return null;
-  if (parts[width - 1] === '' && /^\d+$/.test(parts[width + colmap.num - 1] ?? '')) return null;
+  const columnCount = colmap.columnCount ?? Math.max(...Object.values(colmap));
+  if (parts.length < columnCount + 1 || parts.length > columnCount + 2) return null;
   const num = parseInt(parts[colmap.num], 10);
   if (isNaN(num)) return null;
   const at = (k) => (colmap[k] != null ? (parts[colmap[k]] ?? '') : '');

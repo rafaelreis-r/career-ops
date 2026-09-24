@@ -49,6 +49,25 @@ const colmap = resolveColumns([HEADER, SEP]);
   } else {
     fail(`glued rows after trailing custom Priority were accepted: ${JSON.stringify(glued)}`);
   }
+  const firstWithoutTrailingPipe = first.slice(0, -1);
+  const singleWithoutTrailingPipe = parseTrackerRow(firstWithoutTrailingPipe, customMap);
+  if (singleWithoutTrailingPipe?.num === 1127) {
+    pass('a single row without a trailing pipe still parses');
+  } else {
+    fail(`single row without a trailing pipe was rejected: ${JSON.stringify(singleWithoutTrailingPipe)}`);
+  }
+  const gluedAfterFirstWithoutTrailingPipe = parseTrackerRow(firstWithoutTrailingPipe + second, customMap);
+  if (gluedAfterFirstWithoutTrailingPipe === null) {
+    pass('glued rows are rejected when the first row has no trailing pipe');
+  } else {
+    fail(`glued rows without a first trailing pipe were accepted: ${JSON.stringify(gluedAfterFirstWithoutTrailingPipe)}`);
+  }
+  const gluedBeforeSecondWithoutTrailingPipe = parseTrackerRow(first + second.slice(0, -1), customMap);
+  if (gluedBeforeSecondWithoutTrailingPipe === null) {
+    pass('glued rows are rejected when the last row has no trailing pipe');
+  } else {
+    fail(`glued rows without a last trailing pipe were accepted: ${JSON.stringify(gluedBeforeSecondWithoutTrailingPipe)}`);
+  }
 }
 
 // ── Control: an ordinary well-formed row still parses ───────────────────────
@@ -78,9 +97,6 @@ const colmap = resolveColumns([HEADER, SEP]);
   }
 }
 
-// ── A report link's own digits ("[1127](...)") must not trip the guard: the
-// bracket breaks the `| <digits> |` shape, so a normal row with only ONE bare
-// numeric cell (its own #) is never mistaken for a glued pair.
 {
   const row = '| 42 | 2026-01-01 | Acme | Director | 4.0/5 | Evaluated | ❌ | [42](../reports/42-acme.md) | notes here |';
   const parsed = parseTrackerRow(row, colmap);
