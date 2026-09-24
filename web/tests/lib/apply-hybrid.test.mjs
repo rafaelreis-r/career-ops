@@ -21,9 +21,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { scanPage, scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
-import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, isReportEligibleQuestion, judgeWithModel, lockFor, matchAnswers, matchExact, matchOption, matchSalary, pickOfferedOptions, regimeOf } from '../../src/lib/apply/hybrid/answers.mjs';
+import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, isReportEligibleQuestion, judgeWithModel, lockFor, matchAnswers, matchExact, matchOption, matchSalary, outcomeForMetrics, pickOfferedOptions, regimeOf } from '../../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
-import { alignOutcomes, evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
+import { alignOutcomes, evaluateGate, orderTabs, tabStatus, verifiedOutcomeMatchesQuestion } from '../../src/lib/apply/hybrid/gate.mjs';
 import { fileNamesCompany, generatePostingCv, resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
 import { attachFile, chooseOption, fillText, reachApplicationForm, reread, sameChoice, selectCombobox, verifyQuestion } from '../../src/lib/apply/hybrid/adapters.mjs';
 import { trackerStanding } from '../../src/lib/apply/hybrid/tracker-row.mjs';
@@ -681,6 +681,30 @@ test('the USD anchor binds to a field that names USD and nothing else', () => {
   assert.equal(lockFor(field, picked), null);
 });
 
+test('salary anchors do not fill bonuses, commission, equity or other components', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  const usd = answers.find((a) => a.label === 'Salary Expectations');
+  for (const label of ['Expected signing bonus (USD)*', 'Expected salary bonus (USD)*', 'Expected commission (USD)*', 'Equity compensation (USD)*', 'Variable remuneration (USD)*']) {
+    const field = { label };
+    assert.equal(matchSalary(field, answers), null, label);
+    assert.equal(lockFor(field, usd)?.reason, 'salary-component-mismatch', label);
+  }
+});
+
+test('exact salary aliases retain currency and period with numeric values', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  for (const label of ['Salary Expectations', 'Expected Salary']) {
+    const usdField = { label, placeholder: '$ 0.00' };
+    const answer = matchExact(usdField, answers);
+    assert.equal(answer?.value, '8000');
+    assert.equal(answer.currency, 'USD');
+    assert.equal(answer.period, 'monthly');
+    assert.equal(lockFor(usdField, answer), null);
+    assert.equal(lockFor({ label, placeholder: 'R$ 0.000,00' }, answer)?.reason, 'currency-mismatch');
+    assert.equal(lockFor({ label, placeholder: 'USD per year' }, answer)?.reason, 'period-mismatch');
+  }
+});
+
 test('monthly salary anchors lock annual fields in USD and both BRL regimes', () => {
   const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
   for (const [label, value] of [
@@ -792,6 +816,19 @@ test('medical self-declaration never reaches models for unrelated fields', async
     assert.fail('medical self-declaration was sent to the option model');
   } });
   assert.equal(decisions.get(disability.key).option, null);
+});
+
+test('medical answers verify in memory while metrics redact their values', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(PISMO_PROFILE));
+  const question = { key: 'cid', kind: 'textarea', label: 'Enter your CID and details about your disability.*', state: { value: 'CID F84.5 - ASD (Autism Spectrum Disorder), medically documented diagnosis.' } };
+  const answer = matchExact(question, answers);
+  const outcome = { status: 'verified', via: 'deterministic', private: answer.private, canonicalValue: answer.value, observed: answer.value, reason: `page held ${answer.value}` };
+  assert.equal(verifiedOutcomeMatchesQuestion(question, outcome), true);
+  const metrics = { questions: [{ label: question.label, outcome: outcomeForMetrics(outcome) }] };
+  const serialized = JSON.stringify(metrics);
+  assert.equal(metrics.questions[0].outcome.status, 'verified');
+  assert.equal(metrics.questions[0].outcome.canonicalValue, '[redacted]');
+  assert.doesNotMatch(serialized, /F84\.5|Autism Spectrum Disorder|medically documented diagnosis/);
 });
 
 test('accessibility text is offered only for the approved none value', () => {

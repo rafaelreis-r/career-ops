@@ -89,7 +89,7 @@ export function buildAnswers(reportAnswers = [], profileAnswers = []) {
       const key = normalizeText(a.label);
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      out.push({ id: `a${out.length}`, label: a.label, value: String(a.value).trim(), source, ...(a.period ? { period: a.period } : {}), ...(a.private === true ? { private: true } : {}) });
+      out.push({ id: `a${out.length}`, label: a.label, value: String(a.value).trim(), source, ...(a.currency ? { currency: a.currency } : {}), ...(a.period ? { period: a.period } : {}), ...(a.salaryTarget === true ? { salaryTarget: true } : {}), ...(a.private === true ? { private: true } : {}) });
     }
   };
   add(reportAnswers, 'report');
@@ -117,7 +117,7 @@ export function currencyLock(question, answer) {
   if (!answer || !/\d/.test(answer.value)) return null;
   const fieldCurrency = currencyOf(`${question.label ?? ''} ${question.placeholder ?? ''}`);
   if (!fieldCurrency) return null;
-  const answerCurrency = currencyOf(answer.value) || currencyOf(answer.label);
+  const answerCurrency = answer.currency ?? currencyOf(answer.value) ?? currencyOf(answer.label);
   if (answerCurrency === fieldCurrency && fieldCurrency !== 'MIXED' && fieldCurrency !== 'LOCAL') return null;
   return { reason: 'currency-mismatch', fieldCurrency, answerCurrency };
 }
@@ -190,6 +190,12 @@ function moneyContext(text) {
   return { currency: currency || (regime ? 'BRL' : null), regime };
 }
 
+function isSalaryField(question) {
+  const label = normalizeText(question.label);
+  return /\b(salary|salario|salarial|remuneracao)\b/.test(label)
+    && !/\b(bonus|commission|comissao|equity|stock|shares|rsu|variable|variavel|benefit|beneficio|incentive|incentivo|signing|premio|allowance)\b/.test(label);
+}
+
 /**
  * A money field bound directly to the profile's value in that field's own
  * currency and, when the label names a BRL regime (CLT/PJ), that regime's
@@ -201,6 +207,7 @@ function moneyContext(text) {
  * value from another currency or the wrong regime.
  */
 export function matchSalary(question, answers) {
+  if (!isSalaryField(question)) return null;
   const field = moneyContext(`${question.label ?? ''} ${question.placeholder ?? ''}`);
   if (!field.currency) return null;
   const candidates = (answers || []).filter((a) => {
@@ -321,6 +328,7 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
 export function lockFor(question, answer) {
   if (!reportAnswerAllowedFor(question, answer)) return { reason: 'report-source-mismatch', text: 'report-source-mismatch' };
   if (answer.private && normalizeText(question.label) !== normalizeText(answer.label)) return { reason: 'private-answer-mismatch', text: 'private-answer-mismatch' };
+  if (answer.salaryTarget && !isSalaryField(question)) return { reason: 'salary-component-mismatch', text: 'salary-component-mismatch' };
   const fieldPeriod = periodOf(`${question.label ?? ''} ${question.placeholder ?? ''}`);
   const answerPeriod = answer.period ?? periodOf(`${answer.label ?? ''} ${answer.value ?? ''}`);
   if (fieldPeriod && answerPeriod && fieldPeriod !== answerPeriod) return { reason: 'period-mismatch', text: `period-mismatch: ${answerPeriod} amount in a field that asks for ${fieldPeriod}` };
@@ -330,6 +338,11 @@ export function lockFor(question, answer) {
   if (currency) return { ...currency, text: `currency-mismatch: field ${currency.fieldCurrency}, answer ${currency.answerCurrency ?? 'unstated'}` };
   const shape = valueFitsField(question, answer.value);
   return shape ? { reason: 'type-mismatch', text: `type-mismatch: ${shape.reason}` } : null;
+}
+
+export function outcomeForMetrics(outcome) {
+  if (!outcome?.private) return outcome;
+  return { status: outcome.status, via: outcome.via, canonicalValue: '[redacted]', ...(outcome.reason ? { reason: '[redacted]' } : {}) };
 }
 
 const SENSITIVE_QUESTION_RX = /\b(consent|i agree|concordo|aceito|autorizo|self identification|self identify|identificacao|disab|defici|gender|g[eê]nero|race|ra[cç]a|ethnic|etnia|hispanic|latino|veteran|lgbt|sexual|transgender|underrepresented|pronoun)/;
@@ -646,13 +659,13 @@ export function answersFromProfileFacts(profile) {
     for (const target of parseCompensationTargets(profile?.compensation?.target_range)) {
       const value = String(target.amount);
       if (target.currency === 'USD') {
-        push(['Salary Expectations', 'Expected Salary', 'Desired Salary (USD)', 'Pretensão salarial internacional (USD)'], value, { period: target.period });
+        push(['Salary Expectations', 'Expected Salary', 'Desired Salary (USD)', 'Pretensão salarial internacional (USD)'], value, { currency: target.currency, period: target.period, salaryTarget: true });
       } else if (target.currency === 'BRL' && target.regime === 'CLT') {
-        push(['Desired Salary (CLT, BRL)', 'Pretensão salarial CLT (BRL)'], value, { period: target.period });
+        push(['Desired Salary (CLT, BRL)', 'Pretensão salarial CLT (BRL)'], value, { currency: target.currency, period: target.period, salaryTarget: true });
       } else if (target.currency === 'BRL' && target.regime === 'PJ') {
-        push(['Desired Salary (PJ, BRL)', 'Pretensão salarial PJ (BRL)'], value, { period: target.period });
+        push(['Desired Salary (PJ, BRL)', 'Pretensão salarial PJ (BRL)'], value, { currency: target.currency, period: target.period, salaryTarget: true });
       } else if (target.currency === 'BRL') {
-        push(['Desired Salary (BRL)'], value, { period: target.period });
+        push(['Desired Salary (BRL)'], value, { currency: target.currency, period: target.period, salaryTarget: true });
       }
     }
   }

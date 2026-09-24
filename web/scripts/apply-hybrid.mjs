@@ -61,6 +61,7 @@ import {
   matchExact,
   matchOption,
   matchSalary,
+  outcomeForMetrics,
   pickOfferedOptions,
   questionSignature,
   truthyAnswer,
@@ -375,7 +376,10 @@ async function main() {
 
     for (const q of scan.questions) q.frameObj = scan.frameObjs[q.frame];
     const frameOf = (q) => q.frameObj || scan.frameObjs[q.frame] || page.mainFrame();
-    const record = (q, r, extra) => outcomes.set(q.key, { ...r, label: q.label, kind: q.kind, ...extra });
+    const record = (q, r, extra) => outcomes.set(q.key, {
+      ...(extra?.private ? { status: r.status, observed: r.observed, reason: r.reason ? '[redacted]' : undefined, how: r.how } : r),
+      label: q.label, kind: q.kind, ...extra,
+    });
     const entryFor = (map, q, peers = null) => {
       const signature = questionSignature(q);
       const direct = map.get(q.key);
@@ -403,11 +407,11 @@ async function main() {
         const lock = lockFor(q, exact);
         decided.set(q.key, { answer: exact, lock, source: 'exact', label: q.label, kind: q.kind });
         if (lock) {
-          record(q, { status: 'locked', reason: lock.text }, { via: 'deterministic', answerLabel: exact.label });
+          record(q, { status: 'locked', reason: lock.text }, { via: 'deterministic', answerLabel: exact.label, private: exact.private });
           continue;
         }
         const r = await run(q, (live) => fillQuestion(frameOf(q), live, exact.value));
-        record(q, r, { via: 'deterministic', source: 'exact', answerLabel: exact.label, canonicalValue: exact.value });
+        record(q, r, { via: 'deterministic', source: 'exact', answerLabel: exact.label, canonicalValue: exact.value, private: exact.private });
       }
     };
     await phase('deterministic', () => deterministicPass(targets));
@@ -467,7 +471,7 @@ async function main() {
           continue;
         }
         if (d.lock) {
-          record(q, { status: 'locked', reason: d.lock.text }, { via: 'model', answerLabel: d.answer.label, source: d.source });
+          record(q, { status: 'locked', reason: d.lock.text }, { via: 'model', answerLabel: d.answer.label, source: d.source, private: d.answer.private });
           continue;
         }
         const prior = entryFor(outcomes, q, gaps);
@@ -475,7 +479,7 @@ async function main() {
         if (!r || d.source !== 'exact') {
           r = await run(q, (live) => fillQuestion(frameOf(q), live, d.answer.value, { option: optionDecisions.get(q.key)?.option, pick }));
         }
-        if (r.status !== 'verified' && agent) {
+        if (r.status !== 'verified' && agent && !d.answer.private) {
           // The adapter could not do it: the model acts on the field, then the DOM decides.
           const choiceKind = q.kind !== 'text' && q.kind !== 'textarea';
           const instruction = choiceKind
@@ -486,7 +490,7 @@ async function main() {
           r = { ...v, how: 'stagehand-act', act: act.ok ? 'ok' : act.error || act.message, prior: r.reason ?? r.status };
         }
         const modelHow = ['stagehand-act', 'jev-pick', 'jev', 'model-equivalent'].includes(r.how);
-        record(q, r, { via: d.source === 'exact' && !modelHow ? 'deterministic' : 'model', source: d.source, confidence: d.confidence ?? null, answerLabel: d.answer.label, canonicalValue: d.answer.value });
+        record(q, r, { via: d.source === 'exact' && !modelHow ? 'deterministic' : 'model', source: d.source, confidence: d.confidence ?? null, answerLabel: d.answer.label, canonicalValue: d.answer.value, private: d.answer.private });
       }
     };
     await phase('model', async () => {
@@ -579,7 +583,7 @@ async function main() {
         : { attached: false, reason: cvName ? `${cvName} not shown by any file input in the final DOM` : cvStatus.reason || 'no CV for this posting' };
       const finalOutcomes = alignOutcomes(finalScan.questions, outcomes);
       gate = evaluateGate(finalScan, finalOutcomes, { cvName, cvReason: cvStatus.attached ? null : cvStatus.reason, resumeQuestion });
-      metrics.questions = finalScan.questions.map((q) => ({ key: q.key, kind: q.kind, label: q.label, required: q.required, requiredBy: q.requiredBy, visible: q.visible, outcome: finalOutcomes.get(q.key) ?? null }));
+      metrics.questions = finalScan.questions.map((q) => ({ key: q.key, kind: q.kind, label: q.label, required: q.required, requiredBy: q.requiredBy, visible: q.visible, outcome: outcomeForMetrics(finalOutcomes.get(q.key) ?? null) }));
       metrics.captcha = finalScan.captcha;
       standing = tabStatus(gate);
       if (formBlock) standing = { ...standing, status: 'incomplete', pending: [formBlock, ...standing.pending] };
