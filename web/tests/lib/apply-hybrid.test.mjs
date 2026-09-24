@@ -21,9 +21,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { scanPage, scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
-import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, isReportEligibleQuestion, judgeWithModel, lockFor, matchAnswers, matchExact, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
+import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, isReportEligibleQuestion, judgeWithModel, lockFor, matchAnswers, matchExact, matchOption, matchSalary, outcomeForMetrics, pickOfferedOptions, regimeOf } from '../../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
-import { alignOutcomes, evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
+import { alignOutcomes, evaluateGate, orderTabs, tabStatus, verifiedOutcomeMatchesQuestion } from '../../src/lib/apply/hybrid/gate.mjs';
 import { fileNamesCompany, generatePostingCv, resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
 import { attachFile, chooseOption, fillText, reachApplicationForm, reread, sameChoice, selectCombobox, verifyQuestion } from '../../src/lib/apply/hybrid/adapters.mjs';
 import { trackerStanding } from '../../src/lib/apply/hybrid/tracker-row.mjs';
@@ -628,10 +628,238 @@ test('profile address, nationality and salary anchor become canonical answers; r
   assert.equal(exact('Bairro'), 'Example District');
   assert.equal(exact('Address'), 'Example Street, 123');
   assert.equal(answers.find((a) => a.label === 'Preferred Name').value, 'Taylor');
-  assert.equal(answers.find((a) => a.label === 'Salary Expectations').value, 'USD 7500/month');
+  assert.equal(answers.find((a) => a.label === 'Salary Expectations').value, '7500');
   assert.equal(answers.find((a) => /20000/.test(a.value)), undefined, 'current pay is not a canonical answer here');
   // The anchor never lands in a field that names another currency.
   assert.equal(lockFor({ label: 'What is your expected base salary for this role? (in reais)*' }, answers.find((a) => a.label === 'Salary Expectations'))?.reason, 'currency-mismatch');
+});
+
+// --- Dattos (InHire) and Omnibees (LinkedIn Easy Apply), 2026-09-23: a
+// required salary field a currency-mismatched anchor left empty and locked ---
+
+// Same shape as config/profile.yml: USD international anchor, BRL split by
+// employment regime (CLT/PJ).
+const TARGET_RANGE_PROFILE = {
+  compensation: {
+    target_range:
+      'USD 8K/month international contractor anchor (floor, not ceiling — scale up for larger scope or a higher posted band, never anchor below the posting offer); ' +
+      'BRL 28K/month Brazil total compensation (CLT) or BRL 30K/month PJ',
+  },
+  application_answers: { salary: 'use_profile_compensation' },
+};
+
+test('regimeOf: CLT and PJ are recognized as whole words, never as a substring of an unrelated word', () => {
+  assert.equal(regimeOf('Pretensão salarial como CLT*'), 'CLT');
+  assert.equal(regimeOf('Qual sua pretensão de remuneração PJ?'), 'PJ');
+  assert.equal(regimeOf('Pretensão salarial'), null);
+  assert.equal(regimeOf('Qual sua pretensão de remuneração?'), null, 'remuneracao must never itself be read as PJ');
+});
+
+test('Dattos (InHire): the required CLT salary field binds to the BRL/CLT figure, in reais, unlocked', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  // Label and placeholder verbatim from the live Dattos InHire form, 2026-09-23.
+  const field = { label: 'Pretensão salarial como CLT*', placeholder: 'R$ 0.000,00' };
+  const picked = matchExact(field, answers) || matchSalary(field, answers);
+  assert.equal(picked?.value, '28000');
+  assert.equal(lockFor(field, picked), null);
+});
+
+test('Omnibees (LinkedIn Easy Apply): the numeric-only PJ field binds to the BRL/PJ figure as a bare number, with no currency word in the label at all', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  // Label verbatim from the live Omnibees form, 2026-09-23; it accepted "30000".
+  const field = { label: 'Qual sua pretensão de remuneração PJ?', kind: 'text', inputType: 'number' };
+  const picked = matchExact(field, answers) || matchSalary(field, answers);
+  assert.equal(picked?.value, '30000');
+  assert.equal(lockFor(field, picked), null);
+});
+
+test('the USD anchor binds to a field that names USD and nothing else', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  const field = { label: 'Desired Salary (USD)*' };
+  const picked = matchExact(field, answers) || matchSalary(field, answers);
+  assert.equal(picked?.value, '8000');
+  assert.equal(lockFor(field, picked), null);
+});
+
+test('salary anchors do not fill bonuses, commission, equity or other components', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  const usd = answers.find((a) => a.label === 'Salary Expectations');
+  for (const label of ['Expected signing bonus (USD)*', 'Expected salary bonus (USD)*', 'Expected commission (USD)*', 'Equity compensation (USD)*', 'Variable remuneration (USD)*']) {
+    const field = { label };
+    assert.equal(matchSalary(field, answers), null, label);
+    assert.equal(lockFor(field, usd)?.reason, 'salary-component-mismatch', label);
+  }
+});
+
+test('shared lock rejects model-selected salary targets with the wrong implicit currency or regime', async () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  const usd = answers.find((a) => a.label === 'Desired Salary (USD)');
+  const clt = answers.find((a) => a.label === 'Desired Salary (CLT, BRL)');
+  const pj = answers.find((a) => a.label === 'Desired Salary (PJ, BRL)');
+  const pjField = { key: 'pj', kind: 'text', label: 'Expected remuneration as PJ' };
+  const cltField = { label: 'Pretensão salarial como CLT*', placeholder: 'R$ 0.000,00' };
+  assert.equal(matchSalary(pjField, answers)?.value, '30000');
+  assert.equal(lockFor(pjField, usd)?.reason, 'currency-mismatch');
+  assert.equal(lockFor(pjField, clt)?.reason, 'regime-mismatch');
+  assert.equal(lockFor(pjField, pj), null);
+  assert.equal(lockFor(cltField, pj)?.reason, 'regime-mismatch');
+  assert.equal(lockFor(cltField, clt), null);
+  assert.equal(lockFor({ label: 'Pretensão salarial (BRL)*' }, clt)?.reason, 'regime-mismatch');
+
+  const { decisions } = await matchAnswers([pjField], answers, { ask: async ({ questions }) => {
+    const choice = Object.entries(questions.pj.options).find(([, text]) => text.includes('"Desired Salary (CLT, BRL)"'))?.[0];
+    assert.ok(choice);
+    return { answers: { pj: { choice, confidence: 1 } } };
+  } });
+  assert.equal(decisions.get('pj').answer?.value, '28000');
+  assert.equal(decisions.get('pj').lock?.reason, 'regime-mismatch');
+});
+
+test('exact salary aliases retain currency and period with numeric values', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  for (const label of ['Salary Expectations', 'Expected Salary']) {
+    const usdField = { label, placeholder: '$ 0.00' };
+    const answer = matchExact(usdField, answers);
+    assert.equal(answer?.value, '8000');
+    assert.equal(answer.currency, 'USD');
+    assert.equal(answer.period, 'monthly');
+    assert.equal(lockFor(usdField, answer), null);
+    assert.equal(lockFor({ label, placeholder: 'R$ 0.000,00' }, answer)?.reason, 'currency-mismatch');
+    assert.equal(lockFor({ label, placeholder: 'USD per year' }, answer)?.reason, 'period-mismatch');
+  }
+});
+
+test('monthly salary anchors lock annual fields in USD and both BRL regimes', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  for (const [label, value] of [
+    ['Yearly Salary Expectations (in USD)*', '8000'],
+    ['What are your annual salary requirements in $USD*', '8000'],
+    ['Pretensão salarial anual como CLT (BRL)*', '28000'],
+    ['Pretensão salarial anual PJ (BRL)*', '30000'],
+  ]) {
+    const field = { label };
+    const picked = matchExact(field, answers) || matchSalary(field, answers);
+    assert.equal(picked?.value, value, label);
+    assert.equal(picked.period, 'monthly', label);
+    assert.equal(lockFor(field, picked)?.reason, 'period-mismatch', label);
+  }
+});
+
+test('a BRL field that names no regime is left unmatched rather than guess between CLT and PJ', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  const field = { label: 'Pretensão salarial (BRL)*' };
+  assert.equal(matchExact(field, answers), null);
+  assert.equal(matchSalary(field, answers), null);
+});
+
+test('a field naming a currency the profile has no figure for stays locked and named; the trap never invents or converts a value', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  const field = { label: 'Pretensão salarial (EUR)*' };
+  assert.equal(matchExact(field, answers), null);
+  assert.equal(matchSalary(field, answers), null, 'never offers the USD or BRL figure to a EUR field');
+  // Even if a later model-judged pass mis-picked the USD or BRL figure anyway,
+  // currencyLock (unchanged) still refuses and names it.
+  const usd = answers.find((a) => a.label === 'Desired Salary (USD)');
+  assert.deepEqual(currencyLock(field, usd), { reason: 'currency-mismatch', fieldCurrency: 'EUR', answerCurrency: 'USD' });
+});
+
+// --- Pismo/Workday, 2026-09-23: self-declaration fields the driver never
+// read from the profile, stopping the round on a PCD-eligible candidate ---
+
+const PISMO_PROFILE = {
+  application_answers: {
+    self_declaration: {
+      disability: 'ASD (Autism Spectrum Disorder), medically documented diagnosis',
+      disability_category: 'Psychosocial',
+      disability_cid: 'F84.5',
+      accessibility_needs: 'none',
+    },
+  },
+};
+
+test('Pismo (Workday): the disability, CID and accessibility fields all bind from self_declaration, labels verbatim', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(PISMO_PROFILE));
+  const disability = { key: 'q1', kind: 'select', label: 'What is your disability?*', options: ['Physical', 'Visual', 'Psychosocial', 'I am not a PCD'] };
+  const cid = { key: 'q2', kind: 'textarea', label: 'Enter your CID and details about your disability.*' };
+  const accessibility = {
+    key: 'q3',
+    kind: 'textarea',
+    label: 'If you are a person with a disability, will you need any accessibility resources during the process?...',
+  };
+
+  const disPick = matchExact(disability, answers);
+  assert.equal(disPick?.value, 'Psychosocial');
+  assert.equal(lockFor(disability, disPick), null);
+  assert.deepEqual(matchOption(disability.options, disPick.value), { index: 2, how: 'equal' });
+
+  const cidPick = matchExact(cid, answers);
+  assert.equal(cidPick?.value, 'CID F84.5 - ASD (Autism Spectrum Disorder), medically documented diagnosis.');
+  assert.equal(lockFor(cid, cidPick), null);
+
+  const accessPick = matchExact(accessibility, answers);
+  assert.equal(accessPick?.value, 'No accessibility resources needed.');
+  assert.equal(lockFor(accessibility, accessPick), null);
+});
+
+test('medical self-declaration never reaches models for unrelated fields', async () => {
+  const profile = { ...PISMO_PROFILE, candidate: { full_name: 'Taylor Example' } };
+  const answers = buildAnswers([], answersFromProfileFacts(profile));
+  const unrelated = { key: 'other', kind: 'text', label: 'Name to display' };
+  const medicalText = /F84\.5|Autism Spectrum Disorder|Psychosocial|No accessibility resources needed/;
+  let jevCalls = 0;
+  await matchAnswers([unrelated], answers, { ask: async (request) => {
+    jevCalls++;
+    assert.doesNotMatch(JSON.stringify(request), medicalText);
+    return { answers: {} };
+  } });
+  assert.equal(jevCalls, 1);
+
+  let judgeCalls = 0;
+  await judgeWithModel([unrelated], answers, async (request) => {
+    judgeCalls++;
+    assert.doesNotMatch(JSON.stringify(request), medicalText);
+    return { structuredContent: { matches: [] } };
+  });
+  assert.equal(judgeCalls, 1);
+
+  const yesNo = { key: 'available', kind: 'radio', label: 'Are you available?', options: ['Yes', 'No'] };
+  let boolCalls = 0;
+  await answerYesNoFromFacts([yesNo], answers, { bool: async (_question, facts) => {
+    boolCalls++;
+    assert.doesNotMatch(JSON.stringify(facts), medicalText);
+    return { bool: null };
+  } });
+  assert.equal(boolCalls, 1);
+
+  const disability = { key: 'disability', kind: 'select', label: 'What is your disability?*', options: ['Physical', 'Visual'] };
+  const picked = matchExact(disability, answers);
+  assert.equal(picked?.value, 'Psychosocial');
+  assert.equal(lockFor(unrelated, picked)?.reason, 'private-answer-mismatch');
+  const decisions = new Map([[disability.key, { answer: picked, lock: null }]]);
+  await pickOfferedOptions([disability], decisions, { ask: async () => {
+    assert.fail('medical self-declaration was sent to the option model');
+  } });
+  assert.equal(decisions.get(disability.key).option, null);
+});
+
+test('medical answers verify in memory while metrics redact their values', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(PISMO_PROFILE));
+  const question = { key: 'cid', kind: 'textarea', label: 'Enter your CID and details about your disability.*', state: { value: 'CID F84.5 - ASD (Autism Spectrum Disorder), medically documented diagnosis.' } };
+  const answer = matchExact(question, answers);
+  const outcome = { status: 'verified', via: 'deterministic', private: answer.private, canonicalValue: answer.value, observed: answer.value, reason: `page held ${answer.value}` };
+  assert.equal(verifiedOutcomeMatchesQuestion(question, outcome), true);
+  const metrics = { questions: [{ label: question.label, outcome: outcomeForMetrics(outcome) }] };
+  const serialized = JSON.stringify(metrics);
+  assert.equal(metrics.questions[0].outcome.status, 'verified');
+  assert.equal(metrics.questions[0].outcome.canonicalValue, '[redacted]');
+  assert.doesNotMatch(serialized, /F84\.5|Autism Spectrum Disorder|medically documented diagnosis/);
+});
+
+test('accessibility text is offered only for the approved none value', () => {
+  const profile = structuredClone(PISMO_PROFILE);
+  profile.application_answers.self_declaration.accessibility_needs = 'Custom assistance';
+  const answers = answersFromProfileFacts(profile);
+  assert.equal(answers.some((a) => a.label.startsWith('If you are a person with a disability')), false);
 });
 
 // --- SMG (applytojob, 2026-09-22): the three errors the live round shipped ---
