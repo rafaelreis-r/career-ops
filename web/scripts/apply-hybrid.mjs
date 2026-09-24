@@ -60,6 +60,7 @@ import {
   matchAnswers,
   matchExact,
   matchOption,
+  matchSalary,
   pickOfferedOptions,
   questionSignature,
   truthyAnswer,
@@ -397,7 +398,7 @@ async function main() {
     const decided = new Map();
     const deterministicPass = async (list) => {
       for (const q of list) {
-        const exact = matchExact(q, answers);
+        const exact = matchExact(q, answers) || matchSalary(q, answers);
         if (!exact) continue;
         const lock = lockFor(q, exact);
         decided.set(q.key, { answer: exact, lock, source: 'exact', label: q.label, kind: q.kind });

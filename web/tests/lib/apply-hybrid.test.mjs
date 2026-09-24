@@ -21,7 +21,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { scanPage, scanQuestionsInPage } from '../../src/lib/apply/hybrid/page-scan.mjs';
-import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, isReportEligibleQuestion, judgeWithModel, lockFor, matchAnswers, matchExact, matchOption } from '../../src/lib/apply/hybrid/answers.mjs';
+import { answersFromProfileFacts, answerYesNoFromFacts, buildAnswers, currencyLock, isNonAnswer, isReportEligibleQuestion, judgeWithModel, lockFor, matchAnswers, matchExact, matchOption, matchSalary, regimeOf } from '../../src/lib/apply/hybrid/answers.mjs';
 import { selectResumeTarget, validateResumeTarget } from '../../src/lib/apply/hybrid/files.mjs';
 import { alignOutcomes, evaluateGate, orderTabs, tabStatus } from '../../src/lib/apply/hybrid/gate.mjs';
 import { fileNamesCompany, generatePostingCv, resolvePostingCv } from '../../src/lib/apply/hybrid/cv.mjs';
@@ -628,10 +628,113 @@ test('profile address, nationality and salary anchor become canonical answers; r
   assert.equal(exact('Bairro'), 'Example District');
   assert.equal(exact('Address'), 'Example Street, 123');
   assert.equal(answers.find((a) => a.label === 'Preferred Name').value, 'Taylor');
-  assert.equal(answers.find((a) => a.label === 'Salary Expectations').value, 'USD 7500/month');
+  assert.equal(answers.find((a) => a.label === 'Salary Expectations').value, '7500');
   assert.equal(answers.find((a) => /20000/.test(a.value)), undefined, 'current pay is not a canonical answer here');
   // The anchor never lands in a field that names another currency.
   assert.equal(lockFor({ label: 'What is your expected base salary for this role? (in reais)*' }, answers.find((a) => a.label === 'Salary Expectations'))?.reason, 'currency-mismatch');
+});
+
+// --- Dattos (InHire) and Omnibees (LinkedIn Easy Apply), 2026-09-23: a
+// required salary field a currency-mismatched anchor left empty and locked ---
+
+// Same shape as config/profile.yml: USD international anchor, BRL split by
+// employment regime (CLT/PJ).
+const TARGET_RANGE_PROFILE = {
+  compensation: {
+    target_range:
+      'USD 8K/month international contractor anchor (floor, not ceiling — scale up for larger scope or a higher posted band, never anchor below the posting offer); ' +
+      'BRL 28K/month Brazil total compensation (CLT) or BRL 30K/month PJ',
+  },
+  application_answers: { salary: 'use_profile_compensation' },
+};
+
+test('regimeOf: CLT and PJ are recognized as whole words, never as a substring of an unrelated word', () => {
+  assert.equal(regimeOf('Pretensão salarial como CLT*'), 'CLT');
+  assert.equal(regimeOf('Qual sua pretensão de remuneração PJ?'), 'PJ');
+  assert.equal(regimeOf('Pretensão salarial'), null);
+  assert.equal(regimeOf('Qual sua pretensão de remuneração?'), null, 'remuneracao must never itself be read as PJ');
+});
+
+test('Dattos (InHire): the required CLT salary field binds to the BRL/CLT figure, in reais, unlocked', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  // Label and placeholder verbatim from the live Dattos InHire form, 2026-09-23.
+  const field = { label: 'Pretensão salarial como CLT*', placeholder: 'R$ 0.000,00' };
+  const picked = matchExact(field, answers) || matchSalary(field, answers);
+  assert.equal(picked?.value, '28000');
+  assert.equal(lockFor(field, picked), null);
+});
+
+test('Omnibees (LinkedIn Easy Apply): the numeric-only PJ field binds to the BRL/PJ figure as a bare number, with no currency word in the label at all', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  // Label verbatim from the live Omnibees form, 2026-09-23; it accepted "30000".
+  const field = { label: 'Qual sua pretensão de remuneração PJ?', kind: 'text', inputType: 'number' };
+  const picked = matchExact(field, answers) || matchSalary(field, answers);
+  assert.equal(picked?.value, '30000');
+  assert.equal(lockFor(field, picked), null);
+});
+
+test('the USD anchor binds to a field that names USD and nothing else', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  const field = { label: 'Desired Salary (USD)*' };
+  const picked = matchExact(field, answers) || matchSalary(field, answers);
+  assert.equal(picked?.value, '8000');
+  assert.equal(lockFor(field, picked), null);
+});
+
+test('a BRL field that names no regime is left unmatched rather than guess between CLT and PJ', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  const field = { label: 'Pretensão salarial (BRL)*' };
+  assert.equal(matchExact(field, answers), null);
+  assert.equal(matchSalary(field, answers), null);
+});
+
+test('a field naming a currency the profile has no figure for stays locked and named; the trap never invents or converts a value', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  const field = { label: 'Pretensão salarial (EUR)*' };
+  assert.equal(matchExact(field, answers), null);
+  assert.equal(matchSalary(field, answers), null, 'never offers the USD or BRL figure to a EUR field');
+  // Even if a later model-judged pass mis-picked the USD or BRL figure anyway,
+  // currencyLock (unchanged) still refuses and names it.
+  const usd = answers.find((a) => a.label === 'Desired Salary (USD)');
+  assert.deepEqual(currencyLock(field, usd), { reason: 'currency-mismatch', fieldCurrency: 'EUR', answerCurrency: 'USD' });
+});
+
+// --- Pismo/Workday, 2026-09-23: self-declaration fields the driver never
+// read from the profile, stopping the round on a PCD-eligible candidate ---
+
+const PISMO_PROFILE = {
+  application_answers: {
+    self_declaration: {
+      disability: 'ASD (Autism Spectrum Disorder), medically documented diagnosis',
+      disability_category: 'Psychosocial',
+      disability_cid: 'F84.5',
+      accessibility_needs: 'none',
+    },
+  },
+};
+
+test('Pismo (Workday): the disability, CID and accessibility fields all bind from self_declaration, labels verbatim', () => {
+  const answers = buildAnswers([], answersFromProfileFacts(PISMO_PROFILE));
+  const disability = { key: 'q1', kind: 'select', label: 'What is your disability?*', options: ['Physical', 'Visual', 'Psychosocial', 'I am not a PCD'] };
+  const cid = { key: 'q2', kind: 'textarea', label: 'Enter your CID and details about your disability.*' };
+  const accessibility = {
+    key: 'q3',
+    kind: 'textarea',
+    label: 'If you are a person with a disability, will you need any accessibility resources during the process?...',
+  };
+
+  const disPick = matchExact(disability, answers);
+  assert.equal(disPick?.value, 'Psychosocial');
+  assert.equal(lockFor(disability, disPick), null);
+  assert.deepEqual(matchOption(disability.options, disPick.value), { index: 2, how: 'equal' });
+
+  const cidPick = matchExact(cid, answers);
+  assert.equal(cidPick?.value, 'CID F84.5 - ASD (Autism Spectrum Disorder), medically documented diagnosis.');
+  assert.equal(lockFor(cid, cidPick), null);
+
+  const accessPick = matchExact(accessibility, answers);
+  assert.equal(accessPick?.value, 'No accessibility resources needed.');
+  assert.equal(lockFor(accessibility, accessPick), null);
 });
 
 // --- SMG (applytojob, 2026-09-22): the three errors the live round shipped ---
