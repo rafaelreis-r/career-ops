@@ -884,16 +884,16 @@ the current install is read.
 node reconcile-email.mjs                 # dry-run over the last 40 days
 node reconcile-email.mjs --days 14       # shorter window
 node reconcile-email.mjs --apply         # write the proposed changes
-node reconcile-email.mjs --json          # machine-readable report
 ```
 
 1. **Gmail, read-only.** Two searches through `gog`: applicant-tracking mail
    (known ATS sender domains, or application/interview subjects) and mail from
    recruiters as people (LinkedIn InMail, or a non-automated sender in the
    Personal category writing about a role). Each thread body comes from
-   `gog gmail thread get --sanitize-content`. Every call carries `--readonly
-   --no-input --gmail-no-send --json --wrap-untrusted`. The account is
-   `--account`, else `candidate.email` of `config/profile.yml`.
+   `gog gmail thread get --sanitize-content`. Every inbound message is judged.
+   Every call carries `--readonly --no-input --gmail-no-send --json
+   --wrap-untrusted`. The account comes from `candidate.email` of
+   `config/profile.yml`.
 2. **Candidates.** Up to five rows, across all tracks, whose company or Via
    the e-mail names (sender, display name, subject or body: the sender is
    usually an ATS or a recruiter, not the employer). Only when no company is

@@ -11,7 +11,7 @@
  * Pipeline and rules: lib/email-reconcile.mjs.
  *
  * Usage:
- *   node reconcile-email.mjs [--days 40] [--account you@gmail.com] [--apply] [--json]
+ *   node reconcile-email.mjs [--days 40] [--apply]
  *
  * Exit: 0 done · 1 usage, gog, Jev or tracker failure · 2 some writes failed.
  */
@@ -22,21 +22,19 @@ import * as yaml from 'js-yaml';
 import { flagValue, hasFlag, safeIntFlag, validateFlags } from './lib/cli-flags.mjs';
 import { isJevEnabled } from './lib/jev-client.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
-import { readTrackerRows, trackList } from './lib/tracks.mjs';
+import { assertTrackerScope, readTrackerRows, trackList } from './lib/tracks.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import {
   DEFAULT_DAYS, MATCH_THRESHOLD, applyChanges, fetchEmails, judgeEmails, planReconciliation,
 } from './lib/email-reconcile.mjs';
 
-const USAGE = `Usage: node reconcile-email.mjs [--days N] [--account EMAIL] [--apply] [--json]
+const USAGE = `Usage: node reconcile-email.mjs [--days N] [--apply]
 
 Reconciles data/applications.md of every track (shared trilhas.yml) with the
 Gmail inbox. Dry-run by default: prints the proposed changes and writes nothing.
 
   --days N         Search window in days (default ${DEFAULT_DAYS})
-  --account EMAIL  Gmail account for gog (default: candidate.email of config/profile.yml)
   --apply          Write the changes (backs up each touched tracker first)
-  --json           Machine-readable output
   --help, -h       This help
 
 Needs gog authenticated for the account and TYPESAFE_API_KEY for Jev.
@@ -81,21 +79,20 @@ function printReport(report) {
   section('Live processes', plan.live, (l) => `${rowLabel(l)}: ${l.status} · last e-mail ${l.lastEmail} (${l.lastKind})`);
   const stale = plan.refused.filter((r) => r.stale).length;
   section(`Refused (would move a row backwards; ${stale} stale ones not listed)`, plan.refused.filter((r) => !r.stale), (r) => `${rowLabel(r)}: ${r.reason} · ${r.kind} ${emailLabel(r)} · "${r.subject}"`);
-  section(`Review (not written: match below ${MATCH_THRESHOLD}, no row, or error)`, plan.review, (r) => `${r.kind ?? '?'} · ${r.reason}${r.row ? ` · best row ${rowLabel(r.row)}` : ''} · ${emailLabel(r)} · "${r.subject}"`);
+  section(`Review (not written: match below ${MATCH_THRESHOLD}, no row, changed status, or error)`, [...plan.review, ...(applied?.review || [])], (r) => `${r.kind ?? '?'} · ${r.reason}${r.row ? ` · best row ${rowLabel(r.row)}` : ''} · ${emailLabel(r)} · "${r.subject}"`);
   console.log(out.join('\n'));
 }
 
 async function main(argv) {
-  validateFlags(argv, ['--days', '--account', '--apply', '--json', '--help', '-h'], USAGE, { valueFlags: ['--days', '--account'], requireOperand: true });
+  validateFlags(argv, ['--days', '--apply', '--help', '-h'], USAGE, { valueFlags: ['--days'], requireOperand: true });
   const days = safeIntFlag(flagValue(argv, '--days'), DEFAULT_DAYS);
   if (hasFlag(argv, '--days') && days < 1) {
     console.error('Error: --days expects a positive integer');
     return 1;
   }
   const apply = hasFlag(argv, '--apply');
-  const json = hasFlag(argv, '--json');
-
   const tracks = trackList(getCareerOpsRoot());
+  assertTrackerScope(tracks);
   const rows = [];
   const trackInfo = [];
   for (const t of tracks) {
@@ -109,9 +106,9 @@ async function main(argv) {
     return 1;
   }
 
-  const account = flagValue(argv, '--account') || profileAccount(tracks);
+  const account = profileAccount(tracks);
   if (!account) {
-    console.error('Error: no Gmail account: pass --account or set candidate.email in config/profile.yml');
+    console.error('Error: no Gmail account: set candidate.email in config/profile.yml');
     return 1;
   }
   if (!isJevEnabled()) {
@@ -136,8 +133,7 @@ async function main(argv) {
     plan,
     applied,
   };
-  if (json) console.log(JSON.stringify(report, null, 2));
-  else printReport(report);
+  printReport(report);
   return applied?.results.some((r) => !r.ok) ? 2 : 0;
 }
 

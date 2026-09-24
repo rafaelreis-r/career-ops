@@ -15,7 +15,7 @@ import { pass, fail, rmSync } from './helpers.mjs';
 import {
   GOG_SAFETY_FLAGS, applyChanges, candidatesFor, extractDeadline, fetchEmails, judgeEmails, planReconciliation, runGog,
 } from '../lib/email-reconcile.mjs';
-import { readTrackerRows, trackList } from '../lib/tracks.mjs';
+import { assertTrackerScope, readTrackerRows, trackList } from '../lib/tracks.mjs';
 
 console.log('\nreconcile-email — Gmail × tracker reconciliation');
 
@@ -114,8 +114,9 @@ function stubAsk() {
     if (args[1] === 'search') return args[2].includes('hit-reply@linkedin.com') ? { threads: [{ id: 'p1' }, { id: 'a1' }] } : { threads: [{ id: 'a1' }] };
     const id = args[3];
     return { thread: { messages: [
-      { headers: { from: 'Recruiter <rec@corp.com>', subject: wrap(`Subject ${id}`) }, internalDate: '1790000000000', body: wrap('first') },
+      { headers: { from: 'Recruiter <rec@corp.com>', subject: wrap(`Request ${id}`) }, internalDate: '1790000000000', body: wrap('first') },
       { headers: { from: 'Me <me@example.com>', subject: wrap('Re') }, internalDate: '1790000100000', body: wrap('my reply') },
+      { headers: { from: 'Recruiter <rec@corp.com>', subject: wrap(`Interview ${id}`) }, internalDate: '1790000200000', body: wrap('second') },
     ] } };
   };
   const { emails, searched } = await fetchEmails({ account: 'me@example.com', days: 40, run });
@@ -125,8 +126,9 @@ function stubAsk() {
   ok('a thread found by both searches is fetched once', calls.filter((c) => c[1] === 'thread').length === 2 && searched.threads === 2);
   ok('every thread body is fetched with --sanitize-content', calls.filter((c) => c[1] === 'thread').every((c) => c.includes('--sanitize-content')));
   const a1 = emails.find((e) => e.threadId === 'a1');
-  ok('the latest message NOT sent by the account is the one judged, markers stripped',
-    a1 && a1.address === 'rec@corp.com' && a1.body === 'first' && a1.subject === 'Subject a1');
+  ok('both inbound messages are retained while the sent reply is excluded',
+    emails.filter((e) => e.threadId === 'a1').length === 2 && a1.address === 'rec@corp.com' && a1.body === 'first'
+    && emails.some((e) => e.threadId === 'a1' && e.body === 'second'));
   ok('a thread keeps which searches found it', a1 && a1.recortes.includes('ats') && a1.recortes.includes('person'));
 }
 
@@ -190,9 +192,27 @@ function stubAsk() {
     j('p5', '2026-09-09', 'Hooli', 'none', { kind: 'rejection', match: closedRow }),
   ], { today: '2026-09-12' });
   const ids = plan.pendingActions.map((a) => a.threadId);
-  ok('pending actions keep only the newest e-mail per sender and action', ids.includes('p2') && !ids.includes('p1'));
+  ok('distinct action threads from one sender are both retained', ids.includes('p2') && ids.includes('p1'));
   ok('a pending action whose deadline passed is dropped', !ids.includes('p3'));
   ok('a pending action on a row that ends Rejected is dropped', !ids.includes('p4'));
+  const requests = planReconciliation([
+    j('r1', '2026-09-01', 'Recruiter', 'reply_to_recruiter', { kind: 'recruiter_request' }),
+    j('r1', '2026-09-02', 'Recruiter', 'reply_to_recruiter', { kind: 'recruiter_request' }),
+    j('r2', '2026-09-03', 'Recruiter', 'reply_to_recruiter', { kind: 'recruiter_request' }),
+  ], { today: '2026-09-12' }).recruiterRequests;
+  ok('only a later request in the same thread supersedes an earlier one',
+    requests.length === 2 && requests.some((r) => r.threadId === 'r1' && r.date === '2026-09-02')
+    && requests.some((r) => r.threadId === 'r2'));
+}
+
+{
+  const { tracks } = makeTracks();
+  const override = path.join(tracks[0].root, 'data', 'applications.md');
+  process.env.CAREER_OPS_TRACKER = override;
+  let refused = false;
+  try { assertTrackerScope(tracks); } catch (e) { refused = /multiple tracks/.test(e.message); }
+  ok('tracker override refuses multiple tracks', refused);
+  delete process.env.CAREER_OPS_TRACKER;
 }
 
 // ── apply: backup, set-status write, idempotent re-run ─────────────────
@@ -218,6 +238,11 @@ function stubAsk() {
   const lineAgain = fs.readFileSync(trackerB, 'utf8').split('\n').find((l) => l.includes('| 1003 |'));
   ok('re-applying the same change does not duplicate its note',
     again.results[0].ok && !again.results[0].changed && lineAgain.split('rejected by e-mail on 2026-09-22').length === 2);
+
+  const stale = first.changes.find((c) => c.num === 1003 && c.after === 'Applied');
+  const staleResult = applyChanges([stale], tracks, { stamp: 'stale' });
+  ok('a changed tracker status is sent to review without a write',
+    staleResult.review.length === 1 && staleResult.results.length === 0);
 }
 
 // ── deadlines ──────────────────────────────────────────────────────────
