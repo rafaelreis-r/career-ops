@@ -252,8 +252,12 @@ export function resolveTsvColumns(cells) {
 export function detectColumns(lines) {
   for (const line of lines) {
     if (!line.startsWith('|')) continue;
-    const map = headerSchemaMap(line.split('|').map(s => s.trim().toLowerCase()));
-    if (map) return map;
+    const cells = line.split('|').map(s => s.trim().toLowerCase());
+    const map = headerSchemaMap(cells);
+    if (map) {
+      Object.defineProperty(map, 'columnCount', { value: cells.length - (cells.at(-1) === '' ? 2 : 1) });
+      return map;
+    }
   }
   return null;
 }
@@ -287,7 +291,7 @@ export function parseTrackerRow(line, colmap = LEGACY_COLMAP) {
   // the full width rather than mere coverage of the highest mapped index.
   // Hand-edited rows without the trailing pipe are one part narrower but
   // still complete (tracker-utils rebuildRow supports them).
-  const width = Math.max(...Object.values(colmap)) + (line.trimEnd().endsWith('|') ? 2 : 1);
+  const width = (colmap.columnCount ?? Math.max(...Object.values(colmap))) + (line.trimEnd().endsWith('|') ? 2 : 1);
   if (parts.length < width) return null;
   if (parts[width - 1] === '' && /^\d+$/.test(parts[width + colmap.num - 1] ?? '')) return null;
   const num = parseInt(parts[colmap.num], 10);

@@ -32,6 +32,25 @@ const colmap = resolveColumns([HEADER, SEP]);
   }
 }
 
+{
+  const customHeader = '| # | Date | Company | Role | Score | Status | PDF | Report | Notes | Priority |';
+  const customMap = resolveColumns([customHeader]);
+  const first = '| 1127 | 2026-09-06 | Wellhub | Staff PM | 4.3/5 | Applied | ✅ | [1127](../reports/1127-wellhub.md) | sent | 2 |';
+  const second = '| 1128 | 2026-09-06 | Jobgether | PM | 3.7/5 | Discarded | ✅ | [1128](../reports/1128-jobgether.md) | later | 1 |';
+  const parsed = parseTrackerRow(first, customMap);
+  if (parsed && parsed.num === 1127 && parsed.notes === 'sent') {
+    pass('a row with a trailing custom Priority column still parses');
+  } else {
+    fail(`row with trailing custom Priority was rejected or misparsed: ${JSON.stringify(parsed)}`);
+  }
+  const glued = parseTrackerRow(first + second, customMap);
+  if (glued === null) {
+    pass('glued rows after a trailing custom Priority column are rejected');
+  } else {
+    fail(`glued rows after trailing custom Priority were accepted: ${JSON.stringify(glued)}`);
+  }
+}
+
 // ── Control: an ordinary well-formed row still parses ───────────────────────
 {
   const row = '| 1127 | 2026-09-06 | Wellhub | Staff PM | 4.3/5 | Applied | ✅ | [1127](../reports/1127-wellhub.md) | fixed Staff base. |';
