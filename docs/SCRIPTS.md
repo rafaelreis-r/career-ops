@@ -895,10 +895,9 @@ node reconcile-email.mjs --apply         # write the proposed changes
    Every call carries `--readonly --no-input --gmail-no-send --json
    --wrap-untrusted`. The account comes from `candidate.email` of
    `config/profile.yml`.
-2. **Candidates.** Up to five rows, across all tracks, whose company or Via
-   the e-mail names (sender, display name, subject or body: the sender is
-   usually an ATS or a recruiter, not the employer). Only when no company is
-   named does an exact role title qualify a row.
+2. **Candidates.** Up to five rows, across all tracks, whose company, Via or
+   exact role title the e-mail names (sender, display name, subject or body:
+   the sender is usually an ATS or a recruiter, not the employer).
 3. **Jev** (`lib/jev-client.mjs`, one request per e-mail, 16 in parallel):
    kind (`confirmation`, `rejection`, `interview`, `recruiter_request`,
    `incomplete`, `not_job`), the next action asked of the candidate, and
@@ -907,11 +906,11 @@ node reconcile-email.mjs --apply         # write the proposed changes
 4. **Forward-only changes**, in e-mail date order: confirmation → Applied,
    rejection → Rejected, interview → Interview, recruiter request → Responded,
    only when the move is forward in `templates/states.yml` (SKIP counts as
-   Evaluated). A match or kind probability below 0.7 is never written; it goes
-   to the review list. A backward move is refused and listed, except stale
-   ones (a confirmation, or a row already further along in a non-terminal
-   state), which are only counted. A temporary hiring pause goes to review
-   without changing the tracker.
+   Evaluated). A proposed status change with a match or kind probability below
+   0.7 is not written; it goes to the review list. A backward move is refused
+   and listed, except stale ones (a confirmation, or a row already further
+   along in a non-terminal state), which are only counted. A temporary hiring
+   pause goes to review without changing the tracker.
 5. **`--apply`** copies each touched tracker to
    `applications.md.bak-reconcile-email-<timestamp>`, then writes each change
    through `set-status.mjs --row N --role R --on <e-mail date> --note …`. The
