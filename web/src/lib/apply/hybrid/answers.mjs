@@ -73,6 +73,10 @@ export function reportAnswerAllowedFor(question, answer) {
   return answer.source !== 'report' || isReportEligibleQuestion(question);
 }
 
+function modelAnswerAllowed(answer) {
+  return answer.private !== true;
+}
+
 /** Canonical answers as `{id, label, value, source}`, non-answers dropped,
  *  first occurrence of a label kept. The posting's report answers come first
  *  (they are specific to this form), then the profile's. */
@@ -85,7 +89,7 @@ export function buildAnswers(reportAnswers = [], profileAnswers = []) {
       const key = normalizeText(a.label);
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      out.push({ id: `a${out.length}`, label: a.label, value: String(a.value).trim(), source });
+      out.push({ id: `a${out.length}`, label: a.label, value: String(a.value).trim(), source, ...(a.currency ? { currency: a.currency } : {}), ...(a.period ? { period: a.period } : {}), ...(a.salaryTarget === true ? { salaryTarget: true } : {}), ...(a.private === true ? { private: true } : {}) });
     }
   };
   add(reportAnswers, 'report');
@@ -113,9 +117,19 @@ export function currencyLock(question, answer) {
   if (!answer || !/\d/.test(answer.value)) return null;
   const fieldCurrency = currencyOf(`${question.label ?? ''} ${question.placeholder ?? ''}`);
   if (!fieldCurrency) return null;
-  const answerCurrency = currencyOf(answer.value) || currencyOf(answer.label);
+  const answerCurrency = answer.currency ?? currencyOf(answer.value) ?? currencyOf(answer.label);
   if (answerCurrency === fieldCurrency && fieldCurrency !== 'MIXED' && fieldCurrency !== 'LOCAL') return null;
   return { reason: 'currency-mismatch', fieldCurrency, answerCurrency };
+}
+
+/** BRL employment regime a label names — 'CLT' (salaried, local payroll) or
+ *  'PJ' (contractor, "pessoa jurídica") — both terms are Brazil-specific and
+ *  imply BRL even when the label carries no currency word. */
+export function regimeOf(text) {
+  const t = normalizeText(text);
+  if (/\bclt\b/.test(t)) return 'CLT';
+  if (/\bpj\b|pessoa juridica/.test(t)) return 'PJ';
+  return null;
 }
 
 const EMAIL_VALUE_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -153,7 +167,7 @@ export function valueFitsField(question, value) {
   if (wantsUrl && !URL_VALUE_RX.test(v)) return { reason: 'the field asks for a URL' };
   if (wantsPhone && !phoneValue) return { reason: 'the field asks for a phone number' };
   if (v.startsWith('+') && (v.match(/\d/g) || []).length >= 10 && /^\+[\d\s().-]+$/.test(v) && !wantsPhone) return { reason: 'a phone number in a field that does not ask for one' };
-  const fieldPeriod = periodOf(question.label);
+  const fieldPeriod = periodOf(`${question.label ?? ''} ${question.placeholder ?? ''}`);
   const valuePeriod = periodOf(v);
   if (fieldPeriod && valuePeriod && fieldPeriod !== valuePeriod) return { reason: `a ${valuePeriod} amount in a field that asks for ${fieldPeriod}` };
   return null;
@@ -165,6 +179,45 @@ export function matchExact(question, answers) {
   const q = normalizeText(question.label);
   if (!q) return null;
   return answers.find((a) => reportAnswerAllowedFor(question, a) && normalizeText(a.label) === q) || null;
+}
+
+/** Currency a money field's label+placeholder implies: the explicit
+ *  currency word, or BRL when the text names a Brazil-specific regime
+ *  (CLT/PJ) without stating one — both regimes only ever mean BRL. */
+function moneyContext(text) {
+  const currency = currencyOf(text);
+  const regime = regimeOf(text);
+  return { currency: currency || (regime ? 'BRL' : null), regime };
+}
+
+function isSalaryField(question) {
+  const label = normalizeText(question.label);
+  return /\b(salary|salario|salarial|remuneracao|remuneration)\b/.test(label)
+    && !/\b(bonus|commission|comissao|equity|stock|shares|rsu|variable|variavel|benefit|beneficio|incentive|incentivo|signing|premio|allowance)\b/.test(label);
+}
+
+/**
+ * A money field bound directly to the profile's value in that field's own
+ * currency and, when the label names a BRL regime (CLT/PJ), that regime's
+ * value — decided locally like matchExact, never guessed by a model. A
+ * currency the profile has no figure for, or a BRL field that names no
+ * regime while more than one BRL figure exists, is left unmatched: the
+ * field stays open for currencyLock to lock and name downstream, exactly
+ * as an ordinary mismatched pick would be. Never converts, never offers a
+ * value from another currency or the wrong regime.
+ */
+export function matchSalary(question, answers) {
+  if (!isSalaryField(question)) return null;
+  const field = moneyContext(`${question.label ?? ''} ${question.placeholder ?? ''}`);
+  if (!field.currency) return null;
+  const candidates = (answers || []).filter((a) => {
+    if (!reportAnswerAllowedFor(question, a) || !/\d/.test(a.value)) return false;
+    const ac = moneyContext(a.label);
+    if (ac.currency !== field.currency) return false;
+    return field.regime ? ac.regime === field.regime : !ac.regime;
+  });
+  const values = new Set(candidates.map((a) => normalizeText(a.value)));
+  return values.size === 1 ? candidates[0] : null;
 }
 
 const JEV_OPTION_PREVIEW = 90;
@@ -217,7 +270,7 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
   }
 
   const jev = { requests: 0, error: null, enabled: true };
-  const stages = ['report', 'profile'].map((s) => answers.filter((a) => a.source === s)).filter((list) => list.length);
+  const stages = ['report', 'profile'].map((s) => answers.filter((a) => a.source === s && modelAnswerAllowed(a))).filter((list) => list.length);
   for (const stageAnswers of stages) {
     if (!pending.length) break;
     const batch = pending.filter((q) => stageAnswers.every((a) => reportAnswerAllowedFor(q, a)));
@@ -274,6 +327,19 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
 
 export function lockFor(question, answer) {
   if (!reportAnswerAllowedFor(question, answer)) return { reason: 'report-source-mismatch', text: 'report-source-mismatch' };
+  if (answer.private && normalizeText(question.label) !== normalizeText(answer.label)) return { reason: 'private-answer-mismatch', text: 'private-answer-mismatch' };
+  if (answer.salaryTarget) {
+    const field = moneyContext(`${question.label ?? ''} ${question.placeholder ?? ''}`);
+    const target = moneyContext(answer.label);
+    const targetCurrency = answer.currency ?? target.currency;
+    if (field.currency && field.currency !== targetCurrency) return { reason: 'currency-mismatch', text: `currency-mismatch: field ${field.currency}, answer ${targetCurrency ?? 'unstated'}`, fieldCurrency: field.currency, answerCurrency: targetCurrency };
+    if (field.regime && field.regime !== target.regime) return { reason: 'regime-mismatch', text: `regime-mismatch: field ${field.regime}, answer ${target.regime ?? 'unstated'}` };
+    if (field.currency === 'BRL' && !field.regime && target.regime) return { reason: 'regime-mismatch', text: `regime-mismatch: field unstated, answer ${target.regime}` };
+    if (!isSalaryField(question)) return { reason: 'salary-component-mismatch', text: 'salary-component-mismatch' };
+  }
+  const fieldPeriod = periodOf(`${question.label ?? ''} ${question.placeholder ?? ''}`);
+  const answerPeriod = answer.period ?? periodOf(`${answer.label ?? ''} ${answer.value ?? ''}`);
+  if (fieldPeriod && answerPeriod && fieldPeriod !== answerPeriod) return { reason: 'period-mismatch', text: `period-mismatch: ${answerPeriod} amount in a field that asks for ${fieldPeriod}` };
   const semantic = semanticMismatch(question, answer);
   if (semantic) return { reason: 'semantic-mismatch', text: `semantic-mismatch: ${semantic}` };
   const currency = currencyLock(question, answer);
@@ -282,7 +348,12 @@ export function lockFor(question, answer) {
   return shape ? { reason: 'type-mismatch', text: `type-mismatch: ${shape.reason}` } : null;
 }
 
-const SENSITIVE_QUESTION_RX = /consent|i agree|concordo|aceito|autorizo|self identification|self identify|identificacao|disab|defici|gender|g[eê]nero|race|ra[cç]a|ethnic|etnia|hispanic|latino|veteran|lgbt|sexual|transgender|underrepresented|pronoun/;
+export function outcomeForMetrics(outcome) {
+  if (!outcome?.private) return outcome;
+  return { status: outcome.status, via: outcome.via, canonicalValue: '[redacted]', ...(outcome.reason ? { reason: '[redacted]' } : {}) };
+}
+
+const SENSITIVE_QUESTION_RX = /\b(consent|i agree|concordo|aceito|autorizo|self identification|self identify|identificacao|disab|defici|gender|g[eê]nero|race|ra[cç]a|ethnic|etnia|hispanic|latino|veteran|lgbt|sexual|transgender|underrepresented|pronoun)/;
 
 function semanticMismatch(question, answer) {
   const qLabel = normalizeText(question.label);
@@ -336,7 +407,7 @@ function semanticMismatch(question, answer) {
 export async function judgeWithModel(questions, answers, complete) {
   const picks = new Map();
   if (!questions.length || !answers.length) return picks;
-  const relevant = answers.filter((a) => questions.some((q) => reportAnswerAllowedFor(q, a)));
+  const relevant = answers.filter((a) => modelAnswerAllowed(a) && questions.some((q) => reportAnswerAllowedFor(q, a)));
   if (!relevant.length) return picks;
   const payload = {
     fields: questions.map((q) => ({ key: q.key, label: q.label, kind: q.kind, offered_options: q.options ?? null })),
@@ -412,7 +483,7 @@ export async function pickOfferedOptions(questions, decisions, { ask = jevAsk, t
     if (!STATIC_CHOICE_KINDS.has(q.kind) || !d.answer || d.lock || !q.options?.length) continue;
     const m = matchOption(q.options, d.answer.value);
     if (m) d.option = m;
-    else pending.push(q);
+    else if (modelAnswerAllowed(d.answer)) pending.push(q);
   }
   if (!pending.length) return { requests: 0, error: null };
   const state = JSON.stringify({
@@ -468,7 +539,7 @@ export function isYesNoQuestion(q) {
 
 // Agreeing is the candidate's act, and self-identification is disclosed per
 // application by the candidate: neither is ever inferred from facts.
-const NOT_INFERRED_RX = /consent|i agree|concordo|aceito|autorizo|disab|defici|gender|g[eê]nero|race|ra[cç]a|ethnic|etnia|hispanic|latino|veteran|lgbt|sexual|transgender|underrepresented|pronoun/i;
+const NOT_INFERRED_RX = /\b(consent|i agree|concordo|aceito|autorizo|disab|defici|gender|g[eê]nero|race|ra[cç]a|ethnic|etnia|hispanic|latino|veteran|lgbt|sexual|transgender|underrepresented|pronoun)/i;
 
 /**
  * Yes/no questions that no canonical answer names ("Are you able and willing
@@ -492,7 +563,7 @@ export async function answerYesNoFromFacts(questions, answers, { bool = answerBo
   const facts = {};
   const values = new Set();
   for (const a of answers) {
-    if (a.source === 'report' || a.value.length > 200 || values.has(a.value)) continue;
+    if (a.source === 'report' || !modelAnswerAllowed(a) || a.value.length > 200 || values.has(a.value)) continue;
     values.add(a.value);
     facts[a.label] = a.value;
   }
@@ -505,6 +576,26 @@ export async function answerYesNoFromFacts(questions, answers, { bool = answerBo
     }
   }
   return out;
+}
+
+/** `{currency, amount, regime}` triples named in `compensation.target_range` —
+ *  each "<CUR> <N>K/month" figure, tagged the regime (CLT/PJ) named in the
+ *  text between it and the next figure (or the end of the string), null when
+ *  none is. Never converts: every figure is the profile's own verbatim
+ *  number in its own currency. */
+function parseCompensationTargets(text) {
+  const t = String(text ?? '');
+  const re = /(USD|BRL)\s*([\d.]+)\s*K\s*\/\s*month/gi;
+  const matches = [...t.matchAll(re)];
+  return matches.map((m, i) => {
+    const windowEnd = i + 1 < matches.length ? matches[i + 1].index : t.length;
+    return {
+      currency: m[1].toUpperCase(),
+      amount: Math.round(Number(m[2]) * 1000),
+      period: 'monthly',
+      regime: regimeOf(t.slice(m.index + m[0].length, windowEnd)),
+    };
+  });
 }
 
 /**
@@ -522,9 +613,9 @@ export async function answerYesNoFromFacts(questions, answers, { bool = answerBo
  */
 export function answersFromProfileFacts(profile) {
   const out = [];
-  const push = (labels, value) => {
+  const push = (labels, value, metadata = {}) => {
     const v = value == null ? '' : typeof value === 'boolean' ? (value ? 'Yes' : 'No') : String(value).trim();
-    if (v) for (const label of labels) out.push({ label, value: v });
+    if (v) for (const label of labels) out.push({ label, value: v, ...metadata });
   };
   const c = profile?.candidate || {};
   const aa = profile?.application_answers || {};
@@ -566,8 +657,40 @@ export function answersFromProfileFacts(profile) {
   // Consents the captain gave once for every form (the required one is mapped by answersFromProfile).
   push(['Consent to receive text messages (SMS)'], aa.consent?.sms);
   push(['Consent to automated or AI processing of the application'], aa.consent?.automated_ai_processing);
-  // "use_profile_compensation": the international anchor of compensation.target_range.
-  const usd = /USD\s*([\d.]+)\s*K\s*\/\s*month/i.exec(String(profile?.compensation?.target_range ?? ''));
-  if (usd && aa.salary === 'use_profile_compensation') push(['Salary Expectations', 'Expected Salary'], `USD ${Math.round(Number(usd[1]) * 1000)}/month`);
+  // "use_profile_compensation": every currency/regime figure named in the
+  // anchor. BRL figures bind to the regime their own answer label names
+  // (CLT/PJ); USD is regime-agnostic. Bare digits so a numeric-only field
+  // (Omnibees: "Qual sua pretensão de remuneração PJ?", accepted "30000")
+  // takes them as-is; currencyLock still refuses every one of these
+  // outside its own currency field, unchanged.
+  if (aa.salary === 'use_profile_compensation') {
+    for (const target of parseCompensationTargets(profile?.compensation?.target_range)) {
+      const value = String(target.amount);
+      if (target.currency === 'USD') {
+        push(['Salary Expectations', 'Expected Salary', 'Desired Salary (USD)', 'Pretensão salarial internacional (USD)'], value, { currency: target.currency, period: target.period, salaryTarget: true });
+      } else if (target.currency === 'BRL' && target.regime === 'CLT') {
+        push(['Desired Salary (CLT, BRL)', 'Pretensão salarial CLT (BRL)'], value, { currency: target.currency, period: target.period, salaryTarget: true });
+      } else if (target.currency === 'BRL' && target.regime === 'PJ') {
+        push(['Desired Salary (PJ, BRL)', 'Pretensão salarial PJ (BRL)'], value, { currency: target.currency, period: target.period, salaryTarget: true });
+      } else if (target.currency === 'BRL') {
+        push(['Desired Salary (BRL)'], value, { currency: target.currency, period: target.period, salaryTarget: true });
+      }
+    }
+  }
+  // Self-declaration facts (disclosure stays a per-application, candidate-
+  // confirmed decision — these are only offered, never auto-checked).
+  // Labels verbatim from the Pismo/Workday form, 2026-09-23.
+  const sd = aa.self_declaration || {};
+  push(['What is your disability?'], sd.disability_category, { private: true });
+  if (sd.disability_cid && sd.disability) {
+    push(['Enter your CID and details about your disability.'], `CID ${sd.disability_cid} - ${sd.disability}.`, { private: true });
+  }
+  if (normalizeText(sd.accessibility_needs) === 'none') {
+    push(
+      ['If you are a person with a disability, will you need any accessibility resources during the process?...'],
+      'No accessibility resources needed.',
+      { private: true },
+    );
+  }
   return out;
 }

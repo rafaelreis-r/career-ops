@@ -20,6 +20,10 @@ Optional `--cv <pdf>` is accepted only when the filename can be tied to the post
 
 The driver keeps one visible browser for the round and one tab per posting. It reuses interrupted tabs, attaches the posting-specific CV, fills exact canonical answers deterministically, and uses typed model decisions only for unresolved fields. Report answers may fill only open text fields asking for motivation or fit with the company or role, including a cover note or letter. Factual fields, including yes/no questions, use profile or CV facts instead. It does not invent answers. Captchas and required questions without verified canonical answers block submission and remain listed on the open tab.
 
+When `application_answers.salary` uses profile compensation, the driver can fill a salary field with the profile's figure for the field's stated currency and, for BRL fields that name CLT or PJ, the matching regime. It enters digits for numeric fields. It does not convert currencies; fields with an incompatible currency, regime, or pay period remain blocked. Bonus and other compensation components do not receive a salary target.
+
+Profile self-declaration answers can fill matching disability, CID, and accessibility fields. These answers are kept out of model requests, and their values and failure reasons are redacted in the driver's metrics JSON.
+
 It refuses to open a posting already recorded as sent, a blacklisted company, or a company whose configured submission window is exhausted. A durable attempt claim prevents a second submission after a click whose outcome is uncertain.
 
 Exit codes are: `0` submitted and confirmed; `3` left open for the human; `4` no form; `5` ineligible; `6` clicked but refused or not confirmed; `1` run failure.
