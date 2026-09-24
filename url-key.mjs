@@ -68,6 +68,50 @@ export function promoteKnownFragmentIdentity(url) {
   url.searchParams.append('_career_ops_fragment_job_id', jobId);
 }
 
+const LINKEDIN_HOST = /(^|\.)linkedin\.com$/;
+const LINKEDIN_JOB_VIEW_PATH = /^\/jobs\/view\/(?:[^/]*-)?(\d+)\/?$/;
+
+/**
+ * The LinkedIn job id a URL points at, or null when it is not a LinkedIn posting.
+ *
+ * One posting is reachable through many URLs: regional hosts (br.linkedin.com),
+ * a title slug before the id (`/jobs/view/sre-at-acme-4460239794`), the `/comm/`
+ * mirror notification mail wraps every link in, per-link tracking params
+ * (trackingId, refId, trk, lipi, midToken), and search or collection pages that
+ * carry the posting in `?currentJobId=`. The numeric id is the posting's
+ * identity; everything else is presentation or telemetry.
+ *
+ * @param {string | URL} url
+ * @returns {string | null}
+ */
+export function linkedInJobId(url) {
+  let u;
+  try {
+    u = url instanceof URL ? url : new URL(String(url));
+  } catch {
+    return null;
+  }
+  if (!LINKEDIN_HOST.test(u.hostname.toLowerCase())) return null;
+  let path = u.pathname;
+  if (path.toLowerCase().startsWith('/comm/')) path = path.slice('/comm'.length);
+  const view = LINKEDIN_JOB_VIEW_PATH.exec(path);
+  if (view) return view[1];
+  const current = u.searchParams.get('currentJobId');
+  return current && /^\d+$/.test(current) ? current : null;
+}
+
+/**
+ * The canonical `https://www.linkedin.com/jobs/view/<id>` form of a LinkedIn
+ * posting URL, or null when the URL is not one.
+ *
+ * @param {string | URL} url
+ * @returns {string | null}
+ */
+export function canonicalLinkedInJobUrl(url) {
+  const id = linkedInJobId(url);
+  return id ? `https://www.linkedin.com/jobs/view/${id}` : null;
+}
+
 /**
  * Reduce a posting URL to a stable comparison key.
  *

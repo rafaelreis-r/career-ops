@@ -331,6 +331,7 @@ const SYSTEM_PATHS = [
   'detect-reposts.mjs',
   'rank-pipeline.mjs',
   'rank-calibration-replay.mjs',
+  'eval-queue.mjs',
   'discover-ats.mjs',
   'check-table-freshness.mjs',
   'check-jd-archive.mjs',

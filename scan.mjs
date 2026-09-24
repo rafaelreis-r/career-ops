@@ -74,7 +74,7 @@ import { withPortalHealthLock } from './portal-health-lock.mjs';
 import { localToday } from './lib/local-today.mjs';
 import { printScanSummaryHeader } from './lib/scan-summary-marker.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
-import { promoteKnownFragmentIdentity } from './url-key.mjs';
+import { canonicalLinkedInJobUrl, promoteKnownFragmentIdentity } from './url-key.mjs';
 
 try {
   const { config } = await import('dotenv');
@@ -1316,6 +1316,11 @@ const DEDUP_STRIP_PARAMS = new Set([
  * (Greenhouse's `gh_jid`), which is also why DEDUP_STRIP_PARAMS is an
  * allowlist rather than a blanket strip.
  *
+ * A LinkedIn posting keys on its job id alone (`canonicalLinkedInJobUrl`): the
+ * digest mail links one posting several times, each through the `/comm/`
+ * mirror with its own `trackingId`/`refId`/`trk`, and a regional host or a
+ * title slug is the same posting again.
+ *
  * Falls back to the raw string when the URL is malformed, preserving the
  * old byte-for-byte behavior for unparsable history rows.
  *
@@ -1330,6 +1335,8 @@ export function normalizeUrlForDedup(url) {
   } catch {
     return url;
   }
+  const linkedIn = canonicalLinkedInJobUrl(parsed);
+  if (linkedIn) return linkedIn;
   for (const param of Array.from(parsed.searchParams.keys())) {
     if (DEDUP_STRIP_PARAMS.has(param.toLowerCase())) {
       parsed.searchParams.delete(param);

@@ -26,6 +26,11 @@ plugins:
 
 ## Data it produces
 
-`Job[]` ({ title, url, company, location }) — the engine de-dups against the
-pipeline and appends new ones. It maintains its own processed-message cursor in
-`data/gmail-state.json` to avoid re-reading the same emails.
+`Job[]` ({ title, url, company, location }) — a LinkedIn posting is written as
+its canonical `https://www.linkedin.com/jobs/view/<id>` once per run, however many
+tracking links the digest carries for it; newsletter click redirects
+(`link.mail.beehiiv.com`) are dropped because no posting can be read behind
+them. The engine de-dups against the pipeline, the scan history and the tracker
+(a LinkedIn posting matches on its job id) and appends new ones. It maintains its
+own processed-message cursor in `data/gmail-state.json` to avoid re-reading the
+same emails.

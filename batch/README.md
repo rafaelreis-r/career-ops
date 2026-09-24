@@ -12,6 +12,8 @@ Process multiple job offers in parallel via headless workers. Each worker runs t
    2	https://greenhouse.io/company/role-b	Greenhouse	priority
    ```
 
+   To queue the pending rows of `data/pipeline.md`, run `node eval-queue.mjs` from the repo root instead of writing rows by hand. It appends only the rows that pass the cal-v1 forwarding gate (default cutoff `rank: cal-v1 2.5/5`), skips postings already evaluated or queued, and lists what it held and why. See `docs/SCRIPTS.md` → eval-queue.
+
 2. **Dry run** to preview what will be processed:
 
    ```bash
