@@ -25,6 +25,7 @@ import {
   extractUrls, isCleanUrl, isAuthenticEmail, parseRoleAtCompany,
   getMessageBody, companyFromUrl,
 } from './_helpers.mjs';
+import { canonicalLinkedInJobUrl } from '../../url-key.mjs';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
@@ -134,7 +135,11 @@ export default {
 
       const seed = parseRoleAtCompany(subject);
       const cleanUrls = extractUrls(getMessageBody(msg.payload)).filter(isCleanUrl);
-      for (const url of cleanUrls) {
+      for (const cleanUrl of cleanUrls) {
+        // A LinkedIn digest links each posting several times (title, logo,
+        // card body), each through the /comm/ mirror with its own tracking
+        // params. Write the canonical /jobs/view/<id> once instead.
+        const url = canonicalLinkedInJobUrl(cleanUrl) ?? cleanUrl;
         if (seenUrls.has(url)) continue;
         seenUrls.add(url);
         jobs.push({
