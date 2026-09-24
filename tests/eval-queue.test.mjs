@@ -55,12 +55,13 @@ try {
   const plan = planQueue({ rows, threshold: 2.5, evaluated, queued });
   const reasonFor = url => [...plan.forwarded, ...plan.held].find(r => r.url === url)?.reason ?? '';
   const forwardedUrls = plan.forwarded.map(r => r.url);
+  const forwardedUrlSet = new Set(forwardedUrls);
 
   check('only [ ] rows are considered', rows.length === 10);
   check('every pending row lands on exactly one side',
     plan.forwarded.length + plan.held.length === rows.length);
   check('a rank at or above the cutoff is forwarded',
-    forwardedUrls.includes('https://x.test/high') && forwardedUrls.includes('https://x.test/edge'));
+    forwardedUrlSet.has('https://x.test/high') && forwardedUrlSet.has('https://x.test/edge'));
   check('a rank below the cutoff is held with its score',
     reasonFor('https://x.test/low') === 'cal-v1 2.1 below cutoff 2.5');
   check('an unranked row waits for the daily rank run',

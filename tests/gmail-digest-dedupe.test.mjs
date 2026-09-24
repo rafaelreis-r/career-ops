@@ -89,9 +89,9 @@ try {
   };
   const jobs = await gmail.ingest(ctx);
   const urls = jobs.map(j => j.url);
-  check('three links to one posting become one canonical row', urls.filter(u => u.includes('linkedin')).join() === CANONICAL);
-  check('the newsletter redirect is not written', !urls.some(u => u.includes('beehiiv')));
-  check('a non-LinkedIn posting passes through unchanged', urls.includes('https://boards.greenhouse.io/acme/jobs/4384681009'));
+  check('three links to one posting become one canonical row', urls.filter(u => u === CANONICAL).length === 1);
+  check('the newsletter redirect is not written', !urls.some(u => new URL(u).hostname === 'link.mail.beehiiv.com'));
+  check('a non-LinkedIn posting passes through unchanged', new Set(urls).has('https://boards.greenhouse.io/acme/jobs/4384681009'));
   check('nothing else is written', jobs.length === 2);
 
   const fixture = mkdtempSync(join(tmpdir(), 'career-ops-digest-dedupe-'));
