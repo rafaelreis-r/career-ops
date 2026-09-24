@@ -691,6 +691,30 @@ test('salary anchors do not fill bonuses, commission, equity or other components
   }
 });
 
+test('shared lock rejects model-selected salary targets with the wrong implicit currency or regime', async () => {
+  const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
+  const usd = answers.find((a) => a.label === 'Desired Salary (USD)');
+  const clt = answers.find((a) => a.label === 'Desired Salary (CLT, BRL)');
+  const pj = answers.find((a) => a.label === 'Desired Salary (PJ, BRL)');
+  const pjField = { key: 'pj', kind: 'text', label: 'Expected remuneration as PJ' };
+  const cltField = { label: 'Pretensão salarial como CLT*', placeholder: 'R$ 0.000,00' };
+  assert.equal(matchSalary(pjField, answers)?.value, '30000');
+  assert.equal(lockFor(pjField, usd)?.reason, 'currency-mismatch');
+  assert.equal(lockFor(pjField, clt)?.reason, 'regime-mismatch');
+  assert.equal(lockFor(pjField, pj), null);
+  assert.equal(lockFor(cltField, pj)?.reason, 'regime-mismatch');
+  assert.equal(lockFor(cltField, clt), null);
+  assert.equal(lockFor({ label: 'Pretensão salarial (BRL)*' }, clt)?.reason, 'regime-mismatch');
+
+  const { decisions } = await matchAnswers([pjField], answers, { ask: async ({ questions }) => {
+    const choice = Object.entries(questions.pj.options).find(([, text]) => text.includes('"Desired Salary (CLT, BRL)"'))?.[0];
+    assert.ok(choice);
+    return { answers: { pj: { choice, confidence: 1 } } };
+  } });
+  assert.equal(decisions.get('pj').answer?.value, '28000');
+  assert.equal(decisions.get('pj').lock?.reason, 'regime-mismatch');
+});
+
 test('exact salary aliases retain currency and period with numeric values', () => {
   const answers = buildAnswers([], answersFromProfileFacts(TARGET_RANGE_PROFILE));
   for (const label of ['Salary Expectations', 'Expected Salary']) {

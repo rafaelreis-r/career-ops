@@ -192,7 +192,7 @@ function moneyContext(text) {
 
 function isSalaryField(question) {
   const label = normalizeText(question.label);
-  return /\b(salary|salario|salarial|remuneracao)\b/.test(label)
+  return /\b(salary|salario|salarial|remuneracao|remuneration)\b/.test(label)
     && !/\b(bonus|commission|comissao|equity|stock|shares|rsu|variable|variavel|benefit|beneficio|incentive|incentivo|signing|premio|allowance)\b/.test(label);
 }
 
@@ -328,7 +328,15 @@ export async function matchAnswers(questions, answers, { ask = jevAsk, threshold
 export function lockFor(question, answer) {
   if (!reportAnswerAllowedFor(question, answer)) return { reason: 'report-source-mismatch', text: 'report-source-mismatch' };
   if (answer.private && normalizeText(question.label) !== normalizeText(answer.label)) return { reason: 'private-answer-mismatch', text: 'private-answer-mismatch' };
-  if (answer.salaryTarget && !isSalaryField(question)) return { reason: 'salary-component-mismatch', text: 'salary-component-mismatch' };
+  if (answer.salaryTarget) {
+    const field = moneyContext(`${question.label ?? ''} ${question.placeholder ?? ''}`);
+    const target = moneyContext(answer.label);
+    const targetCurrency = answer.currency ?? target.currency;
+    if (field.currency && field.currency !== targetCurrency) return { reason: 'currency-mismatch', text: `currency-mismatch: field ${field.currency}, answer ${targetCurrency ?? 'unstated'}`, fieldCurrency: field.currency, answerCurrency: targetCurrency };
+    if (field.regime && field.regime !== target.regime) return { reason: 'regime-mismatch', text: `regime-mismatch: field ${field.regime}, answer ${target.regime ?? 'unstated'}` };
+    if (field.currency === 'BRL' && !field.regime && target.regime) return { reason: 'regime-mismatch', text: `regime-mismatch: field unstated, answer ${target.regime}` };
+    if (!isSalaryField(question)) return { reason: 'salary-component-mismatch', text: 'salary-component-mismatch' };
+  }
   const fieldPeriod = periodOf(`${question.label ?? ''} ${question.placeholder ?? ''}`);
   const answerPeriod = answer.period ?? periodOf(`${answer.label ?? ''} ${answer.value ?? ''}`);
   if (fieldPeriod && answerPeriod && fieldPeriod !== answerPeriod) return { reason: 'period-mismatch', text: `period-mismatch: ${answerPeriod} amount in a field that asks for ${fieldPeriod}` };
