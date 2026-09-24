@@ -9,9 +9,8 @@
 // glued line is wider than one row, so it sailed through, and the write that
 // appended the note silently reassembled BOTH rows into the file as one line
 // instead of refusing. The fix lives in tracker-parse.mjs's parseTrackerRow —
-// reused here, not a second parser — because that is the one function every
-// tracker writer (set-status.mjs, merge-tracker.mjs, mark-pdf-ready.mjs) calls
-// to decide whether a line is a row worth touching.
+// reused here, not a second parser — because the set-status.mjs note-append
+// path and canonical writers that resolve rows through parseTrackerRow use it.
 import { pass, fail } from './helpers.mjs';
 import { resolveColumns, parseTrackerRow } from '../tracker-parse.mjs';
 
@@ -20,6 +19,18 @@ console.log('\ntracker-parse.mjs — glued-row rejection (#1127/#1128, #2003/#20
 const HEADER = '| # | Date | Company | Role | Score | Status | PDF | Report | Notes |';
 const SEP = '|---|------|---------|------|-------|--------|-----|--------|-------|';
 const colmap = resolveColumns([HEADER, SEP]);
+
+{
+  const customHeader = '| # | Date | Company | Priority | Role | Score | Status | PDF | Report | Notes |';
+  const customMap = resolveColumns([customHeader]);
+  const row = '| 42 | 2026-01-01 | Acme | 2 | Director | 4.0/5 | Evaluated | ❌ | [42](../reports/42-acme.md) | notes here |';
+  const parsed = parseTrackerRow(row, customMap);
+  if (parsed && parsed.num === 42 && parsed.role === 'Director' && parsed.notes === 'notes here') {
+    pass('a numeric Priority cell in a custom layout remains a valid row');
+  } else {
+    fail(`custom row with numeric Priority was rejected or misparsed: ${JSON.stringify(parsed)}`);
+  }
+}
 
 // ── Control: an ordinary well-formed row still parses ───────────────────────
 {

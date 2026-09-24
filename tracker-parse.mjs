@@ -268,22 +268,6 @@ export function resolveColumns(lines) {
 }
 
 /**
- * A genuine row has exactly one `num`-shaped cell: its own leading `| <digits>
- * |`. Two or more mean two tracker rows are sitting on one physical line — a
- * missing newline glued them together (2026-09-23: tracks B and C each got a
- * `set-status.mjs --note` write on a row whose own trailing pipe was directly
- * followed, with no `\n`, by the NEXT row's leading pipe; #1428/#3016's
- * width guard only rejects a row that is too SHORT, so the merged line — far
- * WIDER than one row, never narrower — sailed through it, and the write that
- * appended the note silently reassembled and re-persisted both rows as one
- * line instead of refusing). Checked against every live tracker row across
- * all three tracks with zero false positives: no other column (date has
- * dashes, score has "/5", report is bracketed) is ever bare digits between
- * pipes.
- */
-const GLUED_ROW_NUM_CELL_RE = /\|\s*\d+\s*\|/g;
-
-/**
  * Parse one markdown table row into a tracker object using a column map.
  *
  * Header and separator rows (non-numeric `num` cell) and malformed rows return
@@ -295,11 +279,6 @@ const GLUED_ROW_NUM_CELL_RE = /\|\s*\d+\s*\|/g;
  */
 export function parseTrackerRow(line, colmap = LEGACY_COLMAP) {
   if (typeof line !== 'string' || !line.startsWith('|')) return null;
-  // Reject a line where two or more rows are glued together BEFORE the width
-  // guard below, which only catches a row that is too short — a glued line is
-  // wider than one row, and mere width tolerance would let the second row's
-  // cells ride along into whatever this row's writer does next.
-  if ((line.match(GLUED_ROW_NUM_CELL_RE) ?? []).length > 1) return null;
   const parts = line.split('|').map(s => s.trim());
   // Dynamic width guard: a complete row splits into leading '' + one cell per
   // column (+ trailing '' when the row ends with a pipe). Anything shorter is
@@ -310,6 +289,7 @@ export function parseTrackerRow(line, colmap = LEGACY_COLMAP) {
   // still complete (tracker-utils rebuildRow supports them).
   const width = Math.max(...Object.values(colmap)) + (line.trimEnd().endsWith('|') ? 2 : 1);
   if (parts.length < width) return null;
+  if (parts[width - 1] === '' && /^\d+$/.test(parts[width + colmap.num - 1] ?? '')) return null;
   const num = parseInt(parts[colmap.num], 10);
   if (isNaN(num)) return null;
   const at = (k) => (colmap[k] != null ? (parts[colmap[k]] ?? '') : '');
