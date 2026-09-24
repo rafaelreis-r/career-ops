@@ -804,7 +804,7 @@ test('Pismo (Workday): the disability, CID and accessibility fields all bind fro
 test('medical self-declaration never reaches models for unrelated fields', async () => {
   const profile = { ...PISMO_PROFILE, candidate: { full_name: 'Taylor Example' } };
   const answers = buildAnswers([], answersFromProfileFacts(profile));
-  const unrelated = { key: 'other', kind: 'text', label: 'Preferred first name' };
+  const unrelated = { key: 'other', kind: 'text', label: 'Name to display' };
   const medicalText = /F84\.5|Autism Spectrum Disorder|Psychosocial|No accessibility resources needed/;
   let jevCalls = 0;
   await matchAnswers([unrelated], answers, { ask: async (request) => {
