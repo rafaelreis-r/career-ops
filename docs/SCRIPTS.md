@@ -1262,6 +1262,11 @@ Exit codes (the shared `CLI_EXIT` contract in `tracker-utils.mjs`, so these valu
 
 Nothing is written on any non-zero exit.
 
+A physical tracker line containing more than one `| number | YYYY-MM-DD |`
+row-start sequence is treated as malformed. Selecting a row on that line exits
+`2` without writing; other valid rows remain editable. Separate the rows onto
+their own lines before retrying.
+
 To identify a row before writing to it, [find](#find) resolves a number, company, or role fragment to its full identity and surfaces collisions between the two numbering schemes rather than picking one silently.
 
 ## mark-pdf-ready.mjs

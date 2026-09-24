@@ -1422,5 +1422,53 @@ for (const bad of ['correction', 'backfill', 'cell-edit', 'nonsense']) {
   }
 }
 
+// ── Glued-row guard (2026-09-23): a row whose own trailing pipe is directly
+// followed, with no \n, by the next row's leading pipe must be refused, not
+// silently rewritten with the note wedged into the middle of the merged line.
+// This is exactly how tracks B and C got #1127/#1128, #2003/#2004 and
+// #2123/#2124 stuck on one physical line each: a --note write on a
+// PRE-EXISTING glued line reassembled and re-persisted both rows as one line
+// instead of refusing. The fix lives in tracker-parse.mjs's parseTrackerRow
+// (tests/tracker-parse-glued-row.test.mjs covers it directly); this is the
+// end-to-end proof that set-status.mjs itself now fails safe instead of
+// extending the corruption.
+{
+  const GLUED = `# Applications Tracker
+
+| # | Date | Company | Role | Score | Status | PDF | Report | Notes |
+|---|------|---------|------|-------|--------|-----|--------|-------|
+| 5 | 2026-06-05 | Umbrella | Platform Eng | 3.9/5 | Evaluated | ❌ | [5](../reports/005-umbrella-2026-06-05.md) | pipeline heavy |
+| 1127 | 2026-09-06 | Wellhub | Staff PM | 4.3/5 | Evaluated | ✅ | [1127](../reports/1127-wellhub.md) | fixed Staff base. || 1128 | 2026-09-06 | ? | Travel eSIM PM | 3.7/5 | Discarded | ✅ | [1128](../reports/1128-jobgether.md) | Ask Jobgether for scope. |
+| 6 | 2026-06-06 | Hooli | Backend Eng | 4.1/5 | Evaluated | ❌ | [6](../reports/006-hooli-2026-06-06.md) | — |
+`;
+
+  {
+    const sb = makeSandbox(GLUED);
+    try {
+      const before = readTracker(sb);
+      const r = runSetStatus(['--row', '1127', 'Applied', '--note', 'enviada pelo capitao em 2026-09-23, confirmacao do empregador na tela', '--json'], sb);
+      if (r.code !== 0) pass('glued row #1127/#1128: set-status fails safe instead of writing');
+      else fail(`glued row #1127/#1128: set-status reported success (code 0): ${r.stdout}`);
+      const after = readTracker(sb);
+      if (after === before) pass('glued row #1127/#1128: the tracker is byte-for-byte untouched, not further corrupted');
+      else fail(`glued row #1127/#1128: tracker was rewritten despite the refusal:\n${after}`);
+    } finally { rmSync(sb.dir, { recursive: true, force: true }); }
+  }
+
+  // MUST NOT CHANGE: a glued row elsewhere in the file must not take down
+  // writes to the OTHER, well-formed rows that share the tracker.
+  {
+    const sb = makeSandbox(GLUED);
+    try {
+      const r = runSetStatus(['--row', '6', 'Applied', '--json'], sb);
+      if (r.code === 0) pass('glued row #1127/#1128: an unrelated well-formed row (#6) is still updatable');
+      else fail(`glued row #1127/#1128: an unrelated row #6 was collaterally blocked: ${r.stderr || r.stdout}`);
+      const after = readTracker(sb);
+      if (/\| 6 \|.*\| Applied \|/.test(after)) pass('glued row #1127/#1128: row #6 actually landed as Applied');
+      else fail(`glued row #1127/#1128: row #6 did not land: ${after}`);
+    } finally { rmSync(sb.dir, { recursive: true, force: true }); }
+  }
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
