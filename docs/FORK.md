@@ -95,7 +95,7 @@ Three files conflict on almost every rebase; resolve them as follows.
 
 | File | Fork side to keep |
 |---|---|
-| `update-system.mjs` | `CANONICAL_SLUG` block (replaces the three hardcoded URLs and the ref URL); the `Fork-owned` entries in `SYSTEM_PATHS` (`jev-ag-eval.mjs`, `jev-pregate.mjs`, `lib/jev-client.mjs`, `lib/apply-route.mjs`, `lib/jev-apply-helpers.mjs`, `web/`); and `modes/apply-llm-owned.md`. |
+| `update-system.mjs` | `CANONICAL_SLUG` block (replaces the three hardcoded URLs and the ref URL); the `Fork-owned` entries in `SYSTEM_PATHS` (`jev-ag-eval.mjs`, `jev-pregate.mjs`, `lib/jev-client.mjs`, `lib/apply-route.mjs`, `lib/jev-apply-helpers.mjs`, `lib/tracks.mjs`, `lib/email-reconcile.mjs`, `reconcile-email.mjs`, `web/`); and `modes/apply-llm-owned.md`. |
 | `jd-skill-gap.mjs` | The `jev-client` import beside upstream's imports; the `jevChoice` call and `isJevEnabled` gate in the skill-gap scorer. |
 | `web/src/lib/apply/drive.ts` | The `jev-drive` import and `DriveResult` re-export; the `isJevDriveEnabled()` branch that delegates to `driveSessionJev`. Keep upstream's spawn helper. |
 
@@ -200,6 +200,13 @@ Keep these across rebases; each exists for a reason.
   of taking the first (2026-09-02: nine same-day CI&T postings merged into the
   wrong row). `tests/merge-tracker.test.mjs` carries both contracts beside
   upstream's own.
+- **E-mail reconciliation across tracks.** `reconcile-email.mjs` with
+  `lib/email-reconcile.mjs` reads Gmail through `gog` (read-only) and has Jev
+  classify each e-mail and pick its row among the trackers of every track in
+  `trilhas.yml`; it writes forward-only changes through `set-status.mjs`
+  only with `--apply`. See [SCRIPTS.md](SCRIPTS.md#reconcile-email).
+  `lib/tracks.mjs` is the one reader of the registry and of every track's
+  tracker, shared with the hybrid driver's submission-limit check.
 
 ## Dropped on purpose
 
