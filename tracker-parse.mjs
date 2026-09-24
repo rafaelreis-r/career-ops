@@ -252,12 +252,8 @@ export function resolveTsvColumns(cells) {
 export function detectColumns(lines) {
   for (const line of lines) {
     if (!line.startsWith('|')) continue;
-    const cells = line.split('|').map(s => s.trim().toLowerCase());
-    const map = headerSchemaMap(cells);
-    if (map) {
-      Object.defineProperty(map, 'columnCount', { value: cells.length - (cells.at(-1) === '' ? 2 : 1) });
-      return map;
-    }
+    const map = headerSchemaMap(line.split('|').map(s => s.trim().toLowerCase()));
+    if (map) return map;
   }
   return null;
 }
@@ -270,6 +266,8 @@ export function detectColumns(lines) {
 export function resolveColumns(lines) {
   return detectColumns(lines) || LEGACY_COLMAP;
 }
+
+const ROW_START_SIGNATURE_RE = /\|\s*\d+\s*\|\s*\d{4}-\d{2}-\d{2}\s*\|/g;
 
 /**
  * Parse one markdown table row into a tracker object using a column map.
@@ -284,9 +282,17 @@ export function resolveColumns(lines) {
  */
 export function parseTrackerRow(line, colmap = LEGACY_COLMAP) {
   if (typeof line !== 'string' || !line.startsWith('|')) return null;
+  if ((line.match(ROW_START_SIGNATURE_RE) ?? []).length > 1) return null;
   const parts = line.split('|').map(s => s.trim());
-  const columnCount = colmap.columnCount ?? Math.max(...Object.values(colmap));
-  if (parts.length < columnCount + 1 || parts.length > columnCount + 2) return null;
+  // Dynamic width guard: a complete row splits into leading '' + one cell per
+  // column (+ trailing '' when the row ends with a pipe). Anything shorter is
+  // missing a cell, and a missing INTERIOR cell shifts every later column one
+  // left while the trailing empty cell keeps the count plausible — so require
+  // the full width rather than mere coverage of the highest mapped index.
+  // Hand-edited rows without the trailing pipe are one part narrower but
+  // still complete (tracker-utils rebuildRow supports them).
+  const width = Math.max(...Object.values(colmap)) + (line.trimEnd().endsWith('|') ? 2 : 1);
+  if (parts.length < width) return null;
   const num = parseInt(parts[colmap.num], 10);
   if (isNaN(num)) return null;
   const at = (k) => (colmap[k] != null ? (parts[colmap[k]] ?? '') : '');

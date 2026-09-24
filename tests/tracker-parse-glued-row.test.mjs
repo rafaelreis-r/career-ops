@@ -81,6 +81,16 @@ const colmap = resolveColumns([HEADER, SEP]);
   }
 }
 
+{
+  const row = '| 42 | 2026-01-01 | Acme | Director | 4.0/5 | Evaluated | ❌ | [42](../reports/42-acme.md) | notes here | extra |';
+  const parsed = parseTrackerRow(row, colmap);
+  if (parsed?.num === 42 && parsed.notes === 'notes here') {
+    pass('surplus cells without a second row-start signature remain parseable');
+  } else {
+    fail(`surplus cells without a second row start were rejected: ${JSON.stringify(parsed)}`);
+  }
+}
+
 // ── The exact incident shape: row #1127's own note directly followed, with no
 // \n, by row #1128's leading pipe. Byte-for-byte the seam career-ops-product's
 // data/applications.md line 111 actually shows.
