@@ -288,11 +288,14 @@ export function resolveColumns(lines, options) {
   return detectColumns(lines, options) || LEGACY_COLMAP;
 }
 
+const ROW_START_SIGNATURE_RE = /\|\s*\d+\s*\|\s*\d{4}-\d{2}-\d{2}\s*\|/g;
+
 /**
  * Parse one markdown table row into a tracker object using a column map.
  *
  * Header and separator rows (non-numeric `num` cell) and malformed rows return
  * null. The raw line is preserved so callers can locate/replace the exact line.
+ * The set-status.mjs note-append write path resolves rows through this parser.
  *
  * @param {string} line - One line from applications.md.
  * @param {Object<string,number>} [colmap] - From resolveColumns(); defaults to legacy.
@@ -301,6 +304,7 @@ export function resolveColumns(lines, options) {
  */
 export function parseTrackerRow(line, colmap = LEGACY_COLMAP, { allowTabs = false, allowIndentation = false } = {}) {
   if (typeof line !== 'string' || !(allowIndentation ? line.trimStart() : line).startsWith('|')) return null;
+  if ((line.match(ROW_START_SIGNATURE_RE) ?? []).length > 1) return null;
   const parts = (allowTabs ? splitTrackerCells(line) : line.split('|')).map(s => s.trim());
   // Dynamic width guard: a complete row splits into leading '' + one cell per
   // column (+ trailing '' when the row ends with a pipe). Anything shorter is
