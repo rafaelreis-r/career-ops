@@ -147,11 +147,38 @@ function stubAsk() {
   const ats = candidatesFor(EMAILS[1], rows);
   ok('an ATS sender (no-reply@ashbyhq.com) still reaches the employer row in another track',
     ats[0]?.track === 'B' && ats[0]?.row.company === 'Chartis');
-  ok('unrelated rows are not offered as candidates', ats.every((c) => c.row.company === 'Chartis'));
+  ok('the named company ranks ahead of role-only candidates', ats[0]?.row.company === 'Chartis' && ats.length <= 5);
   const person = candidatesFor(EMAILS[2], rows);
   ok('a recruiter writing as a person reaches the row through its Via column',
     person.some((c) => c.row.num === 1004));
   ok('no row is offered for a job alert', candidatesFor(EMAILS[7], rows).length === 0);
+  const byRole = candidatesFor(email('via', '2026-09-20', 'Greenhouse', 'updates@greenhouse.io', 'Senior Product Manager', 'Your application has an update.'), [
+    { track: 'A', row: { num: 20, company: 'Elsewhere', via: 'Greenhouse', role: 'Marketing Director', date: '2026-09-01' } },
+    { track: 'B', row: { num: 21, company: 'Target', via: '—', role: 'Senior Product Manager', date: '2026-09-01' } },
+  ]);
+  ok('exact role remains eligible beside an unrelated Via match', byRole.some((c) => c.row.num === 21));
+}
+
+{
+  const { tracks } = makeTracks();
+  const rows = allRows(tracks);
+  const msg = email('error', '2026-09-20', 'Umbrella', 'jobs@umbrella.com', 'Assessment', 'Complete your assessment at Umbrella.');
+  const judged = await judgeEmails([msg], rows, { ask: async ({ state }) => ({ answers: {
+    kind: { choice: 'incomplete', confidence: 0.95 },
+    action: { error: 'action unavailable' },
+    match: { choice: JSON.parse(state).candidates[0]?.id ?? 'none', confidence: 0.95 },
+  } }) });
+  const planned = planReconciliation(judged.judgments);
+  ok('an action-answer error sends the email to review', judged.errors === 1 && planned.review.some((r) => r.reason.includes('action unavailable')) && planned.pendingActions.length === 0);
+
+  const paused = await judgeEmails([email('pause', '2026-09-20', 'Umbrella', 'jobs@umbrella.com', 'Hiring paused', 'Hiring for Staff Product Manager at Umbrella is on hold.')], rows, { ask: async ({ state }) => ({ answers: {
+    kind: { choice: 'rejection', confidence: 0.95 },
+    action: { choice: 'none', confidence: 0.95 },
+    pause: { choice: 'yes', confidence: 0.95 },
+    match: { choice: JSON.parse(state).candidates[0]?.id ?? 'none', confidence: 0.95 },
+  } }) });
+  const pausedPlan = planReconciliation(paused.judgments);
+  ok('a paused role is reviewed without rejection', pausedPlan.changes.length === 0 && pausedPlan.review.some((r) => r.reason.includes('paused')));
 }
 
 // ── plan: transitions, refusals, review ────────────────────────────────
@@ -183,6 +210,32 @@ function stubAsk() {
   ok('not_job e-mails are dropped', ![...plan.changes, ...plan.review].some((x) => x.threadId === 't8'));
   ok('live processes list rows left Applied/Responded/Interview',
     plan.live.some((l) => l.num === 11 && l.status === 'Interview') && plan.live.some((l) => l.num === 1004 && l.status === 'Responded') && !plan.live.some((l) => l.num === 1003));
+}
+
+{
+  const { tracks, b } = makeTracks();
+  const tracker = path.join(b, 'data', 'applications.md');
+  fs.appendFileSync(tracker, row(77, 'Twin', '—', 'Product Manager', 'Evaluated')
+    + row(77, 'Twin', '—', 'Engineering Manager', 'Applied'));
+  const matching = readTrackerRows(b).rows.filter((r) => r.num === 77);
+  const judgment = (role, kind, action) => ({
+    email: email(role, '2026-09-20', 'Twin', 'jobs@twin.com', role, 'Please respond.'),
+    candidates: [], kind, kindProb: 0.95, action, actionProb: 0.95,
+    match: { track: 'B', row: matching.find((r) => r.role === role) }, matchProb: 0.95, error: null,
+  });
+  const plan = planReconciliation([
+    judgment('Product Manager', 'confirmation', 'technical_assessment'),
+    judgment('Engineering Manager', 'interview', 'none'),
+  ], { today: '2026-09-24' });
+  const product = plan.changes.find((c) => c.role === 'Product Manager');
+  const engineering = plan.changes.find((c) => c.role === 'Engineering Manager');
+  ok('same-number rows plan from their own statuses', product?.before === 'Evaluated' && product.after === 'Applied'
+    && engineering?.before === 'Applied' && engineering.after === 'Interview');
+  const refreshed = refreshAppliedPlan(plan, tracks);
+  ok('same-number rows refresh their own live and pending states',
+    refreshed.live.some((r) => r.role === 'Engineering Manager' && r.status === 'Applied')
+    && refreshed.live.every((r) => r.role !== 'Product Manager')
+    && refreshed.pendingActions.some((a) => a.row?.role === 'Product Manager'));
 }
 
 // ── pending actions: newest per sender, expired and closed rows dropped ─

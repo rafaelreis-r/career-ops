@@ -910,7 +910,8 @@ node reconcile-email.mjs --apply         # write the proposed changes
    Evaluated). A match or kind probability below 0.7 is never written; it goes
    to the review list. A backward move is refused and listed, except stale
    ones (a confirmation, or a row already further along in a non-terminal
-   state), which are only counted.
+   state), which are only counted. A temporary hiring pause goes to review
+   without changing the tracker.
 5. **`--apply`** copies each touched tracker to
    `applications.md.bak-reconcile-email-<timestamp>`, then writes each change
    through `set-status.mjs --row N --role R --on <e-mail date> --note …`. The
