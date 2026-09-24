@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pass, fail, rmSync } from './helpers.mjs';
 import {
-  GOG_SAFETY_FLAGS, applyChanges, candidatesFor, extractDeadline, fetchEmails, judgeEmails, planReconciliation, runGog,
+  GOG_SAFETY_FLAGS, applyChanges, candidatesFor, extractDeadline, fetchEmails, judgeEmails, planReconciliation, refreshAppliedPlan, runGog,
 } from '../lib/email-reconcile.mjs';
 import { assertTrackerScope, readTrackerRows, trackList } from '../lib/tracks.mjs';
 
@@ -114,12 +114,13 @@ function stubAsk() {
     if (args[1] === 'search') return args[2].includes('hit-reply@linkedin.com') ? { threads: [{ id: 'p1' }, { id: 'a1' }] } : { threads: [{ id: 'a1' }] };
     const id = args[3];
     return { thread: { messages: [
+      { headers: { from: 'Recruiter <rec@corp.com>', subject: wrap(`Old ${id}`) }, internalDate: String(1790000300000 - 41 * 86_400_000), body: wrap('old message') },
       { headers: { from: 'Recruiter <rec@corp.com>', subject: wrap(`Request ${id}`) }, internalDate: '1790000000000', body: wrap('first') },
       { headers: { from: 'Me <me@example.com>', subject: wrap('Re') }, internalDate: '1790000100000', body: wrap('my reply') },
       { headers: { from: 'Recruiter <rec@corp.com>', subject: wrap(`Interview ${id}`) }, internalDate: '1790000200000', body: wrap('second') },
     ] } };
   };
-  const { emails, searched } = await fetchEmails({ account: 'me@example.com', days: 40, run });
+  const { emails, searched } = await fetchEmails({ account: 'me@example.com', days: 40, now: 1790000300000, run });
   const searches = calls.filter((c) => c[1] === 'search');
   ok('two searches run: the ATS one and the recruiter-as-person one',
     searches.length === 2 && searches.every((c) => c[2].startsWith('newer_than:40d ')) && searches.some((c) => c[2].includes('ashbyhq.com')));
@@ -129,7 +130,14 @@ function stubAsk() {
   ok('both inbound messages are retained while the sent reply is excluded',
     emails.filter((e) => e.threadId === 'a1').length === 2 && a1.address === 'rec@corp.com' && a1.body === 'first'
     && emails.some((e) => e.threadId === 'a1' && e.body === 'second'));
+  ok('inbound messages older than the search window are excluded', !emails.some((e) => e.body === 'old message'));
   ok('a thread keeps which searches found it', a1 && a1.recortes.includes('ats') && a1.recortes.includes('person'));
+  const judged = [];
+  await judgeEmails(emails, [], { ask: async ({ state }) => {
+    judged.push(JSON.parse(state).email.body);
+    return { answers: { kind: { choice: 'not_job', confidence: 1 } } };
+  } });
+  ok('Jev receives each in-window inbound message', judged.length === 4 && judged.includes('first') && judged.includes('second'));
 }
 
 // ── candidates: ATS sender, recruiter via ──────────────────────────────
@@ -200,9 +208,15 @@ function stubAsk() {
     j('r1', '2026-09-02', 'Recruiter', 'reply_to_recruiter', { kind: 'recruiter_request' }),
     j('r2', '2026-09-03', 'Recruiter', 'reply_to_recruiter', { kind: 'recruiter_request' }),
   ], { today: '2026-09-12' }).recruiterRequests;
-  ok('only a later request in the same thread supersedes an earlier one',
-    requests.length === 2 && requests.some((r) => r.threadId === 'r1' && r.date === '2026-09-02')
+  ok('separate requests in one thread both remain visible',
+    requests.length === 3 && requests.some((r) => r.threadId === 'r1' && r.date === '2026-09-01')
+    && requests.some((r) => r.threadId === 'r1' && r.date === '2026-09-02')
     && requests.some((r) => r.threadId === 'r2'));
+  const repeated = planReconciliation([
+    j('same', '2026-09-01', 'Tester', 'technical_assessment'),
+    j('same', '2026-09-02', 'Tester', 'technical_assessment'),
+  ], { today: '2026-09-12' });
+  ok('separate assessments in one thread both remain visible', repeated.pendingActions.length === 2);
 }
 
 {
@@ -243,6 +257,41 @@ function stubAsk() {
   const staleResult = applyChanges([stale], tracks, { stamp: 'stale' });
   ok('a changed tracker status is sent to review without a write',
     staleResult.review.length === 1 && staleResult.results.length === 0);
+}
+
+{
+  const { tracks, b } = makeTracks();
+  const tracker = path.join(b, 'data', 'applications.md');
+  const tracked = readTrackerRows(b).rows.find((r) => r.num === 1005);
+  const matched = { track: 'B', row: tracked };
+  const judgment = (id, date, kind, action) => ({
+    email: email(id, date, 'Umbrella Recruiting', 'recruiter@umbrella.com', id, 'Complete the next step.'),
+    candidates: [], kind, kindProb: 0.9, action, actionProb: 0.9, match: matched, matchProb: 0.9, error: null,
+  });
+  const plannedClosed = planReconciliation([
+    judgment('action', '2026-09-20', 'incomplete', 'technical_assessment'),
+    judgment('rejection', '2026-09-21', 'rejection', 'none'),
+  ], { today: '2026-09-24' });
+  fs.writeFileSync(tracker, fs.readFileSync(tracker, 'utf8').replace(
+    row(1005, 'Umbrella', '—', 'Staff Product Manager', 'Evaluated'),
+    row(1005, 'Umbrella', '—', 'Staff Product Manager', 'Interview')));
+  const skipped = applyChanges(plannedClosed.changes, tracks, { stamp: 'stale-report' });
+  const refreshedOpen = refreshAppliedPlan(plannedClosed, tracks);
+  ok('a skipped rejection restores the actual live process and pending assessment',
+    skipped.review.length === 1 && plannedClosed.live.length === 0 && plannedClosed.pendingActions.length === 0
+    && refreshedOpen.live.some((r) => r.num === 1005 && r.status === 'Interview')
+    && refreshedOpen.pendingActions.some((a) => a.threadId === 'action'));
+
+  const plannedOpen = planReconciliation([
+    judgment('interview', '2026-09-22', 'interview', 'technical_assessment'),
+  ], { today: '2026-09-24' });
+  fs.writeFileSync(tracker, fs.readFileSync(tracker, 'utf8').replace(
+    row(1005, 'Umbrella', '—', 'Staff Product Manager', 'Interview'),
+    row(1005, 'Umbrella', '—', 'Staff Product Manager', 'Rejected')));
+  const refreshedClosed = refreshAppliedPlan(plannedOpen, tracks);
+  ok('a now-closed tracker row disappears from live and pending lists',
+    refreshedClosed.live.every((r) => r.num !== 1005)
+    && refreshedClosed.pendingActions.every((a) => a.threadId !== 'interview'));
 }
 
 // ── deadlines ──────────────────────────────────────────────────────────

@@ -25,7 +25,7 @@ import { isMainModule } from './lib/is-main-module.mjs';
 import { assertTrackerScope, readTrackerRows, trackList } from './lib/tracks.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import {
-  DEFAULT_DAYS, MATCH_THRESHOLD, applyChanges, fetchEmails, judgeEmails, planReconciliation,
+  DEFAULT_DAYS, MATCH_THRESHOLD, applyChanges, fetchEmails, judgeEmails, planReconciliation, refreshAppliedPlan,
 } from './lib/email-reconcile.mjs';
 
 const USAGE = `Usage: node reconcile-email.mjs [--days N] [--apply]
@@ -122,6 +122,7 @@ async function main(argv) {
   const seconds = (Date.now() - started) / 1000;
   const plan = planReconciliation(judgments);
   const applied = apply && plan.changes.length ? applyChanges(plan.changes, tracks) : apply ? { backups: [], results: [] } : null;
+  const reportedPlan = apply ? refreshAppliedPlan(plan, tracks) : plan;
 
   const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
   const report = {
@@ -130,7 +131,7 @@ async function main(argv) {
     searched,
     jev: { emails: judgments.length, ...usage, seconds, errors },
     dryRun: !apply,
-    plan,
+    plan: reportedPlan,
     applied,
   };
   printReport(report);

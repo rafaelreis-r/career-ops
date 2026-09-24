@@ -890,7 +890,8 @@ node reconcile-email.mjs --apply         # write the proposed changes
    (known ATS sender domains, or application/interview subjects) and mail from
    recruiters as people (LinkedIn InMail, or a non-automated sender in the
    Personal category writing about a role). Each thread body comes from
-   `gog gmail thread get --sanitize-content`. Every inbound message is judged.
+   `gog gmail thread get --sanitize-content`. Every inbound message inside the
+   requested window is judged.
    Every call carries `--readonly --no-input --gmail-no-send --json
    --wrap-untrusted`. The account comes from `candidate.email` of
    `config/profile.yml`.
@@ -914,7 +915,9 @@ node reconcile-email.mjs --apply         # write the proposed changes
    `applications.md.bak-reconcile-email-<timestamp>`, then writes each change
    through `set-status.mjs --row N --role R --on <e-mail date> --note …`. The
    note (`rejected by e-mail on 2026-09-22 from no-reply@ashbyhq.com
-   (reconcile-email)`) is deterministic, so a second run adds nothing.
+   (reconcile-email)`) is deterministic, so a second run adds nothing. The
+   applied report refreshes live processes and pending actions from the saved
+   tracker statuses.
 
 The report lists the changes (track, row, before → after, e-mail date and
 sender), recruiter requests, pending actions (technical assessment, AI
