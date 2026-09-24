@@ -19,7 +19,7 @@
  * posting matches on its job id whatever tracking URL it arrived under.
  *
  * The cutoff is `rank_forward_threshold` in config/profile.yml (cal-v1 scale,
- * 0-5), default 2.5; --threshold overrides it for one run.
+ * 0-5), default 2.5.
  *
  * Forwarded rows are appended to batch/batch-input.tsv (what batch-runner.sh
  * reads) with fresh ids above every id in the input and state files.
@@ -28,13 +28,11 @@
  * Usage:
  *   node eval-queue.mjs                    # list both sides, append the forwarded rows
  *   node eval-queue.mjs --dry-run          # list both sides, write nothing
- *   node eval-queue.mjs --threshold 3.0
  *   node eval-queue.mjs --force <url>      # repeatable
- *   node eval-queue.mjs --json             # machine-readable plan
  */
 
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'fs';
-import { dirname, join, resolve } from 'path';
+import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { parseArgs } from 'util';
 import * as yaml from 'js-yaml';
@@ -53,15 +51,13 @@ const REPORT_URL = /^\*\*URL:\*\*\s*(\S+)/m;
 const USAGE = `
   eval-queue.mjs — build the long-evaluation queue through the cal-v1 forwarding gate
 
-  node eval-queue.mjs [--threshold N] [--force <url>]... [--dry-run] [--json] [--batch-input <path>]
+  node eval-queue.mjs [--force <url>]... [--dry-run]
 
-    --threshold N        cal-v1 cutoff for this run (default: rank_forward_threshold
-                         in config/profile.yml, else ${DEFAULT_FORWARD_THRESHOLD})
+    cutoff              rank_forward_threshold in config/profile.yml,
+                         else ${DEFAULT_FORWARD_THRESHOLD}
     --force <url>        forward this pending row even below the cutoff or unranked;
                          repeatable
     --dry-run            print the plan, write nothing
-    --json               print the plan as JSON
-    --batch-input <path> queue file to append to (default: batch/batch-input.tsv)
 `;
 
 /**
@@ -166,15 +162,19 @@ const fmt = score => score.toFixed(1);
  */
 export function planQueue({ rows, threshold, evaluated, queued, force = [] }) {
   const forced = new Set(force.map(normalizeUrlForDedup));
-  const firstLine = new Map();
+  const representative = new Map();
+  for (const row of rows) {
+    const key = normalizeUrlForDedup(row.url);
+    const previous = representative.get(key);
+    if (!previous || (row.rank ?? -1) > (previous.rank ?? -1)) representative.set(key, row);
+  }
   const forwarded = [];
   const held = [];
   for (const row of rows) {
     const key = normalizeUrlForDedup(row.url);
     const hold = reason => held.push({ ...row, reason });
     const forward = reason => forwarded.push({ ...row, reason });
-    if (firstLine.has(key)) { hold(`duplicate of pipeline.md line ${firstLine.get(key)}`); continue; }
-    firstLine.set(key, row.line);
+    if (representative.get(key) !== row) { hold(`duplicate of pipeline.md line ${representative.get(key).line}`); continue; }
     if (evaluated.has(key)) { hold(`already evaluated (${evaluated.get(key)})`); continue; }
     if (queued.has(key)) { hold(`already queued (batch-input id ${queued.get(key)})`); continue; }
     const ranked = row.rank !== null;
@@ -189,7 +189,7 @@ export function planQueue({ rows, threshold, evaluated, queued, force = [] }) {
     forward(`${RANK_CALIBRATION_VERSION} ${fmt(row.rank)} at or above cutoff ${fmt(threshold)}`);
   }
   forwarded.sort((a, b) => (b.rank ?? -1) - (a.rank ?? -1));
-  const pendingKeys = new Set(firstLine.keys());
+  const pendingKeys = new Set(representative.keys());
   const unknownForce = force.filter(url => !pendingKeys.has(normalizeUrlForDedup(url)));
   return { threshold, forwarded, held, unknownForce };
 }
@@ -239,11 +239,8 @@ function main(argv) {
     ({ values } = parseArgs({
       args: argv,
       options: {
-        threshold: { type: 'string' },
         force: { type: 'string', multiple: true, default: [] },
         'dry-run': { type: 'boolean', default: false },
-        json: { type: 'boolean', default: false },
-        'batch-input': { type: 'string' },
         help: { type: 'boolean', short: 'h', default: false },
       },
       strict: true,
@@ -257,14 +254,13 @@ function main(argv) {
 
   let threshold;
   try {
-    threshold = parseForwardThreshold(values.threshold, '--threshold')
-      ?? loadForwardThreshold(join(DATA_ROOT, 'config', 'profile.yml'));
+    threshold = loadForwardThreshold(join(DATA_ROOT, 'config', 'profile.yml'));
   } catch (err) {
     console.error(err.message);
     return 2;
   }
 
-  const batchInput = resolve(values['batch-input'] ?? DEFAULT_BATCH_INPUT);
+  const batchInput = DEFAULT_BATCH_INPUT;
   const inputRows = parseBatchRows(readIfExists(batchInput));
   const stateRows = parseBatchRows(readIfExists(join(dirname(batchInput), 'batch-state.tsv')));
   const plan = planQueue({
@@ -293,11 +289,7 @@ function main(argv) {
     written = '--dry-run: nothing written.';
   }
 
-  if (values.json) {
-    console.log(JSON.stringify({ ...plan, written: written || null }, null, 2));
-  } else {
-    printPlan(plan, written);
-  }
+  printPlan(plan, written);
   return 0;
 }
 

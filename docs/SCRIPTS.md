@@ -1002,8 +1002,8 @@ URLs compare on the scanners' dedupe key (`normalizeUrlForDedup`), so a
 LinkedIn posting matches on its job id whatever tracking URL it arrived under.
 
 The cutoff is `rank_forward_threshold` in `config/profile.yml`, on the cal-v1
-scale (0-5), default **2.5**, the cutoff used on 2026-09-23. `--threshold`
-overrides it for one run. A value outside 0-5 stops the command with an error.
+scale (0-5), default **2.5**, the cutoff used on 2026-09-23. A value outside
+0-5 stops the command with an error.
 `--force <url>` (repeatable) sends one pending row to the evaluation even
 below the cutoff or unranked. It does not re-queue a posting that is already
 evaluated or already queued.
@@ -1015,9 +1015,7 @@ queued with `jd=<path>` in its notes, which the runner seeds as the JD.
 ```bash
 node eval-queue.mjs --dry-run            # print both lists, write nothing
 node eval-queue.mjs                      # append the forwarded rows to batch/batch-input.tsv
-node eval-queue.mjs --threshold 3.0
 node eval-queue.mjs --force https://jobs.example.com/123
-node eval-queue.mjs --dry-run --json     # the same plan as JSON
 ```
 
 **Hit rate per cal-v1 rank**, from the 84-pair replay of 2026-09-21
@@ -1035,9 +1033,9 @@ one-decimal cal-v1 score that the measured pairs calibrated to.
 | 0.8 | 7 | 1.87 | 0 | 0 |
 
 At the default 2.5 cutoff the gate forwards the 5.0, 3.2 and 2.8 bands: 54 of
-the 84 pairs, holding 9 of the 12 that cleared 3.3 and the single pair that
-cleared 3.5. Only the 5.0 band reached 3.5 in the sample, so a cutoff above
-2.8 would have cut 7 of the 12 postings that cleared 3.3.
+the 84 pairs, forwarding 9 of the 12 that cleared 3.3 and the single pair that
+cleared 3.5. Only the 5.0 band reached 3.5 in the sample; a cutoff above
+2.8 would additionally hold seven postings that cleared 3.3.
 
 ---
 

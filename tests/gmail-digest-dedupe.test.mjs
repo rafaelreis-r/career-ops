@@ -14,6 +14,8 @@
 import { pass, fail, ROOT } from './helpers.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
 
 console.log('\ngmail digest — one LinkedIn posting, one row');
 
@@ -26,7 +28,8 @@ const BEEHIIV = 'https://link.mail.beehiiv.com/v2/c/8fb149e9f36ccba7fab60b0eb65a
 try {
   const { linkedInJobId, canonicalLinkedInJobUrl } = await import(pathToFileURL(join(ROOT, 'url-key.mjs')).href);
   const { isCleanUrl } = await import(pathToFileURL(join(ROOT, 'plugins', 'gmail', '_helpers.mjs')).href);
-  const { normalizeUrlForDedup, collectSeenUrls } = await import(pathToFileURL(join(ROOT, 'scan.mjs')).href);
+  const { normalizeUrlForDedup, collectSeenUrls, loadSeenUrls, appendToPipeline } = await import(pathToFileURL(join(ROOT, 'scan.mjs')).href);
+  const { resolveTrackerPath } = await import(pathToFileURL(join(ROOT, 'path-resolver.mjs')).href);
   const { default: gmail } = await import(pathToFileURL(join(ROOT, 'plugins', 'gmail', 'index.mjs')).href);
 
   // ── the id is the identity ──
@@ -90,6 +93,33 @@ try {
   check('the newsletter redirect is not written', !urls.some(u => u.includes('beehiiv')));
   check('a non-LinkedIn posting passes through unchanged', urls.includes('https://boards.greenhouse.io/acme/jobs/4384681009'));
   check('nothing else is written', jobs.length === 2);
+
+  const fixture = mkdtempSync(join(tmpdir(), 'career-ops-digest-dedupe-'));
+  try {
+    mkdirSync(join(fixture, 'data'));
+    const pipelinePath = join(fixture, 'data', 'pipeline.md');
+    const trackerPath = join(fixture, 'tracker.md');
+    writeFileSync(trackerPath, `| 1 | 2026-09-23 | Pismo | SRE | 3.7/5 | Evaluated | ✅ | — | ${CANONICAL} |\n`);
+    const previous = process.env.CAREER_OPS_TRACKER;
+    process.env.CAREER_OPS_TRACKER = trackerPath;
+    try {
+      check('the configured tracker is a dedupe source',
+        loadSeenUrls({}, { pipelinePath, applicationsPath: resolveTrackerPath(fixture) }).seen.has(normalizeUrlForDedup(digestLink('tracked'))));
+    } finally {
+      if (previous === undefined) delete process.env.CAREER_OPS_TRACKER;
+      else process.env.CAREER_OPS_TRACKER = previous;
+    }
+    const lead = { title: 'SRE', company: 'Pismo', url: CANONICAL };
+    const results = await Promise.all([
+      appendToPipeline([lead], { pipelinePath, dedupe: true, applicationsPath: join(fixture, 'empty.md') }),
+      appendToPipeline([{ ...lead, url: digestLink('concurrent') }], { pipelinePath, dedupe: true, applicationsPath: join(fixture, 'empty.md') }),
+    ]);
+    check('concurrent ingestion writes one LinkedIn job id',
+      results.reduce((sum, count) => sum + count, 0) === 1
+        && (readFileSync(pipelinePath, 'utf8').match(/^- \[ \] /gm) ?? []).length === 1);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
 } catch (err) {
   fail(`gmail digest dedupe suite threw: ${err?.stack ?? err}`);
 }

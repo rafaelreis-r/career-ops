@@ -78,6 +78,14 @@ try {
     reasonFor('https://x.test/high?utm_source=digest') === 'duplicate of pipeline.md line 2');
   check('forwarded rows come out highest rank first',
     forwardedUrls.join(' ') === 'https://x.test/high local:jds/iota-sre.md https://x.test/edge');
+  const duplicateRows = parsePendingRows([
+    '- [ ] https://www.linkedin.com/comm/jobs/view/4460239795/?trk=old | Acme | SRE',
+    '- [ ] https://www.linkedin.com/jobs/view/4460239795 | Acme | SRE | rank: cal-v1 3.2/5',
+  ].join('\n'));
+  const duplicatePlan = planQueue({ rows: duplicateRows, threshold: 2.5, evaluated: new Map(), queued: new Map() });
+  check('the highest-ranked duplicate represents a posting',
+    duplicatePlan.forwarded.length === 1 && duplicatePlan.forwarded[0].rank === 3.2
+      && duplicatePlan.held[0].reason === 'duplicate of pipeline.md line 2');
 
   const forced = planQueue({
     rows, threshold: 2.5, evaluated, queued,
@@ -108,6 +116,8 @@ try {
 
   // ── end to end: config, write path, ids, pipeline.md untouched ──
   const root = mkdtempSync(join(tmpdir(), 'career-ops-eval-queue-'));
+  const repoBatchInput = join(ROOT, 'batch', 'batch-input.tsv');
+  const previousBatchInput = existsSync(repoBatchInput) ? readFileSync(repoBatchInput, 'utf8') : null;
   try {
     mkdirSync(join(root, 'data'));
     mkdirSync(join(root, 'config'));
@@ -118,43 +128,45 @@ try {
     writeFileSync(join(root, 'data', 'applications.md'), '# Applications\n');
     writeFileSync(join(root, 'reports', '3025-zeta-2026-09-23.md'), '**URL:** https://www.linkedin.com/jobs/view/4460239794\n');
     writeFileSync(join(root, 'config', 'profile.yml'), 'rank_forward_threshold: 3.0\n');
-    const batchInput = join(root, 'batch', 'batch-input.tsv');
-    writeFileSync(join(root, 'batch', 'batch-state.tsv'),
-      'id\turl\tstatus\tstarted_at\tcompleted_at\treport_num\tscore\terror\tretries\n41\thttps://old.test/1\tcompleted\t\t\t\t\t\t0\n');
-    const run = (...args) => execFileSync(NODE, [join(ROOT, 'eval-queue.mjs'), '--batch-input', batchInput, ...args], {
+    const run = (...args) => execFileSync(NODE, [join(ROOT, 'eval-queue.mjs'), ...args], {
       encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CAREER_OPS_ROOT: root },
     });
 
     check('config/profile.yml sets the cutoff', loadForwardThreshold(join(root, 'config', 'profile.yml')) === 3);
     check('an absent profile falls back to 2.5', loadForwardThreshold(join(root, 'config', 'missing.yml')) === 2.5);
 
-    const dry = JSON.parse(run('--dry-run', '--json'));
+    const dry = run('--dry-run');
     check('the configured cutoff reaches the plan',
-      dry.threshold === 3
-        && dry.forwarded.map(r => r.url).join(' ') === 'https://x.test/queued https://x.test/tracked https://x.test/high');
-    check('--dry-run writes no queue file', !existsSync(batchInput));
+      dry.includes('Forwarding cutoff: cal-v1 >= 3.0')
+        && dry.includes('Forwarded to the long evaluation (3):'));
+    check('--dry-run leaves the queue file untouched',
+      previousBatchInput === null ? !existsSync(repoBatchInput) : readFileSync(repoBatchInput, 'utf8') === previousBatchInput);
 
-    const out = run('--threshold', '2.5', '--force', 'https://x.test/low');
-    const queue = readFileSync(batchInput, 'utf8').trim().split('\n');
+    const out = run('--force', 'https://x.test/low');
+    const queueText = readFileSync(repoBatchInput, 'utf8');
+    const queue = queueText.trim().split('\n');
     check('a fresh queue file gets the runner header', queue[0] === 'id\turl\tsource\tnotes');
-    check('ids start above the highest id in batch-state.tsv', queue[1].startsWith('42\t'));
+    check('ids start at the first free id', queue[1].startsWith('1\t'));
     check('the queue holds exactly the forwarded rows',
       queue.slice(1).map(l => l.split('\t')[1]).join(' ')
-        === 'https://x.test/queued https://x.test/tracked https://x.test/high local:jds/iota-sre.md https://x.test/edge https://x.test/low');
-    check('the printed plan names both sides', /Forwarded to the long evaluation \(6\)/.test(out) && /Held \(4\)/.test(out));
+        === 'https://x.test/queued https://x.test/tracked https://x.test/high https://x.test/low');
+    check('the printed plan names both sides', /Forwarded to the long evaluation \(4\)/.test(out) && /Held \(6\)/.test(out));
     check('pipeline.md is never written', readFileSync(pipelinePath, 'utf8') === pipeline);
 
-    const again = JSON.parse(run('--json'));
+    const again = run('--dry-run');
     check('a second run holds what the first one queued',
-      again.forwarded.length === 0 && again.held.filter(r => /^already queued/.test(r.reason)).length === 6);
+      again.includes('Forwarded to the long evaluation (0)') && (again.match(/already queued/g) ?? []).length === 4);
 
     let status = 0;
     try { run('--dry-run', '--force', 'https://x.test/absent'); } catch (err) { status = err.status; }
     check('--force naming no pending row exits non-zero', status === 2);
+    writeFileSync(join(root, 'config', 'profile.yml'), 'rank_forward_threshold: high\n');
     status = 0;
-    try { run('--dry-run', '--threshold', 'high'); } catch (err) { status = err.status; }
-    check('an invalid --threshold exits non-zero', status === 2);
+    try { run('--dry-run'); } catch (err) { status = err.status; }
+    check('an invalid profile cutoff exits non-zero', status === 2);
   } finally {
+    if (previousBatchInput === null) rmSync(repoBatchInput, { force: true });
+    else writeFileSync(repoBatchInput, previousBatchInput);
     rmSync(root, { recursive: true, force: true });
   }
 } catch (err) {
