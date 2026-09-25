@@ -373,7 +373,7 @@ function applyProbeInPage(policy) {
   // page with nothing to fill.
   const challenge = !!document.querySelector('iframe[src*="challenges.cloudflare"], .cf-turnstile, #challenge-form, #cf-challenge-running') || /verify you are human|confirme que [eé] humano|checking your browser|verificando (seu|o) navegador/i.test(text);
   const closed = /no longer (available|accepting applications|open)|job (is )?(closed|expired|no longer)|(position|job) has been (filled|closed|removed)|posting (has been )?(closed|removed)|this job (has )?expired|vaga (foi )?(encerrada|expirada|fechada)|n[aã]o est[aá] mais dispon[ií]vel|page (was )?not found|p[aá]gina n[aã]o encontrada/i.test(text);
-  return { fillable: fillable.length, applicantFile, trigger: trigger ? (trigger.textContent || trigger.value || trigger.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80) : null, cookie: !!cookie, challenge, closed };
+  return { fillable: fillable.length, applicantFile, trigger: trigger ? (trigger.textContent || trigger.value || trigger.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80) : null, entryHref: trigger && (trigger.tagName === 'A' || trigger.getAttribute('role') === 'link') ? trigger.getAttribute('href') : null, cookie: !!cookie, challenge, closed };
 }
 
 /**
@@ -393,7 +393,12 @@ export async function reachApplicationForm(page) {
     }
     if (probe.cookie) await page.locator('[data-hyb-cookie]').first().click({ timeout: 3000 }).catch(() => {});
     const before = page.url();
-    await page.locator('[data-hyb-apply]').first().click({ timeout: ACTION_TIMEOUT_MS });
+    // Client-rendered job boards may replace an anchor after the probe marks
+    // it. Its destination remains stable, so locate that link again by href.
+    const applyControl = probe.entryHref
+      ? page.locator(`a[href=${JSON.stringify(probe.entryHref)}], [role="link"][href=${JSON.stringify(probe.entryHref)}]`).first()
+      : page.locator('[data-hyb-apply]').first();
+    await applyControl.click({ timeout: ACTION_TIMEOUT_MS });
     await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {});
     for (let i = 0; i < 20; i++) {
       await sleep(500);

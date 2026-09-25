@@ -443,6 +443,28 @@ test('the form reacher follows Gupy\'s "Candidatar-se" entry link, checking the 
   assert.deepEqual(reached.log.map((entry) => entry.clicked), ['Candidatar-se']);
 });
 
+test('the form reacher follows a Gupy entry link after the page replaces the probed anchor', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
+  if (!page) return;
+  await page.setContent(`<a href="/candidates/jobs/12574761/apply">Candidatar-se</a>
+    <script>
+      new MutationObserver(() => {
+        const anchor = document.querySelector('[data-hyb-apply]');
+        if (!anchor) return;
+        const replacement = anchor.cloneNode(true);
+        replacement.removeAttribute('data-hyb-apply');
+        replacement.addEventListener('click', (event) => {
+          event.preventDefault();
+          document.body.innerHTML = '<label>Nome*<input type=text></label><label>Email*<input type=email></label>';
+        });
+        anchor.replaceWith(replacement);
+      }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['data-hyb-apply'] });
+    </script>`);
+  const reached = await reachApplicationForm(page);
+  assert.equal(reached.reached, true);
+  assert.deepEqual(reached.log.map((entry) => entry.clicked), ['Candidatar-se']);
+});
+
 test('the form reacher follows Get on Board\'s "Apply now" entry link, whose href the old apply/job-apply/candidat pattern missed', async (t) => {
   const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
   if (!page) return;
