@@ -1,5 +1,59 @@
 # Changelog
 
+## [0.12.0](https://github.com/rafaelreis-r/career-ops/compare/web-v0.11.0...web-v0.12.0) (2026-09-25)
+
+
+### Features
+
+* **apply:** add LLM-owned path with typed Jev helpers ([#1](https://github.com/rafaelreis-r/career-ops/issues/1)) ([f74f503](https://github.com/rafaelreis-r/career-ops/commit/f74f50395d803cabaeba6e0560f42eb550f8bf1f))
+* **jev:** TypeSafe/Jev integration on career-ops-hq 1.33 + fork as canonical update source ([875897d](https://github.com/rafaelreis-r/career-ops/commit/875897dec7c2cd36c8e46d3e4765b0fb3ab971d5))
+* **oferta:** add evidence-tiered requirement importance to Block B ([#3596](https://github.com/rafaelreis-r/career-ops/issues/3596)) ([14710e2](https://github.com/rafaelreis-r/career-ops/commit/14710e29a6a801ea3ae52bb3f15756dc9ada7d29))
+* **providers:** add Feishu Jobs and MokaHR scanner providers ([#3491](https://github.com/rafaelreis-r/career-ops/issues/3491)) ([1696bec](https://github.com/rafaelreis-r/career-ops/commit/1696bec4d021768e7359f9aad6b329cba883da20))
+* **web:** add gated hybrid application driver ([#7](https://github.com/rafaelreis-r/career-ops/issues/7)) ([470e1ee](https://github.com/rafaelreis-r/career-ops/commit/470e1eec598a6c7d2985b64a8f7c339c87b63835))
+* **web:** opt-in origin allowlist for the local dashboard API ([#3597](https://github.com/rafaelreis-r/career-ops/issues/3597)) ([0754973](https://github.com/rafaelreis-r/career-ops/commit/075497329a55d7c1e5184cfffb21fd0efeaf13ba))
+* **web:** resizable assistant panel and a composer that grows with its content ([#4258](https://github.com/rafaelreis-r/career-ops/issues/4258)) ([8be08ce](https://github.com/rafaelreis-r/career-ops/commit/8be08ce362d45556b12bb659fd66360cd409ebb3))
+
+
+### Bug Fixes
+
+* **apply:** keep headed session open on blocked/unconfirmed submit; add PT-BR field aliases and consent answers ([e54ddec](https://github.com/rafaelreis-r/career-ops/commit/e54ddecac74a6081107701d23857f90975117f75))
+* **apply:** treat Jev ready-gate abstention as no decision ([#2](https://github.com/rafaelreis-r/career-ops/issues/2)) ([fb08b8d](https://github.com/rafaelreis-r/career-ops/commit/fb08b8d0b7ed41374ed42b6f9aaf4a7db3f4629e))
+* **tracker:** resolve addition columns by name so score and status cannot transpose ([00b0296](https://github.com/rafaelreis-r/career-ops/commit/00b0296c6071eb955f38404e60a10ceaccad45b5))
+* **url-key:** preserve existing fragment comparison params ([02e632e](https://github.com/rafaelreis-r/career-ops/commit/02e632e634280ef7224ec268279adbbe9f0650ce))
+* **url-key:** preserve hash-route posting identity ([52f314c](https://github.com/rafaelreis-r/career-ops/commit/52f314cd268bd0b2de56b71ba236ce288138dac0))
+* **url-key:** preserve hash-route posting identity ([965fff3](https://github.com/rafaelreis-r/career-ops/commit/965fff30149eff1da2f6b1a937ca3738260b9a2e))
+* **web,dashboard:** point two user-facing references at the repository's new home ([6c0e68d](https://github.com/rafaelreis-r/career-ops/commit/6c0e68d472d4ee1e0082fd861c133778f262ecfe))
+* **web/jev:** namespace-import js-yaml (v5 ships no default export) ([eaf39f3](https://github.com/rafaelreis-r/career-ops/commit/eaf39f3e93f52ed757a4742d3236d0f1ec795732))
+* **web:** add vertical padding to pipeline facet chips ([#4038](https://github.com/rafaelreis-r/career-ops/issues/4038)) ([b6bc5ff](https://github.com/rafaelreis-r/career-ops/commit/b6bc5ffb92e847e43b91042d4b828c99ce5960a2))
+* **web:** add vertical padding to pipeline facet chips ([#4038](https://github.com/rafaelreis-r/career-ops/issues/4038)) ([33a56a2](https://github.com/rafaelreis-r/career-ops/commit/33a56a2e68c03bc67f13e1b99ac3decd26be8e8e))
+* **web:** detect a real tailored CV/cover on disk, not just the tracker flag ([0fb2080](https://github.com/rafaelreis-r/career-ops/commit/0fb2080db1a5c90b3655bff7fdf74593026adf04))
+* **web:** don't let a failed fetch become a scored report ([#3826](https://github.com/rafaelreis-r/career-ops/issues/3826)) ([10ede60](https://github.com/rafaelreis-r/career-ops/commit/10ede60522f1abd71dfd8c93266f9176180213ac))
+* **web:** enable apply from the generated pdf index ([ac761fa](https://github.com/rafaelreis-r/career-ops/commit/ac761fa612fc943b1ef9458f704fefd653954955))
+* **web:** fence agent CLIs at the spawn boundary ([1d2cb1e](https://github.com/rafaelreis-r/career-ops/commit/1d2cb1e125ea3034ff01b464e9a5e2628c0e315f))
+* **web:** fill salary and disability fields from profile ([#11](https://github.com/rafaelreis-r/career-ops/issues/11)) ([c673e77](https://github.com/rafaelreis-r/career-ops/commit/c673e779867f2047b433ad73fd78fa63809d7e2e))
+* **web:** find Grok in its default install dirs, not only on PATH ([77657dc](https://github.com/rafaelreis-r/career-ops/commit/77657dcd0bcb7c2e9a9950148d337d160aa5b459))
+* **web:** follow application form entry links in hybrid driver ([#13](https://github.com/rafaelreis-r/career-ops/issues/13)) ([4161bf1](https://github.com/rafaelreis-r/career-ops/commit/4161bf10948125b7cf7987372845f6ad6ce88565))
+* **web:** give grok a parser, and make the token fold per-CLI ([#2689](https://github.com/rafaelreis-r/career-ops/issues/2689)) ([c7549fb](https://github.com/rafaelreis-r/career-ops/commit/c7549fb3593f9ee456d7118beb80b0ee6e76747c))
+* **web:** identify the verdict block by its heading, not by the letter ([#3502](https://github.com/rafaelreis-r/career-ops/issues/3502)) ([0ef1bfb](https://github.com/rafaelreis-r/career-ops/commit/0ef1bfbe2385551af415e05858900710d0aadd23))
+* **web:** let report tables use the screen on large displays ([e571f2c](https://github.com/rafaelreis-r/career-ops/commit/e571f2cb9de3f8952863e5c51adc437a09b83fef))
+* **web:** let report tables use the screen on large displays ([b80aee1](https://github.com/rafaelreis-r/career-ops/commit/b80aee1bc530f6ac8c6a6aec882af5c4a5431822))
+* **web:** make CLI choices fully clickable ([b4be24f](https://github.com/rafaelreis-r/career-ops/commit/b4be24f2b9e476888dedb5ee85d29df68baf53df))
+* **web:** make CLI choices fully clickable ([977bb11](https://github.com/rafaelreis-r/career-ops/commit/977bb1144fec223f98b66984a9dfeb508d73f08f))
+* **web:** order the Today action queue before truncating it ([3a067ee](https://github.com/rafaelreis-r/career-ops/commit/3a067ee580b7982cf5dd6edf7895112e4e99600b))
+* **web:** parseCliJson misses set-status.mjs's pretty-printed success ([#3602](https://github.com/rafaelreis-r/career-ops/issues/3602)) ([848ca44](https://github.com/rafaelreis-r/career-ops/commit/848ca440fb2d243ae08205ab3d0bc12903a36c65))
+* **web:** persist the default CLI at any installed count, not only a sole one ([#4151](https://github.com/rafaelreis-r/career-ops/issues/4151)) ([ecbe651](https://github.com/rafaelreis-r/career-ops/commit/ecbe651320d5da9a97ea29a0ee7e39cbd14207ed))
+* **web:** pluralize the Analytics evaluation count ([#3161](https://github.com/rafaelreis-r/career-ops/issues/3161)) ([7c91c6d](https://github.com/rafaelreis-r/career-ops/commit/7c91c6d9682c0441b8fdd1c0a6ce983524be02fd))
+* **web:** preserve a malformed portals.yml instead of overwriting it with the example ([07ed4f3](https://github.com/rafaelreis-r/career-ops/commit/07ed4f31295bee9d03ce1ab61d6d59c835431ff7))
+* **web:** prevent salary matches on BRL commission fields ([#6](https://github.com/rafaelreis-r/career-ops/issues/6)) ([6976a16](https://github.com/rafaelreis-r/career-ops/commit/6976a1603294beeba6df4f60db268eea950149ef))
+* **web:** rank "Awaiting your decision" by every EVALUATED alias, not an English prefix ([d7573e1](https://github.com/rafaelreis-r/career-ops/commit/d7573e189193993c56d19c9216313f0fd4cebee2))
+* **web:** require the cv- prefix so the tailored-CV resolvers stop returning the cover letter ([#2156](https://github.com/rafaelreis-r/career-ops/issues/2156)) ([414d340](https://github.com/rafaelreis-r/career-ops/commit/414d340b4425bf199ddad36dfc0a551da4e99fe0))
+* **web:** resolve the data root exactly as the core does ([#4064](https://github.com/rafaelreis-r/career-ops/issues/4064)) ([1704575](https://github.com/rafaelreis-r/career-ops/commit/17045758851f7c7294e23669f4e6c8d34edf1712))
+* **web:** resolve the tailored cover for THIS application, not the company's newest ([8fc2bb4](https://github.com/rafaelreis-r/career-ops/commit/8fc2bb41db2aad7bf50902ad8a26e726c9637eec))
+* **web:** resolve the tailored CV for THIS application, not the newest for the company ([ca11627](https://github.com/rafaelreis-r/career-ops/commit/ca116279d3a5ba9a18e57e3f03f056066c178649))
+* **web:** restrict report answers and accept padded report CVs ([#8](https://github.com/rafaelreis-r/career-ops/issues/8)) ([23a12d5](https://github.com/rafaelreis-r/career-ops/commit/23a12d5c2fa067d0a606188fc162a105d0b4a731))
+* **web:** self-host the production fonts so the app starts without Google ([a2e46c3](https://github.com/rafaelreis-r/career-ops/commit/a2e46c329fa9819ca6748a437c4ecdbdac4a6ec2))
+* **web:** tell the beta reporter's user when the dupe search could not run ([77bf490](https://github.com/rafaelreis-r/career-ops/commit/77bf4906abc5c5f63ac07a6c27a7f24c1d03683d))
+
 ## [0.11.0](https://github.com/career-ops-hq/career-ops/compare/web-v0.10.0...web-v0.11.0) (2026-09-16)
 
 
