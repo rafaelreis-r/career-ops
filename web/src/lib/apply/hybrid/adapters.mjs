@@ -7,10 +7,12 @@
 
 import { scanQuestionsInPage } from './page-scan.mjs';
 import { findQuestionByIdentity, matchOption, normalizeText } from './answers.mjs';
-import { SUBMISSION_POLICY } from './submit-policy.mjs';
+import { SUBMISSION_POLICY, ENTRY_LINK_POLICY } from './submit-policy.mjs';
 
 const ACTION_TIMEOUT_MS = 8000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Merged for page.evaluate, which takes exactly one serializable argument.
+const PROBE_POLICY = { submitSource: SUBMISSION_POLICY.submitSource, entryLinkSource: ENTRY_LINK_POLICY.destinationSource };
 
 /** Does the widget's displayed selection correspond to the clicked option?
  *  Widgets may render a shorter form of the option (Greenhouse shows "+55"
@@ -333,15 +335,25 @@ function applyProbeInPage(policy) {
   const applicantControls = (form) => form.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]), textarea, select').length;
   document.querySelectorAll('[data-hyb-apply]').forEach((n) => n.removeAttribute('data-hyb-apply'));
   const SUBMIT_RX = new RegExp(policy.submitSource, 'i');
+  const ENTRY_LINK_RX = new RegExp(policy.entryLinkSource, 'i');
   const REVEAL_RX = /^inscrever-se na vaga$/i;
   const trigger = [...document.querySelectorAll('button, a, [role=button], [role=link], input[type=submit], input[type=button]')].find((el) => {
     if (!vis(el)) return false;
     const text = `${el.textContent || ''} ${el.value || ''} ${el.getAttribute('aria-label') || ''}`.replace(/\s+/g, ' ').trim();
+    const label = el.textContent.replace(/\s+/g, ' ').trim();
     const href = el.getAttribute('href') || el.getAttribute('formaction') || el.form?.getAttribute('action') || '';
     // `type` is the effective type: a <button> without the attribute submits too.
     if ((el.type === 'submit' || el.type === 'image') && el.form && applicantControls(el.form) > 0) return false;
-    if (SUBMIT_RX.test(text) && !REVEAL_RX.test(el.textContent.replace(/\s+/g, ' ').trim())) return false;
-    if (!REVEAL_RX.test(el.textContent.replace(/\s+/g, ' ').trim()) && !/\/(apply|job-apply|candidat)/i.test(href)) return false;
+    // A navigational link (an <a> or role=link — never a form submit, which
+    // is excluded above regardless of destination) whose href opens the
+    // application form passes even when its text reads like a final submit:
+    // Gupy's "Candidatar-se" and Get on Board's "Apply now" both match
+    // SUBMIT_RX, so the destination is checked before the text.
+    const isEntryLink = (el.tagName === 'A' || el.getAttribute('role') === 'link') && ENTRY_LINK_RX.test(href);
+    if (!isEntryLink) {
+      if (SUBMIT_RX.test(text) && !REVEAL_RX.test(label)) return false;
+      if (!REVEAL_RX.test(label) && !ENTRY_LINK_RX.test(href)) return false;
+    }
     if (/linkedin|indeed|facebook|twitter|mailto:/i.test(href)) return false;
     return true;
   });
@@ -361,7 +373,7 @@ function applyProbeInPage(policy) {
   // page with nothing to fill.
   const challenge = !!document.querySelector('iframe[src*="challenges.cloudflare"], .cf-turnstile, #challenge-form, #cf-challenge-running') || /verify you are human|confirme que [eé] humano|checking your browser|verificando (seu|o) navegador/i.test(text);
   const closed = /no longer (available|accepting applications|open)|job (is )?(closed|expired|no longer)|(position|job) has been (filled|closed|removed)|posting (has been )?(closed|removed)|this job (has )?expired|vaga (foi )?(encerrada|expirada|fechada)|n[aã]o est[aá] mais dispon[ií]vel|page (was )?not found|p[aá]gina n[aã]o encontrada/i.test(text);
-  return { fillable: fillable.length, applicantFile, trigger: trigger ? (trigger.textContent || trigger.value || trigger.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80) : null, cookie: !!cookie, challenge, closed };
+  return { fillable: fillable.length, applicantFile, trigger: trigger ? (trigger.textContent || trigger.value || trigger.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 80) : null, entryHref: trigger && (trigger.tagName === 'A' || trigger.getAttribute('role') === 'link') ? trigger.getAttribute('href') : null, cookie: !!cookie, challenge, closed };
 }
 
 /**
@@ -373,7 +385,7 @@ function applyProbeInPage(policy) {
 export async function reachApplicationForm(page) {
   const log = [];
   for (let attempt = 0; attempt < 3; attempt++) {
-    const probe = await page.evaluate(applyProbeInPage, SUBMISSION_POLICY).catch(() => ({ fillable: 0, applicantFile: false, trigger: null, cookie: false, challenge: false, closed: false }));
+    const probe = await page.evaluate(applyProbeInPage, PROBE_POLICY).catch(() => ({ fillable: 0, applicantFile: false, trigger: null, cookie: false, challenge: false, closed: false }));
     if (probe.fillable >= 2 || probe.applicantFile) return { reached: true, url: page.url(), log };
     if (probe.challenge) return { reached: false, challenge: true, url: page.url(), log, reason: 'a human-verification challenge stands before the form' };
     if (attempt === 2 || !probe.trigger) {
@@ -381,11 +393,16 @@ export async function reachApplicationForm(page) {
     }
     if (probe.cookie) await page.locator('[data-hyb-cookie]').first().click({ timeout: 3000 }).catch(() => {});
     const before = page.url();
-    await page.locator('[data-hyb-apply]').first().click({ timeout: ACTION_TIMEOUT_MS });
+    // Client-rendered job boards may replace an anchor after the probe marks
+    // it. Its destination remains stable, so locate that link again by href.
+    const applyControl = probe.entryHref
+      ? page.locator(`a[href=${JSON.stringify(probe.entryHref)}], [role="link"][href=${JSON.stringify(probe.entryHref)}]`).first()
+      : page.locator('[data-hyb-apply]').first();
+    await applyControl.click({ timeout: ACTION_TIMEOUT_MS });
     await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {});
     for (let i = 0; i < 20; i++) {
       await sleep(500);
-      const p = await page.evaluate(applyProbeInPage, SUBMISSION_POLICY).catch(() => null);
+      const p = await page.evaluate(applyProbeInPage, PROBE_POLICY).catch(() => null);
       if (p && (p.fillable >= 2 || p.applicantFile)) break;
     }
     log.push({ clicked: probe.trigger, from: before, to: page.url() });
