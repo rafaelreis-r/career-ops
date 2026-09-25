@@ -434,6 +434,57 @@ test('the form reacher still clicks the captured iTRTech application trigger', a
   assert.deepEqual(reached.log.map((entry) => entry.clicked), ['INSCREVER-SE NA VAGA']);
 });
 
+test('the form reacher follows Gupy\'s "Candidatar-se" entry link, checking the href before the submit-like text', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
+  if (!page) return;
+  await page.setContent('<a href="/candidates/jobs/12574761/apply" onclick="event.preventDefault(); this.remove(); document.body.insertAdjacentHTML(\'beforeend\', \'<label>Nome*<input type=text></label><label>Email*<input type=email></label>\')">Candidatar-se</a>');
+  const reached = await reachApplicationForm(page);
+  assert.equal(reached.reached, true);
+  assert.deepEqual(reached.log.map((entry) => entry.clicked), ['Candidatar-se']);
+});
+
+test('the form reacher follows a Gupy entry link after the page replaces the probed anchor', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
+  if (!page) return;
+  await page.setContent(`<a href="/candidates/jobs/12574761/apply">Candidatar-se</a>
+    <script>
+      new MutationObserver(() => {
+        const anchor = document.querySelector('[data-hyb-apply]');
+        if (!anchor) return;
+        const replacement = anchor.cloneNode(true);
+        replacement.removeAttribute('data-hyb-apply');
+        replacement.addEventListener('click', (event) => {
+          event.preventDefault();
+          document.body.innerHTML = '<label>Nome*<input type=text></label><label>Email*<input type=email></label>';
+        });
+        anchor.replaceWith(replacement);
+      }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['data-hyb-apply'] });
+    </script>`);
+  const reached = await reachApplicationForm(page);
+  assert.equal(reached.reached, true);
+  assert.deepEqual(reached.log.map((entry) => entry.clicked), ['Candidatar-se']);
+});
+
+test('the form reacher follows Get on Board\'s "Apply now" entry link, whose href the old apply/job-apply/candidat pattern missed', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
+  if (!page) return;
+  await page.setContent('<a href="/applications/new" onclick="event.preventDefault(); this.remove(); document.body.insertAdjacentHTML(\'beforeend\', \'<label>Nome*<input type=text></label><label>Email*<input type=email></label>\')">Apply now</a>');
+  const reached = await reachApplicationForm(page);
+  assert.equal(reached.reached, true);
+  assert.deepEqual(reached.log.map((entry) => entry.clicked), ['Apply now']);
+});
+
+test('a submit control labelled "Apply" or "Enviar candidatura" inside a form with applicant fields is never the entry trigger', async (t) => {
+  const page = await openFixture(t, 'hybrid-applytojob-storyteller.html');
+  if (!page) return;
+  for (const label of ['Apply', 'Enviar candidatura']) {
+    await page.setContent(`<form><label>Email*<input type=email></label><button type="submit">${label}</button></form>`);
+    const reached = await reachApplicationForm(page);
+    assert.equal(reached.reached, false, label);
+    assert.deepEqual(reached.log, [], label);
+  }
+});
+
 test('Wellhub: a filled First Name is done the moment the DOM shows it', async (t) => {
   const page = await openFixture(t, 'hybrid-greenhouse-wellhub.html');
   if (!page) return;

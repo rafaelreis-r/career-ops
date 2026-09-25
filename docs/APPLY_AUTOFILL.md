@@ -11,10 +11,12 @@ The separately invoked hybrid driver is a narrow exception. It may submit one el
 Run it from `web/` with a job or application URL and either a tracker row or report:
 
 ```bash
-node scripts/apply-hybrid.mjs --url <form-url> --row <n>
+node scripts/apply-hybrid.mjs --url <job-or-form-url> --row <n>
 # or
-node scripts/apply-hybrid.mjs --url <form-url> --report <report.md>
+node scripts/apply-hybrid.mjs --url <job-or-form-url> --report <report.md>
 ```
+
+If the URL opens a job page, the driver follows an application link into the form, including Gupy's “Candidatar-se” and Get on Board's “Apply now” links. A final submit still waits for the pre-submit gate.
 
 Optional `--cv <pdf>` is accepted only when the filename can be tied to the posting and no other report owns it. A CV linked to the selected report by its number may use the zero-padded report number (such as `042`) or its unpadded form (`42`) even when the filename lacks the company name. `--out <json>` changes the metrics path; the default is `data/ab-test/hybrid.json` under the resolved data root.
 
