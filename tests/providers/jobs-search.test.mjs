@@ -379,6 +379,25 @@ if (auth.codexKeychainAccount('jobs-search', ENDPOINT) === 'jobs-search|a37461d2
 }
 
 {
+  // Live access tokens last 15 min; one that enters the renewal margin
+  // between pages is swapped before the next call, in the same session.
+  const box = sandbox({ expiresInMs: auth.EXPIRY_SKEW_MS + 10_000, accessToken: 'access-live' });
+  const c = clock();
+  let grants = 0;
+  const srv = fakeServer({
+    tools: pagedTools(),
+    validTokens: ['access-live', 'access-new'],
+    refresh: () => { grants++; return json({ access_token: 'access-new', token_type: 'Bearer', expires_in: 900, refresh_token: 'refresh-2' }); },
+  });
+  await createJobsSearchProvider({ fetchFn: srv.fetchFn, now: c.now }).fetch(box.entry, c.ctx);
+  const bearers = srv.log.filter((r) => r.url === ENDPOINT && r.method === 'POST').map((r) => r.authorization);
+  if (grants === 1 && bearers[0] === 'Bearer access-live' && bearers.at(-1) === 'Bearer access-new') {
+    pass('a token expiring mid-pull is renewed between pages and the new bearer used for the rest');
+  } else fail(`mid-pull renewal = ${JSON.stringify({ grants, bearers })}`);
+  box.cleanup();
+}
+
+{
   const box = sandbox({ expiresInMs: -1, accessToken: 'access-secret-a', refreshToken: 'refresh-secret-b' });
   const c = clock();
   const srv = fakeServer({ tools: pagedTools(), refresh: () => json({ error: 'invalid_grant', error_description: 'refresh token already used' }, 400) });

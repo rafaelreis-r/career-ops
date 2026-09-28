@@ -1256,7 +1256,8 @@ search_queries:
 #     # credentials_file: ~/.config/career-ops/jobs-search/credentials.json  # or $CAREER_OPS_JOBS_SEARCH_CREDENTIALS
 #     # cache_dir: ~/.cache/career-ops/jobs-search                          # or $CAREER_OPS_JOBS_SEARCH_CACHE_DIR
 #   # Seed the credential once: `node providers/_jobs-search-auth.mjs seed-from-codex`
-#   # (after `codex mcp login jobs-search`); see providers/_jobs-search-auth.mjs.
+#   # (after `codex mcp login jobs-search`). Scans renew it without Codex; refresh
+#   # tokens rotate, so the first renewal spends Codex's copy. See providers/_jobs-search-auth.mjs.
 #   enabled: true
 #
 # - name: Built In                        # US tech aggregator, many employers

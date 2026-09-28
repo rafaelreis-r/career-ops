@@ -22,19 +22,29 @@
 // ~/.config/…). A portals.yml entry may point elsewhere with
 // `jobs_search.credentials_file`.
 //
-// Seeding copies one grant into two places. When a renewal returns a new
-// refresh token (rotation), the file stores it before the access token is
-// used, and the copy Codex still holds may no longer renew; Codex then needs
-// `codex mcp login jobs-search`. If the file's own refresh token is rejected
-// (a revoked grant, a token already used elsewhere), re-login with
-// `codex mcp login jobs-search` and run `seed-from-codex` again.
+// Codex dependency, verified live on 2026-09-28: the refresh_token grant from
+// this file works without Codex (client_id = Codex's metadata URL, no secret),
+// access tokens last 15 minutes, and renewal ROTATES the refresh token — the
+// pre-renewal refresh token was then refused with `invalid_grant`. So after
+// seeding, Codex is needed only to re-login:
+//   - The provider's first renewal spends the refresh token Codex also holds.
+//     Codex's own `jobs-search` login is dead from then on: before using that
+//     MCP server from Codex again, run `codex mcp login jobs-search`.
+//   - Each renewal writes the new refresh token to the file before the access
+//     token is used, so the file is the one live copy. Never keep two copies
+//     (another machine, a restored backup, a second seed over a renewed
+//     file): the older copy holds a spent token. `seed-from-codex` therefore
+//     refuses to overwrite an existing file without --force.
+//   - If the file's refresh token is rejected (revoked grant, spent token),
+//     scans fail with a named error until `codex mcp login jobs-search` +
+//     `seed-from-codex --force` re-seed it.
 //
 // Tokens never reach stdout, logs, errors, or fixtures: every message below
 // names the file and the failure, not the credential.
 
 import { createHash } from 'crypto';
 import { execFile } from 'child_process';
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import path from 'path';
 import { discoverAuthorizationServerMetadata, refreshAuthorization } from '@modelcontextprotocol/sdk/client/auth.js';
@@ -45,8 +55,9 @@ export const AUTH_SERVER = 'https://conta.jobs.bridglabs.com';
 export const CODEX_CLIENT_ID = 'https://chatgpt.com/oauth/codex/client.json';
 export const CODEX_KEYCHAIN_SERVICE = 'Codex MCP Credentials';
 export const CODEX_SERVER_NAME = 'jobs-search';
-// Renew this long before the recorded expiry so a token cannot lapse between
-// the check and the last page of a scan (a full `day` pull is well under it).
+// Renew this long before the recorded expiry. Tokens are re-checked before
+// every tool call, so a pull longer than the 15-minute token life renews
+// between pages.
 export const EXPIRY_SKEW_MS = 5 * 60_000;
 
 /**
@@ -175,7 +186,7 @@ export async function refreshCredentials(file, cred, deps = {}) {
   const now = deps.now ?? Date.now;
   const refreshToken = cred.tokens.refresh_token;
   if (!refreshToken) {
-    throw new Error(`jobs-search: access token in ${file} expired and it holds no refresh token — run \`codex mcp login jobs-search\`, then \`node providers/_jobs-search-auth.mjs seed-from-codex\``);
+    throw new Error(`jobs-search: access token in ${file} expired and it holds no refresh token — run \`codex mcp login jobs-search\`, then \`node providers/_jobs-search-auth.mjs seed-from-codex --force\``);
   }
   let tokens;
   try {
@@ -191,7 +202,7 @@ export async function refreshCredentials(file, cred, deps = {}) {
     const e = /** @type {any} */ (err);
     const reason = [e?.errorCode ?? e?.name, e?.message].filter(Boolean).join(': ') || String(err);
     throw new Error(
-      `jobs-search: token renewal failed (${reason}) — if the grant was revoked or its refresh token already used, run \`codex mcp login jobs-search\`, then \`node providers/_jobs-search-auth.mjs seed-from-codex\``,
+      `jobs-search: token renewal failed (${reason}) — if the grant was revoked or its refresh token already used, run \`codex mcp login jobs-search\`, then \`node providers/_jobs-search-auth.mjs seed-from-codex --force\``,
     );
   }
   const expiresIn = Number(tokens.expires_in);
@@ -257,7 +268,9 @@ function parseArgs(argv) {
   const positional = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith('--')) {
+    if (a === '--force') {
+      opts.force = '1';
+    } else if (a.startsWith('--')) {
       const [k, inline] = a.slice(2).split('=', 2);
       opts[k] = inline ?? argv[++i] ?? '';
     } else positional.push(a);
@@ -265,9 +278,10 @@ function parseArgs(argv) {
   return { cmd: positional[0], opts };
 }
 
-const USAGE = `usage: node providers/_jobs-search-auth.mjs <seed-from-codex|status|refresh> [--credentials FILE] [--endpoint URL] [--codex-server NAME]
+const USAGE = `usage: node providers/_jobs-search-auth.mjs <seed-from-codex|status|refresh> [--credentials FILE] [--endpoint URL] [--codex-server NAME] [--force]
 
-  seed-from-codex  copy Codex's Keychain grant into the credential file (0600)
+  seed-from-codex  copy Codex's Keychain grant into the credential file (0600);
+                   refuses to overwrite an existing file unless --force
   status           print the credential file's expiry (never the token)
   refresh          renew the access token now; reports whether the refresh token rotated`;
 
@@ -276,6 +290,11 @@ async function main() {
   const file = opts.credentials ? resolveUserPath(opts.credentials) : defaultCredentialsPath();
   const endpoint = opts.endpoint || DEFAULT_ENDPOINT;
   if (cmd === 'seed-from-codex') {
+    // Once the file has renewed, Codex's copy holds a spent refresh token:
+    // seeding over it would replace the one live grant with a dead one.
+    if (existsSync(file) && !opts.force) {
+      throw new Error(`jobs-search: ${file} already exists — after its first renewal Codex's Keychain copy is spent, so seeding over it would destroy the live grant. Re-seed only after \`codex mcp login jobs-search\`, with --force`);
+    }
     const account = codexKeychainAccount(opts['codex-server'] || CODEX_SERVER_NAME, endpoint);
     const raw = await readCodexKeychain(account);
     let parsed;

@@ -316,10 +316,17 @@ export function createJobsSearchProvider(deps = {}) {
       /** @type {Client | null} */
       let client = null;
 
-      const connect = async (/** @type {string} */ token) => {
+      // The transport reads requestInit.headers on every request, so updating
+      // this object swaps the bearer mid-session. Access tokens live 15 min,
+      // shorter than a max_pages pull at CALL_INTERVAL_MS pacing.
+      /** @type {Record<string, string>} */
+      const authHeader = {};
+      const bearer = (/** @type {string} */ token) => { authHeader.Authorization = `Bearer ${token}`; };
+
+      const connect = async () => {
         const c = new Client({ name: 'career-ops-jobs-search', version: '1.0.0' });
         const transport = new StreamableHTTPClientTransport(new URL(cfg.endpoint), {
-          requestInit: { headers: { Authorization: `Bearer ${token}` } },
+          requestInit: { headers: authHeader },
           fetch: baseFetch,
         });
         await c.connect(transport);
@@ -335,17 +342,20 @@ export function createJobsSearchProvider(deps = {}) {
         } catch {
           // Pacing still holds within this run; only cross-lane pacing is lost.
         }
+        bearer(await getAccessToken(cfg.credentialsFile, authDeps));
         return toolPayload(name, await /** @type {Client} */ (client).callTool({ name, arguments: args }));
       };
 
       try {
         try {
-          client = await connect(await getAccessToken(cfg.credentialsFile, authDeps));
+          bearer(await getAccessToken(cfg.credentialsFile, authDeps));
+          client = await connect();
         } catch (err) {
           // A token the file still dates as valid can be revoked early; renew once.
           if (!(err instanceof StreamableHTTPError && err.code === 401)) throw err;
           const { cred } = await refreshCredentials(cfg.credentialsFile, loadCredentials(cfg.credentialsFile), authDeps);
-          client = await connect(cred.tokens.access_token);
+          bearer(cred.tokens.access_token);
+          client = await connect();
         }
 
         const usage = parseUsage(await call('get_usage', {}));
