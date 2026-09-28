@@ -1,0 +1,72 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": "2026-09-28T03-00-27-460Z-daily",
+  "updatedAt": "2026-09-28T03:10:37.614Z",
+  "jobs": [
+    {
+      "id": "0000000000007",
+      "title": "Engineering Manager",
+      "company": "Acme",
+      "area": "engineering",
+      "seniority": "senior",
+      "technologies": [],
+      "technologyRequirements": [],
+      "benefits": [],
+      "salaryGeoSpecific": false,
+      "locations": [
+        "Brazil"
+      ],
+      "workplaceType": "remote",
+      "employerMarket": "international",
+      "brazilEligibility": "yes",
+      "brazilEntityPresence": "unknown",
+      "salary": {
+        "currency": null,
+        "interval": "year",
+        "minimum": null,
+        "maximum": null,
+        "display": null
+      },
+      "publishedAt": "2026-09-27T14:06:42.893Z",
+      "firstSeenAt": "2026-09-28T03:02:55.000Z",
+      "url": "https://jobs.bridglabs.com/vagas/acme-engineering-manager-0000000000007",
+      "sourceUrl": "https://acme.gupy.io/jobs/1007"
+    },
+    {
+      "id": "0000000000001",
+      "title": "Senior Backend Engineer",
+      "company": "Acme",
+      "area": "engineering",
+      "seniority": "senior",
+      "technologies": [],
+      "technologyRequirements": [],
+      "benefits": [],
+      "salaryGeoSpecific": false,
+      "locations": [
+        "Brazil"
+      ],
+      "workplaceType": "remote",
+      "employerMarket": "international",
+      "brazilEligibility": "yes",
+      "brazilEntityPresence": "unknown",
+      "salary": {
+        "currency": null,
+        "interval": "year",
+        "minimum": null,
+        "maximum": null,
+        "display": null
+      },
+      "publishedAt": "2026-09-27T14:06:42.893Z",
+      "firstSeenAt": "2026-09-28T03:02:55.000Z",
+      "url": "https://jobs.bridglabs.com/vagas/acme-senior-backend-engineer-0000000000001",
+      "sourceUrl": "https://acme.gupy.io/jobs/1001"
+    }
+  ],
+  "window": {
+    "period": "day",
+    "basis": "firstSeenAt",
+    "fromInclusive": "2026-09-27T10:30:00.000Z",
+    "toExclusive": "2026-09-28T10:30:00.000Z"
+  },
+  "nextCursor": null
+}

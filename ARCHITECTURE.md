@@ -50,7 +50,7 @@ AI coding CLI  ─┐
 ```
 
 ### Discovery — `scan.mjs` + `providers/`
-Finds jobs from **open, no-auth public sources**. `scan.mjs` is zero-token: it calls public ATS APIs (Greenhouse, Ashby, Lever, BambooHR, Teamtailor, Workday, Breezy) and RSS/JSON boards via per-board modules in `providers/`. Auth-gated/login-required sources are intentionally out of core (they belong in the plugin layer). Results land in `data/pipeline.md`.
+Finds jobs through per-board modules in `providers/`. `scan.mjs` is zero-token: most providers call public ATS APIs (Greenhouse, Ashby, Lever, BambooHR, Teamtailor, Workday, Breezy) or RSS/JSON boards without login. Auth-gated sources normally belong in the plugin layer; this fork includes one exception, [Jobs Search](docs/SUPPORTED_JOB_BOARDS.md), which requires an account. Results land in `data/pipeline.md`.
 
 ### Evaluation — `modes/oferta.md` + `modes/_shared.md`
 The heart of the tool. `oferta.md` defines the A–H evaluation blocks (H is conditional, on scores of 4.5 and above); `_shared.md` defines the 1–5 scoring system, archetype detection, posting-legitimacy signals, and global rules. The AI reads these plus your `cv.md` and produces a structured report.

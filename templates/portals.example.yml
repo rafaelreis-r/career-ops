@@ -987,7 +987,7 @@ search_queries:
 # Some providers are job boards / aggregators with no per-company careers
 # URL to detect, so they must be selected with an explicit `provider:`
 # field: 4dayweek, agentic-jobs, arbeitnow, arbeitsagentur, flowxtra, getonbrd, glints,
-# himalayas, ibm, jobbankca, jobicy, jobstreet, justjoin, landingjobs, mycareersfuture, nofluffjobs, remoteok, remotive, senjob,
+# himalayas, ibm, jobbankca, jobicy, jobs-search, jobstreet, justjoin, landingjobs, mycareersfuture, nofluffjobs, remoteok, remotive, senjob,
 # manfred, thehub, vdab, weworkremotely, workingnomads, wttj, a16z-speedrun-talent,
 # telegram-channel. Examples for every built-in provider are below.
 
@@ -1245,6 +1245,17 @@ search_queries:
 #
 # - name: Generalist World                # curated generalist / operator roles (SSR HTML, one fetch)
 #   provider: generalist-world            # or careers_url: https://generalist.world/jobs/ (auto-detected)
+#   enabled: true
+#
+# - name: Jobs Search                     # jobs.bridglabs.com — Brazil-eligible roles, paid account (MCP + OAuth)
+#   provider: jobs-search                 # no detect() — only reachable via provider:
+#   jobs_search:                          # every key optional; defaults shown
+#     period: day                         # day | week | month — jobs first seen in that window
+#     max_pages: 30                       # page cap (20 jobs/page, max 150)
+#     cache_ttl_minutes: 180              # reuse a complete pull this long (one pull serves every lane)
+#     # credentials_file: ~/.config/career-ops/jobs-search/credentials.json  # or $CAREER_OPS_JOBS_SEARCH_CREDENTIALS
+#     # cache_dir: ~/.cache/career-ops/jobs-search                          # or $CAREER_OPS_JOBS_SEARCH_CACHE_DIR
+#   # Setup and token renewal: docs/SUPPORTED_JOB_BOARDS.md (Jobs Search).
 #   enabled: true
 #
 # - name: Built In                        # US tech aggregator, many employers
