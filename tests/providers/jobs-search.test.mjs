@@ -130,20 +130,27 @@ if (provider.id === 'jobs-search' && provider.detect === undefined) pass('id is 
 else fail(`id/detect = ${JSON.stringify({ id: provider.id, detect: typeof provider.detect })}`);
 
 {
-  const cfg = resolveJobsSearchConfig({ provider: 'jobs-search' }, { XDG_CONFIG_HOME: '/x/config', XDG_CACHE_HOME: '/x/cache' });
+  const base = join(tmpdir(), 'jobs-search-config');
+  const configHome = join(base, 'xdg', 'config');
+  const cacheHome = join(base, 'xdg', 'cache');
+  const cfg = resolveJobsSearchConfig({ provider: 'jobs-search' }, { XDG_CONFIG_HOME: configHome, XDG_CACHE_HOME: cacheHome });
   if (
     cfg.period === 'day' && cfg.endpoint === ENDPOINT && cfg.maxPages === 30 &&
-    cfg.credentialsFile === '/x/config/career-ops/jobs-search/credentials.json' &&
-    cfg.cacheDir === '/x/cache/career-ops/jobs-search'
+    cfg.credentialsFile === join(configHome, 'career-ops', 'jobs-search', 'credentials.json') &&
+    cfg.cacheDir === join(cacheHome, 'career-ops', 'jobs-search')
   ) pass('config defaults: period day, the Bridg endpoint, XDG credential and cache paths');
   else fail(`config defaults = ${JSON.stringify(cfg)}`);
 
-  const env = { CAREER_OPS_JOBS_SEARCH_CREDENTIALS: '/e/cred.json', CAREER_OPS_JOBS_SEARCH_CACHE_DIR: '/e/cache' };
+  const envCredentials = join(base, 'env', 'cred.json');
+  const envCache = join(base, 'env', 'cache');
+  const entryCredentials = join(base, 'entry', 'cred.json');
+  const entryCache = join(base, 'entry', 'cache');
+  const env = { CAREER_OPS_JOBS_SEARCH_CREDENTIALS: envCredentials, CAREER_OPS_JOBS_SEARCH_CACHE_DIR: envCache };
   const fromEnv = resolveJobsSearchConfig({}, env);
-  const fromEntry = resolveJobsSearchConfig({ jobs_search: { credentials_file: '/p/cred.json', cache_dir: '/p/cache', period: 'week', max_pages: 9999 } }, env);
+  const fromEntry = resolveJobsSearchConfig({ jobs_search: { credentials_file: entryCredentials, cache_dir: entryCache, period: 'week', max_pages: 9999 } }, env);
   if (
-    fromEnv.credentialsFile === '/e/cred.json' && fromEnv.cacheDir === '/e/cache' &&
-    fromEntry.credentialsFile === '/p/cred.json' && fromEntry.cacheDir === '/p/cache' &&
+    fromEnv.credentialsFile === envCredentials && fromEnv.cacheDir === envCache &&
+    fromEntry.credentialsFile === entryCredentials && fromEntry.cacheDir === entryCache &&
     fromEntry.period === 'week' && fromEntry.maxPages === 150
   ) pass('entry keys override env, env overrides the default; max_pages capped at 150');
   else fail(`config precedence = ${JSON.stringify({ fromEnv, fromEntry })}`);
