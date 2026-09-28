@@ -1,34 +1,72 @@
 {
-  "period": "day",
+  "schemaVersion": 1,
+  "catalogVersion": "2026-09-28T03-00-27-460Z-daily",
+  "updatedAt": "2026-09-28T03:10:37.614Z",
   "jobs": [
     {
-      "id": "job-5",
+      "id": "0000000000005",
       "title": "Frontend Engineer",
       "company": "ExampleCo",
-      "url": "https://jobs.bridglabs.com/vagas/job-5",
-      "sourceUrl": "https://boards.greenhouse.io/exampleco/jobs/1005",
+      "area": "engineering",
+      "seniority": "senior",
+      "technologies": [],
+      "technologyRequirements": [],
+      "benefits": [],
+      "salaryGeoSpecific": false,
       "locations": [
-        "Remote - Brazil"
+        "Belo Horizonte, MG, Brazil"
       ],
-      "salary": null,
-      "publishedAt": "2026-09-27T14:00:00.000Z",
-      "firstSeenAt": "2026-09-28T03:00:00.000Z",
-      "market": "international"
+      "workplaceType": "remote",
+      "employerMarket": "international",
+      "brazilEligibility": "yes",
+      "brazilEntityPresence": "unknown",
+      "salary": {
+        "currency": null,
+        "interval": "year",
+        "minimum": null,
+        "maximum": null,
+        "display": null
+      },
+      "publishedAt": "2026-09-27T14:06:42.893Z",
+      "firstSeenAt": "2026-09-28T03:02:55.000Z",
+      "url": "https://jobs.bridglabs.com/vagas/exampleco-frontend-engineer-0000000000005",
+      "sourceUrl": "https://acme.gupy.io/jobs/1005"
     },
     {
-      "id": "job-6",
+      "id": "0000000000006",
       "title": "",
       "company": "BigCo",
-      "url": "https://jobs.bridglabs.com/vagas/job-6",
-      "sourceUrl": "https://boards.greenhouse.io/bigco/jobs/1006",
+      "area": "engineering",
+      "seniority": "senior",
+      "technologies": [],
+      "technologyRequirements": [],
+      "benefits": [],
+      "salaryGeoSpecific": false,
       "locations": [
-        "Remote - Brazil"
+        "Brazil"
       ],
-      "salary": null,
-      "publishedAt": "2026-09-27T14:00:00.000Z",
-      "firstSeenAt": "2026-09-28T03:00:00.000Z",
-      "market": "international"
+      "workplaceType": "remote",
+      "employerMarket": "international",
+      "brazilEligibility": "yes",
+      "brazilEntityPresence": "unknown",
+      "salary": {
+        "currency": null,
+        "interval": "year",
+        "minimum": null,
+        "maximum": null,
+        "display": null
+      },
+      "publishedAt": "2026-09-27T14:06:42.893Z",
+      "firstSeenAt": "2026-09-28T03:02:55.000Z",
+      "url": "https://jobs.bridglabs.com/vagas/bigco--0000000000006",
+      "sourceUrl": "https://acme.gupy.io/jobs/1006"
     }
   ],
+  "window": {
+    "period": "day",
+    "basis": "firstSeenAt",
+    "fromInclusive": "2026-09-27T10:30:00.000Z",
+    "toExclusive": "2026-09-28T10:30:00.000Z"
+  },
   "nextCursor": "cursor-3"
 }

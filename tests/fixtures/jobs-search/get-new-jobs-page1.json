@@ -1,67 +1,131 @@
 {
-  "period": "day",
+  "schemaVersion": 1,
+  "catalogVersion": "2026-09-28T03-00-27-460Z-daily",
+  "updatedAt": "2026-09-28T03:10:37.614Z",
   "jobs": [
     {
-      "id": "job-1",
+      "id": "0000000000001",
       "title": "Senior Backend Engineer",
       "company": "Acme",
-      "url": "https://jobs.bridglabs.com/vagas/job-1",
-      "sourceUrl": "https://boards.greenhouse.io/acme/jobs/1001",
+      "area": "engineering",
+      "seniority": "senior",
+      "technologies": [],
+      "technologyRequirements": [],
+      "benefits": [],
+      "salaryGeoSpecific": false,
       "locations": [
-        "Remote - Brazil",
-        "São Paulo, Brazil"
+        "Brazil",
+        "São Paulo, SP, Brazil"
       ],
+      "workplaceType": "remote",
+      "employerMarket": "international",
+      "brazilEligibility": "yes",
+      "brazilEntityPresence": "unknown",
       "salary": {
         "currency": "usd",
-        "min": 8000,
-        "max": 12000
+        "interval": "month",
+        "minimum": 8000,
+        "maximum": 12000,
+        "display": "US$ 8.000 – 12.000 / mês"
       },
-      "publishedAt": "2026-09-27T14:00:00.000Z",
-      "firstSeenAt": "2026-09-28T03:00:00.000Z",
-      "market": "international"
+      "publishedAt": "2026-09-27T14:06:42.893Z",
+      "firstSeenAt": "2026-09-28T03:02:55.000Z",
+      "url": "https://jobs.bridglabs.com/vagas/acme-senior-backend-engineer-0000000000001",
+      "sourceUrl": "https://acme.gupy.io/jobs/1001"
     },
     {
-      "id": "job-2",
+      "id": "0000000000002",
       "title": "Data Engineer",
       "company": "ExampleCo",
-      "url": "https://jobs.bridglabs.com/vagas/job-2",
-      "sourceUrl": null,
+      "area": "engineering",
+      "seniority": "senior",
+      "technologies": [],
+      "technologyRequirements": [],
+      "benefits": [],
+      "salaryGeoSpecific": false,
       "locations": [
-        "Remote - Brazil"
+        "Brazil"
       ],
-      "salary": null,
-      "publishedAt": "2026-09-27T14:00:00.000Z",
-      "firstSeenAt": "2026-09-28T03:00:00.000Z",
-      "market": "brazil"
+      "workplaceType": "remote",
+      "employerMarket": "brazil",
+      "brazilEligibility": "yes",
+      "brazilEntityPresence": "unknown",
+      "salary": {
+        "currency": null,
+        "interval": "year",
+        "minimum": null,
+        "maximum": null,
+        "display": null
+      },
+      "publishedAt": "2026-09-27T14:06:42.893Z",
+      "firstSeenAt": "2026-09-28T03:02:55.000Z",
+      "url": "https://jobs.bridglabs.com/vagas/exampleco-data-engineer-0000000000002",
+      "sourceUrl": null
     },
     {
-      "id": "job-3",
+      "id": "0000000000003",
       "title": "Product Designer",
       "company": "BigCo",
-      "url": "https://jobs.bridglabs.com/vagas/job-3",
-      "sourceUrl": "http://bigco.example/careers/3",
+      "area": "engineering",
+      "seniority": "senior",
+      "technologies": [],
+      "technologyRequirements": [],
+      "benefits": [],
+      "salaryGeoSpecific": false,
       "locations": [
-        "Remote - Brazil"
+        "Brazil"
       ],
-      "salary": null,
-      "publishedAt": "2026-09-27T14:00:00.000Z",
-      "firstSeenAt": "2026-09-28T03:00:00.000Z",
-      "market": "international"
+      "workplaceType": "remote",
+      "employerMarket": "international",
+      "brazilEligibility": "yes",
+      "brazilEntityPresence": "unknown",
+      "salary": {
+        "currency": null,
+        "interval": "year",
+        "minimum": null,
+        "maximum": null,
+        "display": null
+      },
+      "publishedAt": "2026-09-27T14:06:42.893Z",
+      "firstSeenAt": "2026-09-28T03:02:55.000Z",
+      "url": "https://jobs.bridglabs.com/vagas/bigco-product-designer-0000000000003",
+      "sourceUrl": "http://bigco.example/careers/3"
     },
     {
-      "id": "job-4",
+      "id": "0000000000004",
       "title": "Staff Platform Engineer",
       "company": "Acme",
-      "url": "https://jobs.bridglabs.com/vagas/job-4",
-      "sourceUrl": "https://boards.greenhouse.io/acme/jobs/1004",
+      "area": "engineering",
+      "seniority": "senior",
+      "technologies": [],
+      "technologyRequirements": [],
+      "benefits": [],
+      "salaryGeoSpecific": false,
       "locations": [
-        "Remote - Brazil"
+        "Brazil"
       ],
-      "salary": null,
-      "publishedAt": "2026-09-27T14:00:00.000Z",
-      "firstSeenAt": "2026-09-28T03:00:00.000Z",
-      "market": "international"
+      "workplaceType": "remote",
+      "employerMarket": "international",
+      "brazilEligibility": "yes",
+      "brazilEntityPresence": "unknown",
+      "salary": {
+        "currency": "BRL",
+        "interval": "year",
+        "minimum": 240000,
+        "maximum": null,
+        "display": null
+      },
+      "publishedAt": "2026-09-27T14:06:42.893Z",
+      "firstSeenAt": "2026-09-28T03:02:55.000Z",
+      "url": "https://jobs.bridglabs.com/vagas/acme-staff-platform-engineer-0000000000004",
+      "sourceUrl": "https://acme.gupy.io/jobs/1004"
     }
   ],
+  "window": {
+    "period": "day",
+    "basis": "firstSeenAt",
+    "fromInclusive": "2026-09-27T10:30:00.000Z",
+    "toExclusive": "2026-09-28T10:30:00.000Z"
+  },
   "nextCursor": "cursor-2"
 }

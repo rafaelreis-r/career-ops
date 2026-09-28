@@ -165,13 +165,14 @@ if (auth.codexKeychainAccount('jobs-search', ENDPOINT) === 'jobs-search|a37461d2
 // --- normalization -------------------------------------------------------------
 
 {
-  const [first, noSource, httpSource] = fixture('get-new-jobs-page1.json').jobs;
+  const [first, noSource, httpSource, yearly] = fixture('get-new-jobs-page1.json').jobs;
   const job = normalizeJobsSearchJob(first);
   if (
     job?.url === first.sourceUrl && job.company === 'Acme' && job.title === 'Senior Backend Engineer' &&
-    job.location === 'Remote - Brazil / São Paulo, Brazil' && job.postedAt === Date.parse(first.publishedAt) &&
-    formatCompensation(job.salary) === '8000-12000 USD'
-  ) pass('maps sourceUrl, real company/title, locations, publishedAt and a salary formatCompensation renders');
+    job.location === 'Brazil / São Paulo, SP, Brazil' && job.postedAt === Date.parse(first.publishedAt) &&
+    formatCompensation(job.salary) === '96000-144000 USD' &&
+    formatCompensation(normalizeJobsSearchJob(yearly)?.salary) === '240000 BRL'
+  ) pass('maps sourceUrl, real company/title, locations, publishedAt; salary minimum/maximum annualized for formatCompensation');
   else fail(`normalized job = ${JSON.stringify(job)} / comp ${formatCompensation(job?.salary)}`);
 
   const fallbacks = [normalizeJobsSearchJob(noSource)?.url, normalizeJobsSearchJob(httpSource)?.url];
@@ -184,10 +185,11 @@ if (auth.codexKeychainAccount('jobs-search', ENDPOINT) === 'jobs-search|a37461d2
     normalizeJobsSearchJob({ ...first, sourceUrl: undefined, url: 'javascript:alert(1)' }),
     normalizeJobsSearchJob(null),
   ];
-  const noDate = normalizeJobsSearchJob({ ...first, publishedAt: 'soon', salary: { currency: 'BRL' } });
-  if (drops.every((d) => d === null) && noDate && !('postedAt' in noDate) && !('salary' in noDate)) {
-    pass('drops rows without title/company/usable url; a bad date or bound-less salary is omitted, not coerced');
-  } else fail(`drops = ${JSON.stringify({ drops, noDate })}`);
+  const noDate = normalizeJobsSearchJob({ ...first, publishedAt: 'soon', salary: { currency: 'BRL', interval: 'year', minimum: null, maximum: null } });
+  const oddUnit = normalizeJobsSearchJob({ ...first, salary: { currency: 'BRL', interval: 'fortnight', minimum: 5000, maximum: 6000 } });
+  if (drops.every((d) => d === null) && noDate && !('postedAt' in noDate) && !('salary' in noDate) && oddUnit && !('salary' in oddUnit)) {
+    pass('drops rows without title/company/usable url; a bad date, a bound-less salary or an unknown interval is omitted, not coerced');
+  } else fail(`drops = ${JSON.stringify({ drops, noDate, oddUnit })}`);
 }
 
 // --- fetch: pagination, quota check, pacing, cache ----------------------------
@@ -248,23 +250,58 @@ if (auth.codexKeychainAccount('jobs-search', ENDPOINT) === 'jobs-search|a37461d2
   const c = clock();
   const srv = fakeServer({ tools: pagedTools({ get_usage: () => fixture('get-usage-exhausted.json') }) });
   const err = await rejects(createJobsSearchProvider({ fetchFn: srv.fetchFn, now: c.now }).fetch(box.entry, c.ctx));
-  if (err && /allowance exhausted/.test(err.message) && !srv.toolCalls.some((t) => t.name === 'get_new_jobs')) {
+  if (err && /0 queries left this day/.test(err.message) && !srv.toolCalls.some((t) => t.name === 'get_new_jobs')) {
     pass('an exhausted allowance stops before any get_new_jobs call');
   } else fail(`exhausted = ${JSON.stringify({ err: err?.message, calls: srv.toolCalls.map((t) => t.name) })}`);
   box.cleanup();
 }
 
 {
+  // The last complete pull took 3 pages; 2 queries left → skip before paging.
+  const box = sandbox({ expiresInMs: 48 * 3_600_000 });
+  const c = clock();
+  const usage = fixture('get-usage.json');
+  usage.usage.queryDay = 118;
+  const srv = fakeServer({ tools: pagedTools({ get_usage: () => usage }) });
+  const p = createJobsSearchProvider({ fetchFn: srv.fetchFn, now: c.now });
+  const cacheFile = join(box.entry.jobs_search.cache_dir, 'new-jobs-day.json');
+  await createJobsSearchProvider({ fetchFn: fakeServer({ tools: pagedTools() }).fetchFn, now: c.now }).fetch(box.entry, c.ctx);
+  c.advance(24 * 3_600_000);
+  const stale = readFileSync(cacheFile, 'utf-8');
+  const err = await rejects(p.fetch(box.entry, c.ctx));
+  const pages = srv.toolCalls.filter((t) => t.name === 'get_new_jobs').length;
+  if (err && /2 queries left this day, the pull needs about 3/.test(err.message) && pages === 0 && readFileSync(cacheFile, 'utf-8') === stale) {
+    pass('an allowance smaller than the last pull\'s page count stops before paging, cache untouched');
+  } else fail(`short allowance = ${JSON.stringify({ err: err?.message, pages })}`);
+  box.cleanup();
+}
+
+{
+  // No history (estimate 1 page) but the day needs 3 and only 2 are left.
   const box = sandbox();
   const c = clock();
   const usage = fixture('get-usage.json');
-  usage.day.used = usage.day.limit - 2; // room for get_new_jobs page 1 and one more
-  const srv = fakeServer({ tools: pagedTools({ get_usage: () => usage, get_new_jobs: () => ({ ...fixture('get-new-jobs-page1.json'), total: 100, nextCursor: 'cursor-2' }) }) });
+  usage.usage.queryDay = 118;
+  const srv = fakeServer({ tools: pagedTools({ get_usage: () => usage }) });
   const err = await rejects(createJobsSearchProvider({ fetchFn: srv.fetchFn, now: c.now }).fetch(box.entry, c.ctx));
   const pages = srv.toolCalls.filter((t) => t.name === 'get_new_jobs').length;
-  if (err && /stopped before burning/.test(err.message) && pages === 1 && !existsSync(join(box.entry.jobs_search.cache_dir, 'new-jobs-day.json'))) {
-    pass('a pull the remaining allowance cannot finish stops after page 1 with a named error and caches nothing');
-  } else fail(`short allowance = ${JSON.stringify({ err: err?.message, pages })}`);
+  if (err && /ran out after 2 page/.test(err.message) && pages === 2 && !existsSync(join(box.entry.jobs_search.cache_dir, 'new-jobs-day.json'))) {
+    pass('running out mid-pull stops at the allowance with a named error and caches nothing');
+  } else fail(`ran out = ${JSON.stringify({ err: err?.message, pages })}`);
+  box.cleanup();
+}
+
+{
+  // Another client used the whole minute: wait for the reset before paging.
+  const box = sandbox();
+  const c = clock();
+  const usage = fixture('get-usage.json');
+  usage.usage.queryMinute = 10;
+  usage.usage.resets.minute = new Date(START + 40_000).toISOString();
+  const srv = fakeServer({ tools: pagedTools({ get_usage: () => usage }) });
+  await createJobsSearchProvider({ fetchFn: srv.fetchFn, now: c.now }).fetch(box.entry, c.ctx);
+  if (c.sleeps[0] === 40_000) pass('a spent per-minute allowance waits for its reset before the first page');
+  else fail(`minute wait = ${JSON.stringify(c.sleeps)}`);
   box.cleanup();
 }
 

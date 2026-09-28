@@ -29,14 +29,18 @@
 // employer's own ATS provider. All job text is third-party data.
 //
 // Quota. The account allows 10 queries/minute, 120/day and 3,000/month,
-// shared by every connection. Several lanes scanning back to back must not
-// each pay for the same pull, so a complete pull is cached per period in a
-// cache directory and served to every later scan until it goes stale
+// shared by every connection; each get_new_jobs page is one query, get_usage
+// is free. The catalogue is rebuilt once a day (`catalogVersion`
+// "2026-09-28T03-00-27-460Z-daily", built ~03:10 UTC), and `period: day` is a
+// rolling 24 h window on firstSeenAt. Several lanes scanning back to back must
+// not each pay for the same pull, so a pull is cached per period in a cache
+// directory and served to every later scan until it goes stale
 // (`cache_ttl_minutes`). Tool calls are spaced CALL_INTERVAL_MS apart (the
 // last call's time is kept in the cache directory, so a second lane starting
-// right after the first still respects the per-minute window), and
-// `get_usage` is read before paging: a pull that cannot finish inside the
-// remaining allowance stops with a named error instead of burning it.
+// right after the first still respects the per-minute window). `get_usage` is
+// read before paging: get_new_jobs reports no total, so when fewer queries
+// are left than the last pull's page count the run stops with a named error
+// instead of burning the rest, and running out mid-pull caches nothing.
 //
 // Failures (auth, quota, network, a changed payload) throw, so scan.mjs
 // records them as this board's error and carries on with the other targets.
@@ -141,27 +145,25 @@ function httpsUrl(v) {
   }
 }
 
-/**
- * One location entry → display string. The API sends strings; an object with
- * city/region/country parts is joined defensively.
- * @param {unknown} loc
- */
-function locationText(loc) {
-  if (typeof loc === 'string') return loc.trim();
-  if (!loc || typeof loc !== 'object') return '';
-  const o = /** @type {Record<string, unknown>} */ (loc);
-  const label = text(o.label) || text(o.name);
-  if (label) return label;
-  return [o.city, o.region ?? o.state, o.country].map(text).filter(Boolean).join(', ');
-}
+// `salary.interval` → annual multiplier (Job.salary is annualized). The live
+// payload sends `year`; an interval not listed here drops the salary rather
+// than guess its unit.
+const INTERVAL_MULTIPLIERS = { hour: 2080, day: 260, week: 52, month: 12, year: 1 };
 
-/** @param {any} j */
+/**
+ * `{currency, interval, minimum, maximum}` → annualized `{min, max, currency}`,
+ * or null when neither bound is a positive number.
+ * @param {any} j
+ */
 export function normalizeJobsSearchSalary(j) {
   const s = j?.salary && typeof j.salary === 'object' ? j.salary : null;
   if (!s) return null;
-  const num = (/** @type {unknown} */ v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined);
-  const min = num(s.min);
-  const max = num(s.max);
+  const interval = text(s.interval).toLowerCase() || 'year';
+  const multiplier = INTERVAL_MULTIPLIERS[/** @type {keyof typeof INTERVAL_MULTIPLIERS} */ (interval)];
+  if (!multiplier) return null;
+  const num = (/** @type {unknown} */ v) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v * multiplier : undefined);
+  const min = num(s.minimum);
+  const max = num(s.maximum);
   if (min === undefined && max === undefined) return null;
   /** @type {{min?: number, max?: number, currency?: string}} */
   const salary = {};
@@ -180,17 +182,12 @@ export function normalizeJobsSearchSalary(j) {
 export function normalizeJobsSearchJob(j) {
   if (!j || typeof j !== 'object') return null;
   const title = text(j.title);
-  const company = text(j.company?.name ?? j.company);
+  const company = text(j.company);
   const url = httpsUrl(j.sourceUrl) || httpsUrl(j.url);
   if (!title || !company || !url) return null;
-  const locations = Array.isArray(j.locations) ? j.locations : j.locations != null ? [j.locations] : [];
+  const locations = Array.isArray(j.locations) ? j.locations.map(text).filter(Boolean) : [];
   /** @type {Job} */
-  const job = {
-    title,
-    url,
-    company,
-    location: [...new Set(locations.map(locationText).filter(Boolean))].join(' / '),
-  };
+  const job = { title, url, company, location: [...new Set(locations)].join(' / ') };
   const postedAt = toEpochMs(j.publishedAt);
   if (postedAt !== undefined) job.postedAt = postedAt;
   const salary = normalizeJobsSearchSalary(j);
@@ -222,26 +219,33 @@ export function toolPayload(tool, result) {
 }
 
 /**
- * Remaining queries in the tightest window `get_usage` reports.
- * @param {any} usage
- * @returns {{ remaining: number, window: string }}
+ * `get_usage` → queries left in the tightest of the day/month windows, plus
+ * the per-minute headroom and when that minute resets. Live shape:
+ * `{ usage: { queryMinute, queryDay, queryMonth, limits: {minute, day, month},
+ * resets: {minute, day, month} } }`. `get_usage` itself is not a query (the
+ * counters did not move for it on 2026-09-28).
+ * @param {any} payload
  */
-export function remainingQuota(usage) {
-  /** @type {{ remaining: number, window: string } | null} */
-  let tightest = null;
-  for (const window of ['day', 'month']) {
-    const w = usage?.[window];
-    if (!w || typeof w !== 'object') continue;
-    const limit = Number(w.limit);
-    const used = Number(w.used);
-    const remaining = Number.isFinite(Number(w.remaining)) ? Number(w.remaining) : limit - used;
-    if (!Number.isFinite(remaining)) continue;
-    if (!tightest || remaining < tightest.remaining) tightest = { remaining, window };
+export function parseUsage(payload) {
+  const u = payload?.usage;
+  const limits = u?.limits;
+  /** @param {string} used @param {string} limit */
+  const left = (used, limit) => {
+    const n = Number(limits?.[limit]) - Number(u?.[used]);
+    return Number.isFinite(n) ? Math.max(0, n) : NaN;
+  };
+  const day = left('queryDay', 'day');
+  const month = left('queryMonth', 'month');
+  const minute = left('queryMinute', 'minute');
+  if (!u || typeof u !== 'object' || [day, month, minute].some(Number.isNaN)) {
+    throw new Error(`jobs-search: get_usage returned an unexpected shape — keys: [${payload && typeof payload === 'object' ? Object.keys(payload).join(', ') : typeof payload}]`);
   }
-  if (!tightest) {
-    throw new Error(`jobs-search: get_usage returned an unexpected shape — keys: [${usage && typeof usage === 'object' ? Object.keys(usage).join(', ') : typeof usage}]`);
-  }
-  return tightest;
+  return {
+    remaining: Math.min(day, month),
+    window: day <= month ? 'day' : 'month',
+    minuteLeft: minute,
+    minuteResetAt: toEpochMs(u.resets?.minute),
+  };
 }
 
 /** @param {string} file */
@@ -344,22 +348,31 @@ export function createJobsSearchProvider(deps = {}) {
           client = await connect(cred.tokens.access_token);
         }
 
-        const quota = remainingQuota(await call('get_usage', {}));
-        if (quota.remaining < 1) {
-          throw new Error(`jobs-search: query allowance exhausted (0 left this ${quota.window}) — skipped the pull`);
+        const usage = parseUsage(await call('get_usage', {}));
+        // get_new_jobs reports no total, so the size of the last complete pull
+        // for this period (kept past the TTL) is the estimate of what this one
+        // needs; a first run assumes one page.
+        const estimate = Math.min(pageLimit, Math.max(1, Number.isInteger(cached?.pages) ? cached.pages : 1));
+        if (usage.remaining < estimate) {
+          throw new Error(`jobs-search: ${usage.remaining} queries left this ${usage.window}, the pull needs about ${estimate} (${Number.isInteger(cached?.pages) ? "the last pull's page count" : 'at least one page'}) — skipped it rather than stop halfway`);
         }
-        let remaining = quota.remaining;
+        if (usage.minuteLeft < 1 && usage.minuteResetAt !== undefined) {
+          const wait = Math.min(usage.minuteResetAt - now(), 61_000);
+          if (wait > 0) await sleep(wait, ctx);
+        }
+        let remaining = usage.remaining;
 
         /** @type {any[]} */
         const items = [];
         const seen = new Set();
         /** @type {string | undefined} */
         let cursor;
+        let catalogVersion = '';
         let pages = 0;
         let truncated = false;
         for (;;) {
           if (remaining < 1) {
-            throw new Error(`jobs-search: query allowance ran out after ${pages} page(s) of get_new_jobs (${quota.window} limit) — pull incomplete, nothing cached`);
+            throw new Error(`jobs-search: query allowance ran out after ${pages} page(s) of get_new_jobs (${usage.window} limit) — pull incomplete, nothing cached`);
           }
           const page = await call('get_new_jobs', { period: cfg.period, limit: PAGE_SIZE, ...(cursor ? { cursor } : {}) });
           remaining--;
@@ -367,15 +380,7 @@ export function createJobsSearchProvider(deps = {}) {
           if (!page || typeof page !== 'object' || !Array.isArray(page.jobs)) {
             throw new Error(`jobs-search: get_new_jobs returned an unexpected shape — keys: [${page && typeof page === 'object' ? Object.keys(page).join(', ') : typeof page}]`);
           }
-          if (pages === 1) {
-            const total = Number(page.total);
-            if (Number.isFinite(total) && total > PAGE_SIZE) {
-              const needed = Math.min(Math.ceil(total / PAGE_SIZE), pageLimit) - 1;
-              if (needed > remaining) {
-                throw new Error(`jobs-search: ${total} new jobs need ${needed} more page(s) but only ${remaining} queries are left this ${quota.window} — stopped before burning the allowance`);
-              }
-            }
-          }
+          if (!catalogVersion) catalogVersion = text(page.catalogVersion);
           for (const item of page.jobs) {
             const key = item?.id ?? item?.sourceUrl ?? item?.url;
             if (key != null && seen.has(key)) continue;
@@ -390,11 +395,10 @@ export function createJobsSearchProvider(deps = {}) {
           }
         }
 
-        if (truncated && !probe) {
-          console.warn(`jobs-search: stopped at ${pageLimit} pages with more available — raise jobs_search.max_pages on this entry`);
-        }
-        if (!truncated && !probe) {
-          writeJsonAtomic(cacheFile, { version: CACHE_VERSION, endpoint: cfg.endpoint, period: cfg.period, fetchedAt: now(), items });
+        if (!probe) {
+          if (truncated) console.warn(`jobs-search: stopped at ${pageLimit} pages with more available — raise jobs_search.max_pages on this entry`);
+          // A truncated pull is cached too: every lane would hit the same cap.
+          writeJsonAtomic(cacheFile, { version: CACHE_VERSION, endpoint: cfg.endpoint, period: cfg.period, catalogVersion, fetchedAt: now(), pages, truncated, items });
         }
         return items.map(normalizeJobsSearchJob).filter(Boolean);
       } finally {
