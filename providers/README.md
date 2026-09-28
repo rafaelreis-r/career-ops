@@ -4,10 +4,9 @@ Job-source provider modules for the zero-token portal scanner (`scan.mjs`).
 
 ## Purpose
 
-Each non-helper `*.mjs` file in this directory maps one public, no-auth job
-source (ATS API, RSS/XML feed, or server-rendered HTML page) to the scanner's
-normalized `Job` shape. Providers are zero-token by design: they hit public
-endpoints directly, with no LLM calls and no login. The user-facing catalog of
+Each non-helper `*.mjs` file in this directory maps a job source to the scanner's
+normalized `Job` shape. Providers use no LLM tokens. Most read public ATS APIs,
+RSS/XML feeds, or server-rendered pages without login. The user-facing catalog of
 supported sources lives in
 [docs/SUPPORTED_JOB_BOARDS.md](../docs/SUPPORTED_JOB_BOARDS.md).
 
@@ -23,9 +22,9 @@ Core providers must be zero-auth against public endpoints; auth-gated or
 login-required sources belong in the plugin layer instead (see
 [ARCHITECTURE.md](../ARCHITECTURE.md) and `CONTRIBUTING.md`).
 
-Fork-local exception: `jobs-search.mjs` reads a paid, OAuth-gated MCP server
-(jobs.bridglabs.com). Its credential store and renewal live in
-`_jobs-search-auth.mjs`; both files are specific to this fork.
+Fork-local exception: `jobs-search.mjs` reads an authenticated MCP server.
+Its credential store and renewal live in `_jobs-search-auth.mjs`; see the
+[Jobs Search catalog entry](../docs/SUPPORTED_JOB_BOARDS.md) for setup.
 
 ## Loading and routing
 

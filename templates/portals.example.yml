@@ -1255,9 +1255,7 @@ search_queries:
 #     cache_ttl_minutes: 180              # reuse a complete pull this long (one pull serves every lane)
 #     # credentials_file: ~/.config/career-ops/jobs-search/credentials.json  # or $CAREER_OPS_JOBS_SEARCH_CREDENTIALS
 #     # cache_dir: ~/.cache/career-ops/jobs-search                          # or $CAREER_OPS_JOBS_SEARCH_CACHE_DIR
-#   # Seed the credential once: `node providers/_jobs-search-auth.mjs seed-from-codex`
-#   # (after `codex mcp login jobs-search`). Scans renew it without Codex; refresh
-#   # tokens rotate, so the first renewal spends Codex's copy. See providers/_jobs-search-auth.mjs.
+#   # Setup and token renewal: docs/SUPPORTED_JOB_BOARDS.md (Jobs Search).
 #   enabled: true
 #
 # - name: Built In                        # US tech aggregator, many employers

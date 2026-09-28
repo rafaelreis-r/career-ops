@@ -1,7 +1,7 @@
 # Adding a provider
 
-A provider is a module `providers/{name}.mjs` that maps one public, no-auth
-job source (an ATS API, an RSS/JSON feed, or a server-rendered HTML page) to
+A provider is a module `providers/{name}.mjs` that maps a job source
+(an ATS API, an RSS/JSON feed, or a server-rendered HTML page) to
 the scanner's normalized `Job` shape. `scan.mjs` and `verify-portals.mjs`
 load every such module through `providers/_registry.mjs` — no manual
 registration, dropping the file in `providers/` is enough.
@@ -353,8 +353,10 @@ constant.
 
 ### Public, no-auth sources only
 
-A provider reads only open APIs/feeds with no login. Sending the user's data
-(CV, pipeline) to an external service is out of core (see
+New core providers read only open APIs/feeds with no login. This fork's
+authenticated Jobs Search provider is documented in the
+[supported sources catalog](../docs/SUPPORTED_JOB_BOARDS.md).
+Sending the user's data (CV, pipeline) to an external service is out of core (see
 [`../CONTRIBUTING.md`](../CONTRIBUTING.md), "What we do NOT accept").
 
 ### Browser-based scanners (standalone scripts only)
