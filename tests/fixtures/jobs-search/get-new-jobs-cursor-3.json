@@ -1,0 +1,34 @@
+{
+  "period": "day",
+  "jobs": [
+    {
+      "id": "job-7",
+      "title": "Engineering Manager",
+      "company": "Acme",
+      "url": "https://jobs.bridglabs.com/vagas/job-7",
+      "sourceUrl": "https://boards.greenhouse.io/acme/jobs/1007",
+      "locations": [
+        "Remote - Brazil"
+      ],
+      "salary": null,
+      "publishedAt": "2026-09-27T14:00:00.000Z",
+      "firstSeenAt": "2026-09-28T03:00:00.000Z",
+      "market": "international"
+    },
+    {
+      "id": "job-1",
+      "title": "Senior Backend Engineer",
+      "company": "Acme",
+      "url": "https://jobs.bridglabs.com/vagas/job-1",
+      "sourceUrl": "https://boards.greenhouse.io/acme/jobs/1001",
+      "locations": [
+        "Remote - Brazil"
+      ],
+      "salary": null,
+      "publishedAt": "2026-09-27T14:00:00.000Z",
+      "firstSeenAt": "2026-09-28T03:00:00.000Z",
+      "market": "international"
+    }
+  ],
+  "nextCursor": null
+}

@@ -1,0 +1,14 @@
+{
+  "minute": {
+    "used": 0,
+    "limit": 10
+  },
+  "day": {
+    "used": 120,
+    "limit": 120
+  },
+  "month": {
+    "used": 400,
+    "limit": 3000
+  }
+}

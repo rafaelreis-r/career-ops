@@ -1,0 +1,67 @@
+{
+  "period": "day",
+  "jobs": [
+    {
+      "id": "job-1",
+      "title": "Senior Backend Engineer",
+      "company": "Acme",
+      "url": "https://jobs.bridglabs.com/vagas/job-1",
+      "sourceUrl": "https://boards.greenhouse.io/acme/jobs/1001",
+      "locations": [
+        "Remote - Brazil",
+        "São Paulo, Brazil"
+      ],
+      "salary": {
+        "currency": "usd",
+        "min": 8000,
+        "max": 12000
+      },
+      "publishedAt": "2026-09-27T14:00:00.000Z",
+      "firstSeenAt": "2026-09-28T03:00:00.000Z",
+      "market": "international"
+    },
+    {
+      "id": "job-2",
+      "title": "Data Engineer",
+      "company": "ExampleCo",
+      "url": "https://jobs.bridglabs.com/vagas/job-2",
+      "sourceUrl": null,
+      "locations": [
+        "Remote - Brazil"
+      ],
+      "salary": null,
+      "publishedAt": "2026-09-27T14:00:00.000Z",
+      "firstSeenAt": "2026-09-28T03:00:00.000Z",
+      "market": "brazil"
+    },
+    {
+      "id": "job-3",
+      "title": "Product Designer",
+      "company": "BigCo",
+      "url": "https://jobs.bridglabs.com/vagas/job-3",
+      "sourceUrl": "http://bigco.example/careers/3",
+      "locations": [
+        "Remote - Brazil"
+      ],
+      "salary": null,
+      "publishedAt": "2026-09-27T14:00:00.000Z",
+      "firstSeenAt": "2026-09-28T03:00:00.000Z",
+      "market": "international"
+    },
+    {
+      "id": "job-4",
+      "title": "Staff Platform Engineer",
+      "company": "Acme",
+      "url": "https://jobs.bridglabs.com/vagas/job-4",
+      "sourceUrl": "https://boards.greenhouse.io/acme/jobs/1004",
+      "locations": [
+        "Remote - Brazil"
+      ],
+      "salary": null,
+      "publishedAt": "2026-09-27T14:00:00.000Z",
+      "firstSeenAt": "2026-09-28T03:00:00.000Z",
+      "market": "international"
+    }
+  ],
+  "nextCursor": "cursor-2"
+}

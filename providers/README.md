@@ -23,6 +23,10 @@ Core providers must be zero-auth against public endpoints; auth-gated or
 login-required sources belong in the plugin layer instead (see
 [ARCHITECTURE.md](../ARCHITECTURE.md) and `CONTRIBUTING.md`).
 
+Fork-local exception: `jobs-search.mjs` reads a paid, OAuth-gated MCP server
+(jobs.bridglabs.com). Its credential store and renewal live in
+`_jobs-search-auth.mjs`; both files are specific to this fork.
+
 ## Loading and routing
 
 There is no index file — discovery is filesystem-convention-based

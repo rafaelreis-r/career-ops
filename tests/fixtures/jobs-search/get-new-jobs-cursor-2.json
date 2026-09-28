@@ -1,0 +1,34 @@
+{
+  "period": "day",
+  "jobs": [
+    {
+      "id": "job-5",
+      "title": "Frontend Engineer",
+      "company": "ExampleCo",
+      "url": "https://jobs.bridglabs.com/vagas/job-5",
+      "sourceUrl": "https://boards.greenhouse.io/exampleco/jobs/1005",
+      "locations": [
+        "Remote - Brazil"
+      ],
+      "salary": null,
+      "publishedAt": "2026-09-27T14:00:00.000Z",
+      "firstSeenAt": "2026-09-28T03:00:00.000Z",
+      "market": "international"
+    },
+    {
+      "id": "job-6",
+      "title": "",
+      "company": "BigCo",
+      "url": "https://jobs.bridglabs.com/vagas/job-6",
+      "sourceUrl": "https://boards.greenhouse.io/bigco/jobs/1006",
+      "locations": [
+        "Remote - Brazil"
+      ],
+      "salary": null,
+      "publishedAt": "2026-09-27T14:00:00.000Z",
+      "firstSeenAt": "2026-09-28T03:00:00.000Z",
+      "market": "international"
+    }
+  ],
+  "nextCursor": "cursor-3"
+}
