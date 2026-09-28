@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "usage": {
+    "httpMinute": 3,
+    "queryMinute": 0,
+    "queryDay": 120,
+    "queryMonth": 400,
+    "limits": {
+      "minute": 10,
+      "day": 120,
+      "month": 3000
+    },
+    "resets": {
+      "minute": "2026-09-28T10:31:00.000Z",
+      "day": "2026-09-29T00:00:00.000Z",
+      "month": "2026-10-01T00:00:00.000Z"
+    }
+  }
+}
