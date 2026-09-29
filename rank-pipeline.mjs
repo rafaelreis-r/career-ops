@@ -284,8 +284,8 @@ const TARGET_WEIGHTING = [
   'Weight candidate fit, compensation potential, and role level against the configured targets; eligibility alone does not make a strong match.',
   'Treat target compensation as the goal and minimum compensation as the walk-away floor. When skills and eligibility fit, a role at or above the configured target level, or with stated pay at or above the target range, can score 4-5 unless stated pay is below the minimum.',
   'A role below the target level with stated pay below the target is at most some overlap (2), even when the skills match.',
-  'Treat Staff and Principal as senior individual-contributor levels comparable to senior management, and Senior Manager, Director, Head, and VP as leadership levels. Do not infer people leadership from Product Manager, Program Manager, or Project Manager alone.',
-  'For a configured senior-management or director target, a specialist or senior individual-contributor role that is below the equivalent level, has no leadership scope, and has no evidence of target-level pay is at most some overlap (2), even when the skills match.',
+  'Senior Manager, Director, Head, and VP are leadership levels. Do not infer people leadership from Staff, Principal, Product Manager, Program Manager, or Project Manager titles alone.',
+  'For a configured senior-management or director target, a specialist or senior individual-contributor role with no leadership scope and no evidence of target-level pay is at most some overlap (2), even when the skills match.',
   'Missing salary is unknown, not low. Do not lower a score solely because salary is absent. Estimate pay potential only from evidence such as role level, scope, employer market, and pay currency. A role below the target level in the candidate home market needs evidence of target-level pay to score strongly; a remote role paid from a higher-paying market may meet the target at a lower title.',
 ].join('\n');
 
