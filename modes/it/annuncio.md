@@ -154,7 +154,7 @@ Registrare **SEMPRE** la valutazione in `data/applications.md`:
 - Data odierna
 - Azienda
 - Ruolo
-- Punteggio: media del match (da 1 a 5)
+- Punteggio: copia invariata del punteggio globale finale del report (da 1 a 5)
 - Stato: `Evaluated`
 - PDF: no (o sì se l'auto-pipeline ha generato il PDF direttamente)
 - Report: link relativo al file del report (es: `[001](reports/001-azienda-2026-01-01.md)`)

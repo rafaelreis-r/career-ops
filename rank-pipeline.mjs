@@ -46,7 +46,7 @@ const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = getCareerOpsRoot();
 const PIPELINE_PATH = join(DATA_ROOT, 'data', 'pipeline.md');
 const CV_PATH = join(DATA_ROOT, 'cv.md');
-const PROFILE_PATH = process.env.CAREER_OPS_PROFILE || join(DATA_ROOT, 'config', 'profile.yml');
+const PROFILE_PATH = join(DATA_ROOT, 'config', 'profile.yml');
 
 const DEFAULT_LIMIT = 20;
 // A ceiling the flag cannot raise. The whole reason the core scan is zero-token is
@@ -250,7 +250,7 @@ export function parseBatchResponse(text) {
  * one `label: value` line each, for the scorer to weigh postings against.
  * Ranking requires both a level and compensation target.
  *
- * @param {string} [path] - Defaults to config/profile.yml, honoring CAREER_OPS_PROFILE.
+ * @param {string} [path] - Defaults to config/profile.yml in the Data Root.
  * @returns {string}
  */
 export function loadRankTargets(path = PROFILE_PATH) {

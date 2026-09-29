@@ -154,7 +154,7 @@ Zapisz pełną ocenę w `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 - Dzisiejsza data
 - Firma
 - Rola
-- Score: średnia dopasowania (1-5)
+- Score: skopiuj końcową ocenę globalną z raportu (1-5), bez ponownego obliczania
 - Status: `Evaluated`
 - PDF: nie (lub tak, jeśli auto-pipeline wygenerował PDF)
 - Report: względny link do pliku reportu (np. `[001](reports/001-company-2026-01-01.md)`)

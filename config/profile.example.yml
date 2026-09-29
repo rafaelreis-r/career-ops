@@ -34,7 +34,7 @@ candidate:
 
 target_roles:
   # Your North Star roles — what you're optimizing for
-  # Required together with compensation.target_range before `rank-pipeline.mjs` can score.
+  # Required together with compensation.target_range before ranking or full evaluation.
   # target_level: "Senior or Staff"
   primary:
     - "Senior AI Engineer"

@@ -4,7 +4,7 @@
 
 ### Features
 
-* **scoring:** require level and compensation targets for pipeline ranking, and weigh both targets in full evaluations.
+* **scoring:** require level and compensation targets for ranking and full evaluations; persist the final global score in the tracker.
 
 ## [1.33.0](https://github.com/career-ops-hq/career-ops/compare/career-ops-v1.32.0...career-ops-v1.33.0) (2026-09-16)
 

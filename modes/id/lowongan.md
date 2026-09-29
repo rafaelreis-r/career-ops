@@ -154,7 +154,7 @@ Simpan evaluasi lengkap ke `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 - Tanggal hari ini
 - Perusahaan
 - Role
-- Score: rata-rata match (1-5)
+- Score: salin skor global akhir dari laporan (1-5) tanpa menghitung ulang
 - Status: `Evaluated`
 - PDF: tidak (atau ya jika auto-pipeline menghasilkan PDF)
 - Report: tautan relatif ke file report (mis.: `[001](reports/001-company-2026-01-01.md)`)

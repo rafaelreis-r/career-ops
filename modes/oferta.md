@@ -726,7 +726,7 @@ Not every JD source is a scannable ATS API or even a URL — some only ever exis
 - Company — the END employer. If the JD is agency-mediated ("our client", agency domain, no employer named), ASK the user which agency it came through, use `?` as Company, and put a distinguishing descriptor in Notes (e.g. `fintech, Leeds`). Never write "Confidential" — the `?` marker is locale-invariant and can't collide with a real firm.
 - Via (when the tracker has the column) — the agency/recruiter firm, `—` for direct. In the tracker-addition TSV, append it as a tagged extra field: `via={Agency}` (see the TSV format spec).
 - Role
-- Score: match average (1-5) — Read `modes/_custom.md` → Scoring Rules, if it exists, and apply its override here. Default (if absent or silent): average of block scores.
+- Score: copy the report's final global score (1-5) exactly; never recalculate a block average for the tracker. Read `modes/_custom.md` → Scoring Rules, if it exists, and apply its override when calculating the report score.
 - Status: `Evaluated`
 - PDF: ❌ (or ✅ if auto-pipeline generated PDF)
 - Report: root-relative link `[001](reports/001-company-2026-01-01.md)` (when merged via `merge-tracker.mjs` it is normalized to be relative to the tracker's own dir, e.g. `../reports/...`; see #760)

@@ -155,7 +155,7 @@ Sla de volledige evaluatie op in `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 - Bedrijf
 - Rol
 - Status: `Evaluated`
-- Gemiddelde score (1-5): uitsluitend een numerieke TSV-waarde met een punt als decimaalteken, bijvoorbeeld `4.2/5`; kopieer geen beschrijvende tekst naar dit veld
+- Globale rapportscore (1-5): kopieer de definitieve score ongewijzigd als numerieke TSV-waarde met een punt als decimaalteken, bijvoorbeeld `4.2/5`; kopieer geen beschrijvende tekst naar dit veld
 - PDF: nee (of ja als de auto-pipeline een PDF heeft gegenereerd)
 - Rapport: relatieve link naar het rapportbestand (bijvoorbeeld: `[001](reports/001-company-2026-01-01.md)`)
 - Notities: optioneel

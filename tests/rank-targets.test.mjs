@@ -59,6 +59,8 @@ try {
 
   const root = join(tempDir, 'career');
   mkdirSync(join(root, 'data'), { recursive: true });
+  mkdirSync(join(root, 'config'));
+  const canonicalProfilePath = join(root, 'config', 'profile.yml');
   const pipelinePath = join(root, 'data', 'pipeline.md');
   const row = '- [ ] https://jobs.example/1 | Acme | Director of Engineering';
   writeFileSync(pipelinePath, `## Pending\n${row}\n`);
@@ -71,17 +73,20 @@ try {
     'process.stdout.write(JSON.stringify([{id:0, score:4, reason:"target match"}]));',
   ].join('\n'));
   chmodSync(scorerPath, 0o755);
-  const run = (path) => spawnSync(process.execPath,
-    [join(ROOT, 'rank-pipeline.mjs'), '--cli', scorerPath],
-    { encoding: 'utf8', env: { ...process.env, CAREER_OPS_ROOT: root,
-      CAREER_OPS_PROFILE: path, TYPESAFE_API_KEY: '', RECEIVED_PROMPT: receivedPath } });
+  const run = (path) => {
+    if (existsSync(path)) writeFileSync(canonicalProfilePath, readFileSync(path, 'utf8'));
+    else rmSync(canonicalProfilePath, { force: true });
+    const env = { ...process.env, CAREER_OPS_ROOT: root, CAREER_OPS_PROFILE: join(tempDir, 'missing.yml'), TYPESAFE_API_KEY: '', RECEIVED_PROMPT: receivedPath };
+    return spawnSync(process.execPath, [join(ROOT, 'rank-pipeline.mjs'), '--cli', scorerPath],
+      { encoding: 'utf8', env });
+  };
   for (const path of [join(tempDir, 'missing.yml'), compensationOnlyPath, join(tempDir, 'level-only.yml')]) {
     const bad = run(path);
     check(`ranking rejects incomplete targets in ${path.split('/').pop()} before invoking the scorer`,
       bad.status !== 0 && !existsSync(receivedPath) && !readFileSync(pipelinePath, 'utf8').includes('rank:'));
   }
   const good = run(profilePath);
-  check('CLI ranking passes targets and persists the returned score',
+  check('CLI ranking uses the canonical profile and persists the returned score',
     good.status === 0 && readFileSync(receivedPath, 'utf8').includes('target level: Senior Manager or Director')
       && readFileSync(pipelinePath, 'utf8').includes('rank: cal-v2 4.0/5 — target match'));
 } catch (error) {

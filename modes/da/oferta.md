@@ -154,7 +154,7 @@ Gem den fulde evaluering i `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 - Dagens dato
 - Virksomhed
 - Rolle
-- Score: gennemsnit af matchet (1-5)
+- Score: kopiér rapportens endelige globale score (1-5) uændret
 - Status: `Evaluated`
 - PDF: nej (eller ja, hvis auto-pipeline har genereret en PDF)
 - Report: relativt link til report-filen (fx `[001](reports/001-company-2026-01-01.md)`)
