@@ -1,7 +1,7 @@
 import { pass, fail, ROOT } from './helpers.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { spawnSync } from 'child_process';
 
@@ -67,17 +67,19 @@ try {
   const scorerPath = join(tempDir, 'scorer.cjs');
   const receivedPath = join(tempDir, 'received.txt');
   writeFileSync(scorerPath, [
-    '#!/usr/bin/env node',
-    'const fs = require("fs");',
-    'fs.writeFileSync(process.env.RECEIVED_PROMPT, process.argv[3]);',
-    'process.stdout.write(JSON.stringify([{id:0, score:4, reason:"target match"}]));',
+    'const promptFlag = process.execArgv.indexOf("-p");',
+    'if (promptFlag !== -1) {',
+    '  require("fs").writeFileSync(process.env.RECEIVED_PROMPT, process.execArgv[promptFlag + 1]);',
+    '  process.stdout.write(JSON.stringify([{id:0, score:4, reason:"target match"}]));',
+    '  process.exit(0);',
+    '}',
   ].join('\n'));
-  chmodSync(scorerPath, 0o755);
   const run = (path) => {
     if (existsSync(path)) writeFileSync(canonicalProfilePath, readFileSync(path, 'utf8'));
     else rmSync(canonicalProfilePath, { force: true });
-    const env = { ...process.env, CAREER_OPS_ROOT: root, CAREER_OPS_PROFILE: join(tempDir, 'missing.yml'), TYPESAFE_API_KEY: '', RECEIVED_PROMPT: receivedPath };
-    return spawnSync(process.execPath, [join(ROOT, 'rank-pipeline.mjs'), '--cli', scorerPath],
+    const env = { ...process.env, CAREER_OPS_ROOT: root, TYPESAFE_API_KEY: '', RECEIVED_PROMPT: receivedPath,
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require="${scorerPath}"`].filter(Boolean).join(' ') };
+    return spawnSync(process.execPath, [join(ROOT, 'rank-pipeline.mjs'), '--cli', process.execPath],
       { encoding: 'utf8', env });
   };
   for (const path of [join(tempDir, 'missing.yml'), compensationOnlyPath, join(tempDir, 'level-only.yml')]) {
