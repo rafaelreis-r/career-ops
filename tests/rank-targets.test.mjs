@@ -66,12 +66,13 @@ try {
   writeFileSync(pipelinePath, `## Pending\n${row}\n`);
   const scorerPath = join(tempDir, 'scorer.cjs');
   const receivedPath = join(tempDir, 'received.txt');
+  // The preload stops the child before Node's -p evaluates the prompt as JavaScript.
   writeFileSync(scorerPath, [
     'const promptFlag = process.execArgv.indexOf("-p");',
     'if (promptFlag !== -1) {',
     '  require("fs").writeFileSync(process.env.RECEIVED_PROMPT, process.execArgv[promptFlag + 1]);',
     '  process.stdout.write(JSON.stringify([{id:0, score:4, reason:"target match"}]));',
-    '  process.exit(0);',
+    '  process["exit"](0);',
     '}',
   ].join('\n'));
   const run = (path) => {
