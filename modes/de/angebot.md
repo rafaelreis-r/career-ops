@@ -2,6 +2,8 @@
 
 Wenn der Kandidat eine Stellenanzeige einfügt (Text oder URL), IMMER alle 6 Blöcke liefern.
 
+**Candidate target weighting:** Read `target_roles.target_level`, `compensation.target_range`, `compensation.minimum`, and `location.country` from `config/profile.yml`. Before Block A of any full evaluation, require non-empty `target_roles.target_level` and `compensation.target_range` in `config/profile.yml`. If either is missing, stop without scoring or writing a report, tracker row, or application artifact; ask the candidate to set both. Give level and compensation decisive weight in the final 1-5 score. A strong CV match cannot justify 4.0+ for a below-target role without credible target-level pay potential; a below-target role in the candidate's home market without such evidence scores below 3.5. Verified target-level pay can offset a lower title. Do not infer people leadership from Staff or Principal titles alone. Compare stated pay in the same currency and period; pay below the minimum rules out a strong recommendation. Missing salary is unknown, not low: assess potential from evidenced scope, employer market, and pay currency without inventing a figure. A remote role paid from a higher-paying market may meet the compensation target at a lower title. Explain the reasoning in the report. Copy the final global score unchanged to the tracker and machine summary.
+
 ## Schritt 0 — Archetyp-Erkennung
 
 Die Stellenanzeige einem der 6 Archetypen zuordnen (siehe `_shared.md`). Bei Hybriden die zwei nächstliegenden angeben. Daraus folgt:
@@ -153,7 +155,7 @@ Die vollständige Bewertung in `reports/{###}-{company-slug}-{YYYY-MM-DD}.md` ab
 - Aktuelles Datum
 - Firma
 - Rolle
-- Score: globale 1-5-Bewertung mit der Zielstufen- und Vergütungsgewichtung aus `_shared.md`
+- Score: endgültigen globalen 1-5-Wert aus dem Bericht unverändert übernehmen
 - Status: `Evaluated`
 - PDF: ❌ (oder ✅, wenn Auto-Pipeline ein PDF erzeugt hat)
 - Report: relativer Link zur Report-Datei (z. B. `[001](reports/001-company-2026-01-01.md)`)

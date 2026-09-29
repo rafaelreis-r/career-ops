@@ -2,6 +2,8 @@
 
 Quand le candidat colle une offre (texte ou URL), TOUJOURS livrer les 6 blocs.
 
+**Candidate target weighting:** Read `target_roles.target_level`, `compensation.target_range`, `compensation.minimum`, and `location.country` from `config/profile.yml`. Before Block A of any full evaluation, require non-empty `target_roles.target_level` and `compensation.target_range` in `config/profile.yml`. If either is missing, stop without scoring or writing a report, tracker row, or application artifact; ask the candidate to set both. Give level and compensation decisive weight in the final 1-5 score. A strong CV match cannot justify 4.0+ for a below-target role without credible target-level pay potential; a below-target role in the candidate's home market without such evidence scores below 3.5. Verified target-level pay can offset a lower title. Do not infer people leadership from Staff or Principal titles alone. Compare stated pay in the same currency and period; pay below the minimum rules out a strong recommendation. Missing salary is unknown, not low: assess potential from evidenced scope, employer market, and pay currency without inventing a figure. A remote role paid from a higher-paying market may meet the compensation target at a lower title. Explain the reasoning in the report. Copy the final global score unchanged to the tracker and machine summary.
+
 ## Etape 0 -- Detection d'archetype
 
 Classer l'offre dans l'un des 6 archetypes (voir `_shared.md`). Si hybride, indiquer les 2 plus proches. Cela determine :
@@ -154,7 +156,7 @@ Sauvegarder l'evaluation complete dans `reports/{###}-{company-slug}-{YYYY-MM-DD
 - Date du jour
 - Entreprise
 - Role
-- Score : note globale 1-5 tenant compte du niveau de poste et de la rémunération ciblés selon `_shared.md`
+- Score : recopier sans recalcul la note globale finale du rapport (1-5)
 - Statut : `Evaluated`
 - PDF : non (ou oui si l'auto-pipeline a genere un PDF)
 - Report : lien relatif vers le fichier report (ex : `[001](reports/001-company-2026-01-01.md)`)

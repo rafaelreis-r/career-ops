@@ -2,6 +2,8 @@
 
 候補者が求人（テキストまたは URL）を貼り付けたら、必ず 7 ブロック（A-F の評価 + G の legitimacy）を出力する：
 
+**Candidate target weighting:** Read `target_roles.target_level`, `compensation.target_range`, `compensation.minimum`, and `location.country` from `config/profile.yml`. Before Block A of any full evaluation, require non-empty `target_roles.target_level` and `compensation.target_range` in `config/profile.yml`. If either is missing, stop without scoring or writing a report, tracker row, or application artifact; ask the candidate to set both. Give level and compensation decisive weight in the final 1-5 score. A strong CV match cannot justify 4.0+ for a below-target role without credible target-level pay potential; a below-target role in the candidate's home market without such evidence scores below 3.5. Verified target-level pay can offset a lower title. Do not infer people leadership from Staff or Principal titles alone. Compare stated pay in the same currency and period; pay below the minimum rules out a strong recommendation. Missing salary is unknown, not low: assess potential from evidenced scope, employer market, and pay currency without inventing a figure. A remote role paid from a higher-paying market may meet the compensation target at a lower title. Explain the reasoning in the report. Copy the final global score unchanged to the tracker and machine summary.
+
 ## Liveness gate (URL inputs)
 
 候補者が **URL**（JD テキストではなく）を貼り付けた場合、評価を始める前に求人がまだ live であることを確認する。Dead link は Block A に進めない。404 / expired page に対して A-G 評価、report、PDF を作るのは無駄。
@@ -320,7 +322,7 @@ Full evaluation を `reports/{###}-{company-slug}-{YYYY-MM-DD}.md` に保存す�
 - Current date
 - Company
 - Role
-- Score: `_shared.md` の目標職位・報酬の重みを反映した総合スコア (1-5)
+- Score: レポートの最終総合スコア (1-5) を再計算せずに転記する
 - Status: `Evaluated`
 - PDF: ❌（または auto-pipeline が PDF を生成した場合は ✅）
 - Report: root-relative link `[001](reports/001-company-2026-01-01.md)`（`merge-tracker.mjs` 経由で merge されると tracker file からの相対 link に normalize される。例：`../reports/...`。#760 参照）
