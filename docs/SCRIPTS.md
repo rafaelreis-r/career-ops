@@ -1092,10 +1092,11 @@ describe current cal-v2 scores.
 | 1.6 | 2 | 2.15 | 0 | 0 |
 | 0.8 | 7 | 1.87 | 0 | 0 |
 
-At the default 2.5 cutoff the gate forwards the 5.0, 3.2 and 2.8 bands: 54 of
-the 84 pairs, forwarding 9 of the 12 that cleared 3.3 and the single pair that
-cleared 3.5. Only the 5.0 band reached 3.5 in the sample; a cutoff above
-2.8 would additionally hold seven postings that cleared 3.3.
+In the historical cal-v1 replay, a 2.5 cutoff would have forwarded the 5.0,
+3.2, and 2.8 bands: 54 of the 84 pairs, including 9 of the 12 that cleared
+3.3 and the single pair that cleared 3.5. Only the 5.0 band reached 3.5 in
+that sample; a cal-v1 cutoff above 2.8 would also have held seven postings
+that cleared 3.3. These counts do not predict the current cal-v2 gate.
 
 ---
 

@@ -34,8 +34,9 @@ candidate:
 
 target_roles:
   # Your North Star roles — what you're optimizing for
-  # Required together with compensation.target_range before ranking or full evaluation.
-  # target_level: "Senior or Staff"
+  # Set your target seniority before ranking or full evaluation.
+  # Required together with compensation.target_range; leave blank until personalized.
+  target_level: ""
   primary:
     - "Senior AI Engineer"
     - "Staff ML Engineer"
