@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* **scoring:** require level and compensation targets for ranking and full evaluations; persist the final global score in the tracker.
+
 ## [1.36.0](https://github.com/career-ops-hq/career-ops/compare/career-ops-v1.35.0...career-ops-v1.36.0) (2026-10-10)
 
 

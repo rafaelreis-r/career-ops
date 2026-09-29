@@ -2,6 +2,8 @@
 
 जब candidate कोई offer paste करे (text या URL), हमेशा सभी 6 blocks deliver करें।
 
+**Candidate target weighting:** Read `target_roles.target_level`, `compensation.target_range`, `compensation.minimum`, and `location.country` from `config/profile.yml`. Before Block A of any full evaluation, require non-empty `target_roles.target_level` and `compensation.target_range` in `config/profile.yml`. If either is missing, stop without scoring or writing a report, tracker row, or application artifact; ask the candidate to set both. Give level and compensation decisive weight in the final 1-5 score. A strong CV match cannot justify 4.0+ for a below-target role without credible target-level pay potential; a below-target role in the candidate's home market without such evidence scores below 3.5. Verified target-level pay can offset a lower title. Do not infer people leadership from Staff or Principal titles alone. Compare stated pay in the same currency and period; pay below the minimum rules out a strong recommendation. Missing salary is unknown, not low: assess potential from evidenced scope, employer market, and pay currency without inventing a figure. A remote role paid from a higher-paying market may meet the compensation target at a lower title. Explain the reasoning in the report. Copy the final global score unchanged to the tracker and machine summary.
+
 ## Step 0 -- Archetype Detection
 
 Offer को 6 archetypes में से एक में classify करें (देखें `_shared.md`)। यदि hybrid हो, तो 2 सबसे करीबी indicate करें। यह निर्धारित करता है:
@@ -158,7 +160,7 @@ Offer की requirements पर mapped 6-10 STAR+R stories (STAR + **Reflection
 - आज की date
 - Company
 - Role
-- Score: match का average (1-5)
+- Score: रिपोर्ट का अंतिम वैश्विक स्कोर (1-5) बिना दोबारा गणना किए कॉपी करें
 - Status: `Evaluated`
 - PDF: नहीं (या हाँ यदि auto-pipeline ने PDF generate किया)
 - Report: report file का relative link (जैसे: `[001](reports/001-company-2026-01-01.md)`)
