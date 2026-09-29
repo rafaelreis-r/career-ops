@@ -154,7 +154,7 @@ Salvar avaliação completa em `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 - Data atual
 - Empresa
 - Vaga
-- Score: média do match (1-5)
+- Score: nota global de 1 a 5 com o peso de nível e remuneração definido em `_shared.md`
 - Status: `Evaluated`
 - PDF: ❌ (ou ✅ se a auto-pipeline gerou PDF)
 - Report: link relativo ao report .md (ex: `[001](reports/001-company-2026-01-01.md)`)

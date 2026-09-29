@@ -51,6 +51,8 @@
 | Red flags (الإشارات الحمراء التحذيرية) | العوائق والمحاذير (تؤدي إلى تعديلات سلبية للدرجة) |
 | **Global (التقييم الإجمالي)** | المتوسط الموزون للأبعاد المذكورة أعلاه |
 
+**Candidate target weighting:** Read `target_roles.target_level`, `compensation.target_range`, `compensation.minimum`, and `location.country` from `config/profile.yml`. Give level and compensation decisive weight in the final 1-5 score when both targets are configured. A strong CV match cannot justify 4.0+ for a below-target role without credible target-level pay potential; a below-target role in the candidate's home market without such evidence scores below 3.5. Verified target-level pay can offset a lower title, and Staff or Principal scope can match senior management. Compare stated pay in the same currency and period; pay below the minimum rules out a strong recommendation. Missing salary is unknown, not low: assess potential from evidenced scope, employer market, and pay currency without inventing a figure. Explain the reasoning in the report.
+
 **تفسير الدرجات:**
 - **4.5+** ← توافق ممتاز وقوي جداً، ينصح بالتقديم فوراً.
 - **4.0 - 4.4** ← توافق جيد جداً، تستحق عناء التقديم.

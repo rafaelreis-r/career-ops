@@ -158,7 +158,7 @@ Offer की requirements पर mapped 6-10 STAR+R stories (STAR + **Reflection
 - आज की date
 - Company
 - Role
-- Score: match का average (1-5)
+- Score: `_shared.md` के लक्षित स्तर और वेतन भार के अनुसार वैश्विक स्कोर (1-5)
 - Status: `Evaluated`
 - PDF: नहीं (या हाँ यदि auto-pipeline ने PDF generate किया)
 - Report: report file का relative link (जैसे: `[001](reports/001-company-2026-01-01.md)`)

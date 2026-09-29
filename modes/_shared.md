@@ -79,11 +79,13 @@ The evaluation scores five dimensions, integrated into one global score of 1-5. 
 | Dimension | What it measures |
 |-----------|-----------------|
 | Match con CV | Skills, experience, proof points alignment |
-| North Star alignment | How well the role fits the user's target archetypes (from _profile.md) |
-| Comp | Salary vs market (5=top quartile, 1=well below) |
+| North Star alignment | How well the role fits the user's target archetypes (from _profile.md) and `target_roles.target_level` (from profile.yml) |
+| Comp | Compensation against `compensation.target_range` and `compensation.minimum` (from profile.yml), using reliable market evidence when salary is unstated |
 | Cultural signals | Company culture, growth, stability, remote policy |
 | Red flags | Blockers, warnings (negative adjustments) |
 | **Global** | Holistic judgment integrating the five dimensions above (no arithmetic formula) |
+
+When the profile sets a target level and compensation range, give those two dimensions decisive weight in the global score. A strong CV match alone must not turn a role below the target level and without credible target-level compensation potential into a 4.0+ recommendation. For a below-target role in the candidate's home market with no evidence of target-level pay, keep the global score below 3.5; a verified target-level package can offset a lower title. Treat Staff and Principal scope as potentially comparable to senior management; do not infer people leadership from a Product, Program, or Project Manager title alone. Compare stated pay with the target and minimum using the same currency and period; pay below the minimum rules out a strong recommendation. Missing salary is unknown, not low: judge potential from evidenced level, scope, employer market, and pay currency without inventing a figure. A remote role paid from a higher-paying market may meet the compensation target at a lower title. Explain the level and pay reasoning in the report.
 
 **Score interpretation:**
 - 4.5+ → Strong match, recommend applying immediately

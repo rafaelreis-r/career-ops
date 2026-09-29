@@ -320,7 +320,7 @@ Full evaluation を `reports/{###}-{company-slug}-{YYYY-MM-DD}.md` に保存す�
 - Current date
 - Company
 - Role
-- Score: match average (1-5)
+- Score: `_shared.md` の目標職位・報酬の重みを反映した総合スコア (1-5)
 - Status: `Evaluated`
 - PDF: ❌（または auto-pipeline が PDF を生成した場合は ✅）
 - Report: root-relative link `[001](reports/001-company-2026-01-01.md)`（`merge-tracker.mjs` 経由で merge されると tracker file からの相対 link に normalize される。例：`../reports/...`。#760 参照）
