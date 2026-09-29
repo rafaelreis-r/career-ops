@@ -12,7 +12,7 @@ Key sections:
 - **location**: Country, timezone, visa status, on-site availability, and structured work authorization (`authorized_in`, `needs_sponsorship`) that drives the Work-Auth signal in job evaluation (flags an explicit no-sponsorship JD as a hard blocker)
 - **culture_screen**: Structural criteria for team culture (the `deprioritize_if_absent` strict flag caps the culture score at 2/5 if evidence is entirely missing)
 
-Set optional `target_roles.target_level` in `config/profile.yml` when the pipeline ranker should compare role seniority with a target such as `Senior or Staff`. The ranker also reads `compensation.target_range` and `compensation.minimum`.
+Set `target_roles.target_level` and `compensation.target_range` in `config/profile.yml` before running the pipeline ranker. A target level such as `Senior or Staff` sets the seniority comparison. The ranker also reads `compensation.minimum` when present.
 
 ## Target Roles (modes/_profile.md)
 

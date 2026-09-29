@@ -234,6 +234,9 @@ try {
     const rankerRoot = mkdtempSync(join(tmpdir(), 'career-ops-ranker-integration-'));
     try {
       mkdirSync(join(rankerRoot, 'data'));
+      mkdirSync(join(rankerRoot, 'config'));
+      writeFileSync(join(rankerRoot, 'config', 'profile.yml'),
+        'target_roles:\n  target_level: Director\ncompensation:\n  target_range: USD 8K/month\n');
       const pipelinePath = join(rankerRoot, 'data', 'pipeline.md');
       writeFileSync(pipelinePath, [
         '## Pending',

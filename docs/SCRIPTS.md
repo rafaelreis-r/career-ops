@@ -999,9 +999,10 @@ whichever installed agent CLI is selected from the Headless / Batch Mode table
 in `AGENTS.md`: `claude`, `opencode`, `codex`, `copilot`, `qwen`, `agy`, or `grok`.
 Each scorer receives the first 2,000 characters of `cv.md`, the URL, company,
 title, and public location and compensation fields when present. It also
-receives the home country, optional `target_roles.target_level`,
+receives the home country, `target_roles.target_level`,
 `compensation.target_range`, `compensation.minimum`, and currency from
-`config/profile.yml`. The target range is the goal.
+`config/profile.yml`. Ranking stops before scoring if the level or target range
+is missing. The target range is the goal.
 The minimum is the walk-away floor. Missing posting fields remain unknown.
 The ranker never treats an absent salary as low. Review the selected provider's
 data-retention settings before sending sensitive CV content.

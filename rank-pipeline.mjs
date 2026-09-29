@@ -248,21 +248,24 @@ export function parseBatchResponse(text) {
 /**
  * The candidate's own compensation and level targets from config/profile.yml,
  * one `label: value` line each, for the scorer to weigh postings against.
- * A missing or unreadable profile, or one without these keys, yields '' and
- * the scorer judges eligibility and fit only, as before targets existed.
+ * Ranking requires both a level and compensation target.
  *
  * @param {string} [path] - Defaults to config/profile.yml, honoring CAREER_OPS_PROFILE.
  * @returns {string}
  */
 export function loadRankTargets(path = PROFILE_PATH) {
-  if (!existsSync(path)) return '';
+  if (!existsSync(path)) throw new Error(`Ranking requires ${path} with target_roles.target_level and compensation.target_range`);
   let profile;
   try {
     profile = yaml.load(readFileSync(path, 'utf-8')) || {};
-  } catch {
-    return '';
+  } catch (error) {
+    throw new Error(`Cannot read ranking targets from ${path}: ${error.message}`);
   }
-  const compensation = profile.compensation || {};
+  const compensation = profile?.compensation || {};
+  if (typeof profile?.target_roles?.target_level !== 'string' || !profile.target_roles.target_level.trim()
+    || typeof compensation.target_range !== 'string' || !compensation.target_range.trim()) {
+    throw new Error(`Ranking requires target_roles.target_level and compensation.target_range in ${path}`);
+  }
   return [
     ['home country', profile.location?.country],
     ['target level', profile.target_roles?.target_level],
