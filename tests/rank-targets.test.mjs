@@ -79,9 +79,9 @@ try {
     if (existsSync(path)) writeFileSync(canonicalProfilePath, readFileSync(path, 'utf8'));
     else rmSync(canonicalProfilePath, { force: true });
     const env = { ...process.env, CAREER_OPS_ROOT: root, TYPESAFE_API_KEY: '', RECEIVED_PROMPT: receivedPath,
-      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require="${scorerPath}"`].filter(Boolean).join(' ') };
+      NODE_OPTIONS: '--require=./scorer.cjs' };
     return spawnSync(process.execPath, [join(ROOT, 'rank-pipeline.mjs'), '--cli', process.execPath],
-      { encoding: 'utf8', env });
+      { encoding: 'utf8', cwd: tempDir, env });
   };
   for (const path of [join(tempDir, 'missing.yml'), compensationOnlyPath, join(tempDir, 'level-only.yml')]) {
     const bad = run(path);
