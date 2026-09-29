@@ -17,7 +17,7 @@ import { execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'fs';
 
-console.log('\neval-queue — cal-v1 forwarding gate');
+console.log('\neval-queue — cal-v2 forwarding gate');
 
 const check = (label, cond) => (cond ? pass(label) : fail(label));
 
@@ -29,16 +29,16 @@ try {
 
   const pipeline = [
     '## Pending',
-    '- [ ] https://x.test/high | Acme | SRE | rank: cal-v1 3.2/5 — strong',
-    '- [ ] https://x.test/edge | Beta | SRE | rank: cal-v1 2.5/5 — at the cutoff',
-    '- [ ] https://x.test/low | Gamma | SRE | rank: cal-v1 2.1/5 — weak',
+    '- [ ] https://x.test/high | Acme | SRE | rank: cal-v2 3.2/5 — strong',
+    '- [ ] https://x.test/edge | Beta | SRE | rank: cal-v2 2.5/5 — at the cutoff',
+    '- [ ] https://x.test/low | Gamma | SRE | rank: cal-v2 2.1/5 — weak',
     '- [ ] https://x.test/unranked | Delta | SRE',
-    '- [ ] https://x.test/legacy | Eps | SRE | rank: 4.8/5 — pre-calibration',
-    '- [ ] https://www.linkedin.com/comm/jobs/view/4460239794/?trackingId=a%3D&trk=eml-x | Zeta | SRE | rank: cal-v1 5.0/5 — top',
-    '- [ ] https://x.test/high?utm_source=digest | Acme | SRE | rank: cal-v1 3.2/5 — same posting again',
-    '- [ ] https://x.test/queued | Eta | SRE | rank: cal-v1 4.0/5 — queued earlier',
-    '- [ ] https://x.test/tracked | Theta | SRE | rank: cal-v1 4.0/5 — tracked',
-    '- [ ] local:jds/iota-sre.md | Iota | SRE | rank: cal-v1 2.8/5 — archived JD',
+    '- [ ] https://x.test/legacy | Eps | SRE | rank: cal-v1 4.8/5 — previous version',
+    '- [ ] https://www.linkedin.com/comm/jobs/view/4460239794/?trackingId=a%3D&trk=eml-x | Zeta | SRE | rank: cal-v2 5.0/5 — top',
+    '- [ ] https://x.test/high?utm_source=digest | Acme | SRE | rank: cal-v2 3.2/5 — same posting again',
+    '- [ ] https://x.test/queued | Eta | SRE | rank: cal-v2 4.0/5 — queued earlier',
+    '- [ ] https://x.test/tracked | Theta | SRE | rank: cal-v2 4.0/5 — tracked',
+    '- [ ] local:jds/iota-sre.md | Iota | SRE | rank: cal-v2 2.8/5 — archived JD',
     '- [x] #12 | https://x.test/done | Kappa | SRE | 3.9/5 | PDF ✅',
     '',
     '## Processed',
@@ -63,11 +63,11 @@ try {
   check('a rank at or above the cutoff is forwarded',
     forwardedUrlSet.has('https://x.test/high') && forwardedUrlSet.has('https://x.test/edge'));
   check('a rank below the cutoff is held with its score',
-    reasonFor('https://x.test/low') === 'cal-v1 2.1 below cutoff 2.5');
+    reasonFor('https://x.test/low') === 'cal-v2 2.1 below cutoff 2.5');
   check('an unranked row waits for the daily rank run',
-    /no cal-v1 rank yet/.test(reasonFor('https://x.test/unranked')));
-  check('a pre-calibration rank counts as unranked',
-    /no cal-v1 rank yet/.test(reasonFor('https://x.test/legacy')));
+    /no cal-v2 rank yet/.test(reasonFor('https://x.test/unranked')));
+  check('a previous-version rank counts as unranked',
+    /no cal-v2 rank yet/.test(reasonFor('https://x.test/legacy')));
   check('a LinkedIn tracking URL matches the report of the same job id',
     reasonFor('https://www.linkedin.com/comm/jobs/view/4460239794/?trackingId=a%3D&trk=eml-x')
       === 'already evaluated (reports/3025-zeta-2026-09-23.md)');
@@ -81,7 +81,7 @@ try {
     forwardedUrls.join(' ') === 'https://x.test/high local:jds/iota-sre.md https://x.test/edge');
   const duplicateRows = parsePendingRows([
     '- [ ] https://www.linkedin.com/comm/jobs/view/4460239795/?trk=old | Acme | SRE',
-    '- [ ] https://www.linkedin.com/jobs/view/4460239795 | Acme | SRE | rank: cal-v1 3.2/5',
+    '- [ ] https://www.linkedin.com/jobs/view/4460239795 | Acme | SRE | rank: cal-v2 3.2/5',
   ].join('\n'));
   const duplicatePlan = planQueue({ rows: duplicateRows, threshold: 2.5, evaluated: new Map(), queued: new Map() });
   check('the highest-ranked duplicate represents a posting',
@@ -94,9 +94,9 @@ try {
   });
   const forcedReason = url => [...forced.forwarded, ...forced.held].find(r => r.url === url)?.reason ?? '';
   check('--force forwards a row below the cutoff and says so',
-    forcedReason('https://x.test/low') === 'forced: cal-v1 2.1 below cutoff 2.5');
+    forcedReason('https://x.test/low') === 'forced: cal-v2 2.1 below cutoff 2.5');
   check('--force holds an unranked row with a reason',
-    forcedReason('https://x.test/unranked') === 'no cal-v1 rank yet, waits for the daily rank run; --force requires a cal-v1 rank');
+    forcedReason('https://x.test/unranked') === 'no cal-v2 rank yet, waits for the daily rank run; --force requires a cal-v2 rank');
   check('--force does not re-queue an evaluated posting',
     /^already evaluated/.test(forcedReason('https://x.test/tracked')));
   check('--force naming no pending row is reported',
@@ -147,12 +147,12 @@ try {
 
     const dry = run('--dry-run');
     check('the configured cutoff reaches the plan',
-      dry.includes('Forwarding cutoff: cal-v1 >= 3.0')
+      dry.includes('Forwarding cutoff: cal-v2 >= 3.0')
         && dry.includes('Forwarded to the long evaluation (3):'));
     check('--dry-run leaves the queue file untouched', !existsSync(batchInput));
     const forcedUnranked = run('--dry-run', '--force', 'https://x.test/unranked');
     check('the CLI holds a forced unranked row and explains why',
-      forcedUnranked.includes('https://x.test/unranked | Delta | SRE\n      no cal-v1 rank yet, waits for the daily rank run; --force requires a cal-v1 rank')
+      forcedUnranked.includes('https://x.test/unranked | Delta | SRE\n      no cal-v2 rank yet, waits for the daily rank run; --force requires a cal-v2 rank')
         && !existsSync(batchInput));
 
     const out = run('--force', 'https://x.test/low');
@@ -171,7 +171,7 @@ try {
       again.includes('Forwarded to the long evaluation (0)') && (again.match(/already queued/g) ?? []).length === 4);
 
     writeFileSync(pipelinePath, pipeline.replace('## Processed',
-      '- [ ] https://x.test/concurrent | Lambda | SRE | rank: cal-v1 4.5/5\n\n## Processed'));
+      '- [ ] https://x.test/concurrent | Lambda | SRE | rank: cal-v2 4.5/5\n\n## Processed'));
     const execAsync = promisify(execFile);
     const simultaneous = await Promise.all([0, 1].map(() => execAsync(NODE, [command], { env, encoding: 'utf8' })));
     const finalRows = readFileSync(batchInput, 'utf8').trim().split('\n').slice(1);

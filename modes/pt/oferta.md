@@ -2,6 +2,8 @@
 
 Quando o candidato cola uma vaga (texto ou URL), entregar SEMPRE os 6 blocos:
 
+**Candidate target weighting:** Read `target_roles.target_level`, `compensation.target_range`, `compensation.minimum`, and `location.country` from `config/profile.yml`. Before Block A of any full evaluation, require non-empty `target_roles.target_level` and `compensation.target_range` in `config/profile.yml`. If either is missing, stop without scoring or writing a report, tracker row, or application artifact; ask the candidate to set both. Give level and compensation decisive weight in the final 1-5 score. A strong CV match cannot justify 4.0+ for a below-target role without credible target-level pay potential; a below-target role in the candidate's home market without such evidence scores below 3.5. Verified target-level pay can offset a lower title. Do not infer people leadership from Staff or Principal titles alone. Compare stated pay in the same currency and period; pay below the minimum rules out a strong recommendation. Missing salary is unknown, not low: assess potential from evidenced scope, employer market, and pay currency without inventing a figure. A remote role paid from a higher-paying market may meet the compensation target at a lower title. Explain the reasoning in the report. Copy the final global score unchanged to the tracker and machine summary.
+
 ## Passo 0 -- Detecção de Arquétipo
 
 Classificar a vaga em um dos 6 arquétipos (ver `_shared.md`). Se for híbrido, indicar os 2 mais próximos. Isso determina:
@@ -154,7 +156,7 @@ Salvar avaliação completa em `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 - Data atual
 - Empresa
 - Vaga
-- Score: média do match (1-5)
+- Score: copiar sem recalcular a nota global final do relatório (1-5)
 - Status: `Evaluated`
 - PDF: ❌ (ou ✅ se a auto-pipeline gerou PDF)
 - Report: link relativo ao report .md (ex: `[001](reports/001-company-2026-01-01.md)`)
