@@ -4,7 +4,7 @@ Process eligible job URLs stored in `data/pipeline.md`. The user can add URLs at
 
 ## Forwarding gate
 
-**Run this first.** Only pending rows that pass the cal-v2 forwarding gate reach the long evaluation:
+**Run this first.** Only pending rows that pass the cal-v3 forwarding gate reach the long evaluation:
 
 ```bash
 node eval-queue.mjs --dry-run
@@ -115,7 +115,7 @@ are defined:
   (`- [ ] {url} | {company} | {title} | note: curated shortlist` is valid). The
   deterministic scanner never sets it.
 
-- `| rank: cal-v2 {score}/5 — {reason}` — an **opt-in** target-aware rank annotation written
+- `| rank: cal-v3 {score}/5 — {reason}` — an **opt-in** target-aware rank annotation written
   only by `node rank-pipeline.mjs`, never by a scan. The score is 0–5 to one
   decimal and always carries a one-line reason, so you can disagree with it. It
   is advisory only: the ranker never removes, reorders, or hides a row, and an

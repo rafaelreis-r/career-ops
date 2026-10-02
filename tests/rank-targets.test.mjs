@@ -47,6 +47,33 @@ try {
     jevPrompt.includes('target level: Senior Manager or Director')
       && jevPrompt.includes('target compensation: USD 8K/month'));
 
+  const splitTargets = loadRankTargets((() => {
+    const splitPath = join(tempDir, 'currency-split.yml');
+    writeFileSync(splitPath, [
+      'target_roles:',
+      '  target_level: "Paid in USD (international remote, contractor/EOR): Mid-level (Pleno) or Senior IC and above, including Staff, Principal, Lead, Manager, Head and Director. Paid in BRL (Brazil, CLT/PJ): Senior Manager, Head or Director and above."',
+      'compensation:',
+      '  target_range: "USD 8K/month"',
+      '  minimum: "USD 8K/month"',
+      '  currency: "USD"',
+      'location:',
+      '  country: "Brazil"',
+      '',
+    ].join('\n'));
+    return splitPath;
+  })());
+  const splitPrompt = buildPrompt(entry, '', splitTargets);
+  check('a currency-split target reaches the prompt verbatim',
+    splitPrompt.includes('Paid in USD (international remote, contractor/EOR): Mid-level (Pleno) or Senior IC and above')
+      && splitPrompt.includes('Paid in BRL (Brazil, CLT/PJ): Senior Manager, Head or Director and above'));
+  check('the individual-contributor cap applies only where the target for that pay currency is leadership-only',
+    splitPrompt.includes('Where the configured target for that pay currency and market is leadership-only')
+      && splitPrompt.includes('is at most some overlap (2)')
+      && !splitPrompt.includes('For a configured senior-management or director target, a specialist'));
+  check('a role paid in USD at Mid or Senior IC level can score 4-5 under a target that accepts it',
+    splitPrompt.includes('accepts Mid-level or Senior individual contributors')
+      && splitPrompt.includes('on target and can score 4-5'));
+
   const compensationOnlyPath = join(tempDir, 'compensation-only.yml');
   writeFileSync(compensationOnlyPath, 'compensation:\n  target_range: "USD 8K/month"\n');
   check('a missing level prevents ranking',
@@ -91,7 +118,7 @@ try {
   const good = run(profilePath);
   check('CLI ranking uses the canonical profile and persists the returned score',
     good.status === 0 && readFileSync(receivedPath, 'utf8').includes('target level: Senior Manager or Director')
-      && readFileSync(pipelinePath, 'utf8').includes('rank: cal-v2 4.0/5 — target match'));
+      && readFileSync(pipelinePath, 'utf8').includes('rank: cal-v3 4.0/5 — target match'));
 } catch (error) {
   fail(`rank target tests threw: ${error?.message ?? error}`);
 } finally {
