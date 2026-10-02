@@ -1057,7 +1057,7 @@ It prints two lists, with one reason per row:
     `reports/`, or in the tracker;
   - already queued in `batch-input.tsv`;
   - another pending row for the same posting has an equal or higher cal-v3 rank;
-  - no `cal-v3` rank yet: the row stays pending until the daily rank run scores it;
+  - no `cal-v3` rank yet: the row stays pending until a rank run scores it;
   - ranked below the cutoff.
 
 URLs compare on the scanners' dedupe key (`normalizeUrlForDedup`), so a
