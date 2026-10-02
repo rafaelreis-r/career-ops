@@ -47,6 +47,26 @@ try {
     jevPrompt.includes('target level: Senior Manager or Director')
       && jevPrompt.includes('target compensation: USD 8K/month'));
 
+  const splitTargets = loadRankTargets((() => {
+    const splitPath = join(tempDir, 'currency-split.yml');
+    writeFileSync(splitPath, [
+      'target_roles:',
+      '  target_level: "Paid in USD (international remote, contractor/EOR): Mid-level (Pleno) or Senior IC and above, including Staff, Principal, Lead, Manager, Head and Director. Paid in BRL (Brazil, CLT/PJ): Senior Manager, Head or Director and above."',
+      'compensation:',
+      '  target_range: "USD 8K/month"',
+      '  minimum: "USD 8K/month"',
+      '  currency: "USD"',
+      'location:',
+      '  country: "Brazil"',
+      '',
+    ].join('\n'));
+    return splitPath;
+  })());
+  const splitPrompt = buildPrompt(entry, '', splitTargets);
+  check('a currency-split target reaches the prompt verbatim',
+    splitPrompt.includes('Paid in USD (international remote, contractor/EOR): Mid-level (Pleno) or Senior IC and above')
+      && splitPrompt.includes('Paid in BRL (Brazil, CLT/PJ): Senior Manager, Head or Director and above'));
+
   const compensationOnlyPath = join(tempDir, 'compensation-only.yml');
   writeFileSync(compensationOnlyPath, 'compensation:\n  target_range: "USD 8K/month"\n');
   check('a missing level prevents ranking',
@@ -91,7 +111,7 @@ try {
   const good = run(profilePath);
   check('CLI ranking uses the canonical profile and persists the returned score',
     good.status === 0 && readFileSync(receivedPath, 'utf8').includes('target level: Senior Manager or Director')
-      && readFileSync(pipelinePath, 'utf8').includes('rank: cal-v2 4.0/5 — target match'));
+      && readFileSync(pipelinePath, 'utf8').includes('rank: cal-v3 4.0/5 — target match'));
 } catch (error) {
   fail(`rank target tests threw: ${error?.message ?? error}`);
 } finally {

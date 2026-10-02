@@ -42,14 +42,14 @@ try {
   const check = (label, cond) => (cond ? pass(label) : fail(label));
 
   // ── scoring + reason sanitation ──
-  check('score above range clamps to 5.0', formatRankSegment(9, 'x').startsWith('rank: cal-v2 5.0/5'));
-  check('negative score clamps to 0.0', formatRankSegment(-4, 'x').startsWith('rank: cal-v2 0.0/5'));
-  check('score renders to one decimal', formatRankSegment(4, 'x').startsWith('rank: cal-v2 4.0/5'));
+  check('score above range clamps to 5.0', formatRankSegment(9, 'x').startsWith('rank: cal-v3 5.0/5'));
+  check('negative score clamps to 0.0', formatRankSegment(-4, 'x').startsWith('rank: cal-v3 0.0/5'));
+  check('score renders to one decimal', formatRankSegment(4, 'x').startsWith('rank: cal-v3 4.0/5'));
   check('a blank reason yields no segment', formatRankSegment(4, '  ') === '');
   check('a non-numeric score yields no segment', formatRankSegment('high', 'x') === '');
   check(
     'a pipe in the reason cannot open a column',
-    !formatRankSegment(3, 'pays well | remote').slice('rank: cal-v2 3.0/5 — '.length).includes('|'),
+    !formatRankSegment(3, 'pays well | remote').slice('rank: cal-v3 3.0/5 — '.length).includes('|'),
   );
   check(
     'a newline in the reason cannot forge a row',
@@ -67,7 +67,8 @@ try {
     '- [ ] https://x.test/2 | Beta | Android Engineer | Remote | 180000 USD | posted: 2026-06-18 | note: private recruiter context',
     '- [x] https://x.test/3 | Gamma | Already Processed',
     '- [ ] https://x.test/4 | Delta | Legacy Rank | rank: 3.0/5 — prior run',
-    '- [ ] https://x.test/5 | Epsilon | Current Rank | rank: cal-v2 3.0/5 — current run',
+    '- [ ] https://x.test/5 | Epsilon | Current Rank | rank: cal-v3 3.0/5 — current run',
+    '- [ ] https://x.test/6 | Zeta | Previous Version | rank: cal-v2 2.0/5 — held under the old target',
     'not a row at all',
   ].join('\n');
   const pending = parsePendingEntries(fixture);
@@ -75,7 +76,8 @@ try {
   check('processed rows are excluded', !pending.some(e => e.url.endsWith('/3')));
   check('legacy ranks remain eligible for re-ranking', pending.some(e => e.url.endsWith('/4')));
   check('current-version ranks are excluded', !pending.some(e => e.url.endsWith('/5')));
-  check('non-row lines are ignored', pending.length === 3);
+  check('cal-v2 ranks are re-ranked under the currency-dependent target', pending.some(e => e.url.endsWith('/6')));
+  check('non-row lines are ignored', pending.length === 4);
   check('company parses off the row', pending[0].company === 'Acme');
   check('only positional public posting fields reach the scorer',
     pending[1].postingContext === 'location: Remote | compensation: 180000 USD');
@@ -84,7 +86,7 @@ try {
   const original = pending[1].raw;
   const annotated = appendRankAnnotation(original, 4.2, 'Strong Kotlin match');
   check('the original row survives byte-for-byte', annotated.startsWith(original));
-  check('the segment rides last, after note:', annotated.endsWith('| rank: cal-v2 4.2/5 — Strong Kotlin match'));
+  check('the segment rides last, after note:', annotated.endsWith('| rank: cal-v3 4.2/5 — Strong Kotlin match'));
   check('an existing note: segment is untouched', annotated.includes('| note: private recruiter context |'));
   check('re-annotating is a no-op', appendRankAnnotation(annotated, 1, 'different') === annotated);
   check('an unusable score leaves the row alone', appendRankAnnotation(original, NaN, 'x') === original);
@@ -129,18 +131,18 @@ try {
   const { applyAnnotations } = mod;
   const dupRaw = '- [ ] https://x.test/9 | Acme | Backend Engineer';
   const dup = applyAnnotations(['## Pending', dupRaw, dupRaw].join('\n'), [
-    { raw: dupRaw, segment: 'rank: cal-v2 4.0/5 — first' },
-    { raw: dupRaw, segment: 'rank: cal-v2 2.0/5 — second' },
+    { raw: dupRaw, segment: 'rank: cal-v3 4.0/5 — first' },
+    { raw: dupRaw, segment: 'rank: cal-v3 2.0/5 — second' },
   ]);
   check('both duplicate rows get annotated', dup.written === 2);
   check('each duplicate keeps its own score, in file order', /— first[\s\S]*— second/.test(dup.text));
   check(
     'a row already carrying the current rank version is left alone',
-    applyAnnotations(`${dupRaw} | rank: cal-v2 1.0/5 — old`, [{ raw: dupRaw, segment: 'rank: cal-v2 5.0/5 — new' }]).written === 0,
+    applyAnnotations(`${dupRaw} | rank: cal-v3 1.0/5 — old`, [{ raw: dupRaw, segment: 'rank: cal-v3 5.0/5 — new' }]).written === 0,
   );
   check(
     'an annotation whose row vanished is a no-op, not a corruption',
-    applyAnnotations('- [ ] https://other.test | X | Y', [{ raw: dupRaw, segment: 'rank: cal-v2 3.0/5 — x' }]).written === 0,
+    applyAnnotations('- [ ] https://other.test | X | Y', [{ raw: dupRaw, segment: 'rank: cal-v3 3.0/5 — x' }]).written === 0,
   );
 
   // Regression: 3 byte-identical pending rows + --limit 1 selects only the
@@ -157,12 +159,12 @@ try {
   const tripleDupSelected = selectBatch(tripleDupPending, 1);
   check('--limit 1 selects exactly one of three duplicates', tripleDupSelected.length === 1);
   const tripleDupOut = applyAnnotations(tripleDupText, [
-    { raw: tripleDupSelected[0].raw, segment: 'rank: cal-v2 4.5/5 — only this one' },
+    { raw: tripleDupSelected[0].raw, segment: 'rank: cal-v3 4.5/5 — only this one' },
   ]);
   check('only the selected duplicate is annotated', tripleDupOut.written === 1);
   check(
     'exactly one occurrence carries the segment',
-    (tripleDupOut.text.match(/rank: cal-v2 4\.5\/5/g) ?? []).length === 1,
+    (tripleDupOut.text.match(/rank: cal-v3 4\.5\/5/g) ?? []).length === 1,
   );
   check('the two unselected duplicates remain pending, unranked',
     parsePendingEntries(tripleDupOut.text).length === 2);
@@ -265,7 +267,7 @@ try {
       });
       const persistedPipeline = readFileSync(pipelinePath, 'utf8');
       check('ranker persists the raw, versioned score',
-        persistedPipeline.includes('| rank: cal-v2 4.5/5 — offline fake')
+        persistedPipeline.includes('| rank: cal-v3 4.5/5 — offline fake')
           && !persistedPipeline.includes('| rank: 4.5/5 — legacy raw score'));
     } finally {
       rmSync(rankerRoot, { recursive: true, force: true });

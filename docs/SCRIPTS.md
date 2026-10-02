@@ -48,7 +48,7 @@ utilities run via `node <script>` directly.
 | `npm run reposts` | `detect-reposts.mjs` | Flag re-listed (ghost) postings from scan history |
 | `node rank-pipeline.mjs` | `rank-pipeline.mjs` | Opt-in target-aware ranker — annotates pending pipeline rows with a score + reason (off by default) |
 | `node rank-calibration-replay.mjs` | `rank-calibration-replay.mjs` | Replay the historical cal-v1 calibration against its 84-pair fixture and persist metrics under ignored user data |
-| `node eval-queue.mjs` | `eval-queue.mjs` | Forwarding gate: queue pending pipeline rows with a cal-v2 score at or above the cutoff (default 2.5) for the long evaluation, listing what was held and why |
+| `node eval-queue.mjs` | `eval-queue.mjs` | Forwarding gate: queue pending pipeline rows with a cal-v3 score at or above the cutoff (default 2.5) for the long evaluation, listing what was held and why |
 | `npm run gemini:eval` | `gemini-eval.mjs` | Evaluate a JD with Google Gemini (free-tier alternative) |
 | `npm run ollama:eval` | `ollama-eval.mjs` | Evaluate a JD with a local Ollama model |
 | `npm run openai:eval` | `openai-eval.mjs` | Evaluate a JD via any OpenAI-compatible endpoint |
@@ -980,18 +980,21 @@ part of any scan** — `scan.mjs` stays 100% zero-token, and this costs nothing
 unless you run it yourself.
 
 The ranker annotates eligible rows. It never removes or reorders them.
-It appends a `rank: cal-v2 {score}/5 — {reason}` segment after existing
-`posted:`, `trust:`, or `note:` segments. The `cal-v2` label identifies the
+It appends a `rank: cal-v3 {score}/5 — {reason}` segment after existing
+`posted:`, `trust:`, or `note:` segments. The `cal-v3` label identifies the
 target-aware prompt and stores the scorer's raw 0-5 score. It does not apply
 the historical cal-v1 calibration knots. The 84-pair cal-v1 replay remains
 available for historical analysis. The ranker leaves a row untouched when it
 cannot return a usable reason or the CLI returns invalid JSON.
 
 Cost is bounded and reported. The ranker considers pending (`- [ ]`) rows
-without a current `cal-v2` annotation. `--limit` caps each run (default 20,
+without a current `cal-v3` annotation. `--limit` caps each run (default 20,
 hard ceiling 200), and the summary prints entries ranked, calls attempted, and
-elapsed time. Re-runs skip current annotations. Unversioned and cal-v1
-annotations remain eligible for re-ranking.
+elapsed time. Re-runs skip current annotations. Unversioned, cal-v1, and cal-v2
+annotations remain eligible for re-ranking. The target level may differ by pay
+currency (for example Mid-level or Senior individual contributors on target when
+paid in USD, Senior Manager, Head, or Director and above when paid in BRL); the
+ranker applies the one that matches the role's pay currency and market.
 
 With `TYPESAFE_API_KEY` set, Jev scores each entry and accepts results at or
 above `JEV_RANK_CONFIDENCE_THRESHOLD` (default `0.45`). Otherwise ranking uses
@@ -1030,7 +1033,7 @@ stays scored against the apply-worthy floor in force then, 3.3
 produced no offer; the replay reports it beside the measured one
 (`applyWorthyFloor`), along with a per-rank `bands` table and the outcome of
 the default forwarding cutoff (`forwardCutoff`). The gate below uses the
-configured cal-v2 cutoff; the replay floors are historical measurement context.
+configured cal-v3 cutoff; the replay floors are historical measurement context.
 
 Writes go through `pipeline-lock.mjs`, the same lock `scan.mjs` and
 `scan-ats-full.mjs` use, and the file is re-read inside the lock — so a
@@ -1047,21 +1050,21 @@ to the evaluation and appends them to `batch/batch-input.tsv`, the queue
 
 It prints two lists, with one reason per row:
 
-- **Forwarded:** `rank: cal-v2 {score}/5` at or above the cutoff, highest first,
+- **Forwarded:** `rank: cal-v3 {score}/5` at or above the cutoff, highest first,
   or ranked and named by `--force`.
 - **Held:**
   - already evaluated: the URL is in a report's `**URL:**` header under
     `reports/`, or in the tracker;
   - already queued in `batch-input.tsv`;
-  - another pending row for the same posting has an equal or higher cal-v2 rank;
-  - no `cal-v2` rank yet: the row stays pending until the daily rank run scores it;
+  - another pending row for the same posting has an equal or higher cal-v3 rank;
+  - no `cal-v3` rank yet: the row stays pending until a rank run scores it;
   - ranked below the cutoff.
 
 URLs compare on the scanners' dedupe key (`normalizeUrlForDedup`), so a
 LinkedIn posting matches on its job id whatever tracking URL it arrived under.
 
 The cutoff is `rank_forward_threshold` in `config/profile.yml`, on the raw
-cal-v2 score scale (0-5), default **2.5**. A value outside 0-5 stops the
+cal-v3 score scale (0-5), default **2.5**. A value outside 0-5 stops the
 command with an error.
 `--force <url>` (repeatable) sends a ranked pending row to the evaluation even
 below the cutoff. An unranked row stays held with a reason, including when
@@ -1080,7 +1083,7 @@ node eval-queue.mjs --force https://jobs.example.com/123
 **Historical hit rates for cal-v1 scores**, from the 84-pair replay of
 2026-09-21 (`node rank-calibration-replay.mjs`, field `bands`). Each row is one
 persisted one-decimal score from the old calibration. These values do not
-describe current cal-v2 scores.
+describe current cal-v3 scores.
 
 | cal-v1 rank | Pairs | Mean final score | Final ≥ 3.3 (floor when measured) | Final ≥ 3.5 (current floor) |
 |---:|---:|---:|---:|---:|
@@ -1096,7 +1099,7 @@ In the historical cal-v1 replay, a 2.5 cutoff would have forwarded the 5.0,
 3.2, and 2.8 bands: 54 of the 84 pairs, including 9 of the 12 that cleared
 3.3 and the single pair that cleared 3.5. Only the 5.0 band reached 3.5 in
 that sample; a cal-v1 cutoff above 2.8 would also have held seven postings
-that cleared 3.3. These counts do not predict the current cal-v2 gate.
+that cleared 3.3. These counts do not predict the current cal-v3 gate.
 
 ---
 

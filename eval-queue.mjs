@@ -1,25 +1,25 @@
 #!/usr/bin/env node
 /**
  * eval-queue.mjs — build the long A-G evaluation queue from `data/pipeline.md`
- * through the cal-v2 forwarding gate.
+ * through the cal-v3 forwarding gate.
  *
  * `rank-pipeline.mjs` only annotates: it never drops, reorders, or hides a row.
  * The decision of what goes on to the expensive evaluation lives here, in the
  * command that builds the queue. Every pending (`- [ ]`) row ends up in one of
  * two lists, each with its reason:
  *
- *   forwarded  `rank: cal-v2 {score}/5` at or above the cutoff, or named by
+ *   forwarded  `rank: cal-v3 {score}/5` at or above the cutoff, or named by
  *              --force (which overrides the cutoff for a ranked posting).
  *   held       already evaluated (URL in a report's `**URL:**` header or in the
  *              tracker), already queued in batch-input.tsv, a duplicate of an
- *              equivalent pending row with an equal or higher rank, no cal-v2
+ *              equivalent pending row with an equal or higher rank, no cal-v3
  *              rank yet (waits for the daily rank run), or ranked below the
  *              cutoff.
  *
  * URLs compare on `normalizeUrlForDedup`, the scanners' key, so a LinkedIn
  * posting matches on its job id whatever tracking URL it arrived under.
  *
- * The cutoff is `rank_forward_threshold` in config/profile.yml (cal-v2 scale,
+ * The cutoff is `rank_forward_threshold` in config/profile.yml (cal-v3 scale,
  * 0-5), default 2.5.
  *
  * Forwarded rows are appended to batch/batch-input.tsv (what batch-runner.sh
@@ -51,7 +51,7 @@ const BATCH_INPUT_HEADER = 'id\turl\tsource\tnotes';
 const REPORT_URL = /^\*\*URL:\*\*\s*(\S+)/m;
 
 const USAGE = `
-  eval-queue.mjs — build the long-evaluation queue through the cal-v2 forwarding gate
+  eval-queue.mjs — build the long-evaluation queue through the cal-v3 forwarding gate
 
   node eval-queue.mjs [--force <url>]... [--dry-run]
 
@@ -63,7 +63,7 @@ const USAGE = `
 `;
 
 /**
- * A cutoff on the cal-v2 score scale. Blank means "not configured".
+ * A cutoff on the cal-v3 score scale. Blank means "not configured".
  * @param {unknown} raw
  * @param {string} source - where the value came from, for the error message.
  * @returns {number | null}

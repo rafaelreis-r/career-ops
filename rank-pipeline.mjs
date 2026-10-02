@@ -6,7 +6,7 @@
  * runs unless you invoke this script yourself.
  *
  * It ANNOTATES pending pipeline rows with a versioned
- * `rank: cal-v2 {score}/5 — {reason}` segment. It never filters, reorders, or
+ * `rank: cal-v3 {score}/5 — {reason}` segment. It never filters, reorders, or
  * deletes a row — a relevance pass that
  * removes rows hides roles from you; one that writes a score and a reason next to
  * the row lets you disagree with it. The reason is part of the contract: an entry
@@ -53,12 +53,14 @@ const DEFAULT_LIMIT = 20;
 // that people run it daily; an unbounded re-rank would quietly undo that.
 export const LIMIT_CEILING = 200;
 const BATCH_SIZE = 10;
-// cal-v2: the scorer's own 0-5 score under the target-aware prompt, persisted
+// cal-v3: the scorer's own 0-5 score under the target-aware prompt, persisted
 // as scored. cal-v1 remapped the eligibility-only prompt's scores through the
 // knots in lib/rank-calibration.mjs; those knots were fitted to that prompt and
-// do not transfer. Bumping the version makes every cal-v1 row eligible again,
-// so the pending backlog is re-ranked against the candidate's targets.
-export const RANK_CALIBRATION_VERSION = 'cal-v2';
+// do not transfer. cal-v2 held every individual-contributor role below the
+// leadership target at a score of 2; cal-v3 reads a target level that depends
+// on the pay currency. Bumping the version makes every earlier row eligible
+// again, so the pending backlog is re-ranked against the candidate's targets.
+export const RANK_CALIBRATION_VERSION = 'cal-v3';
 const RANK_LABEL = `| rank: ${RANK_CALIBRATION_VERSION} `;
 const LEGACY_RANK_AT_END = new RegExp(`\\s*\\|\\s*rank:\\s*(?!${RANK_CALIBRATION_VERSION}\\b)[^|]*$`, 'i');
 const REASON_MAX = 140;
@@ -285,7 +287,7 @@ const TARGET_WEIGHTING = [
   'Treat target compensation as the goal and minimum compensation as the walk-away floor. When skills and eligibility fit, a role at or above the configured target level, or with stated pay at or above the target range, can score 4-5 unless stated pay is below the minimum.',
   'A role below the target level with stated pay below the target is at most some overlap (2), even when the skills match.',
   'Senior Manager, Director, Head, and VP are leadership levels. Do not infer people leadership from Staff, Principal, Product Manager, Program Manager, or Project Manager titles alone.',
-  'For a configured senior-management or director target, a specialist or senior individual-contributor role with no leadership scope and no evidence of target-level pay is at most some overlap (2), even when the skills match.',
+  'A configured target level can differ by pay currency or market. Apply the target for the pay currency and market of the role being scored, and never apply a market\'s target to a role paid in another currency. Where the configured target for that pay currency and market is leadership-only (for example a senior-management, head, or director target for roles paid in the home currency), a specialist or senior individual-contributor role with no leadership scope and no evidence of target-level pay is at most some overlap (2), even when the skills match. Where the configured target for that pay currency accepts Mid-level or Senior individual contributors (for example roles paid in USD), a role at that level or above with matching skills is on target and can score 4-5; Staff, Principal, Lead, Manager, Head, and Director roles stay on target as well.',
   'Missing salary is unknown, not low. Do not lower a score solely because salary is absent. Estimate pay potential only from evidence such as role level, scope, employer market, and pay currency. A role below the target level in the candidate home market needs evidence of target-level pay to score strongly; a remote role paid from a higher-paying market may meet the target at a lower title.',
 ].join('\n');
 
@@ -529,9 +531,9 @@ function selfTest() {
     }
   };
 
-  check('clamps a score above range', formatRankSegment(7.3, 'x').startsWith('rank: cal-v2 5.0/5'));
-  check('clamps a negative score', formatRankSegment(-1, 'x').startsWith('rank: cal-v2 0.0/5'));
-  check('one decimal', formatRankSegment(4, 'x').startsWith('rank: cal-v2 4.0/5'));
+  check('clamps a score above range', formatRankSegment(7.3, 'x').startsWith('rank: cal-v3 5.0/5'));
+  check('clamps a negative score', formatRankSegment(-1, 'x').startsWith('rank: cal-v3 0.0/5'));
+  check('one decimal', formatRankSegment(4, 'x').startsWith('rank: cal-v3 4.0/5'));
   check('no reason means no segment', formatRankSegment(4, '   ') === '');
   check('non-numeric score means no segment', formatRankSegment('abc', 'x') === '');
   check('pipe in reason cannot break the row', !formatRankSegment(3, 'a | b').slice(7).includes('|'));
@@ -544,7 +546,7 @@ function selfTest() {
     '- [ ] https://x.test/2 | Beta | Android Engineer | Remote | posted: 2026-06-18',
     '- [x] https://x.test/3 | Gamma | Done Role',
     '- [ ] https://x.test/4 | Delta | Legacy Rank | rank: 3.0/5 — prior run',
-    '- [ ] https://x.test/5 | Epsilon | Current Rank | rank: cal-v2 3.0/5 — current run',
+    '- [ ] https://x.test/5 | Epsilon | Current Rank | rank: cal-v3 3.0/5 — current run',
     '- [ ] https://x.test/6 | Zeta | Previous Version | rank: cal-v1 2.8/5 — eligibility-only prompt',
   ].join('\n');
   const pending = parsePendingEntries(fixture);
@@ -558,10 +560,10 @@ function selfTest() {
 
   const line = pending[1].raw;
   const once = appendRankAnnotation(line, 4.2, 'Strong match');
-  check('annotation appends', once.endsWith('| rank: cal-v2 4.2/5 — Strong match'));
+  check('annotation appends', once.endsWith('| rank: cal-v3 4.2/5 — Strong match'));
   check('a previous-version rank is replaced, not stacked',
     appendRankAnnotation(pending[3].raw, 1.5, 'below target level')
-      === '- [ ] https://x.test/6 | Zeta | Previous Version | rank: cal-v2 1.5/5 — below target level');
+      === '- [ ] https://x.test/6 | Zeta | Previous Version | rank: cal-v3 1.5/5 — below target level');
   check('annotation preserves the original line', once.startsWith(line));
   check('annotation is idempotent', appendRankAnnotation(once, 1, 'other') === once);
   check('an unusable score leaves the line alone', appendRankAnnotation(line, NaN, 'x') === line);
@@ -605,16 +607,16 @@ function selfTest() {
   ].join('\n');
   const dupRaw = '- [ ] https://x.test/9 | Acme | Backend Engineer';
   const dupOut = applyAnnotations(dupText, [
-    { raw: dupRaw, segment: 'rank: cal-v2 4.0/5 — first' },
-    { raw: dupRaw, segment: 'rank: cal-v2 2.0/5 — second' },
+    { raw: dupRaw, segment: 'rank: cal-v3 4.0/5 — first' },
+    { raw: dupRaw, segment: 'rank: cal-v3 2.0/5 — second' },
   ]);
   check('both duplicate rows are annotated', dupOut.written === 2);
   check('duplicates take their own score, in order',
     dupOut.text.includes('— first') && dupOut.text.includes('— second'));
   check('a current-version row is skipped by applyAnnotations',
-    applyAnnotations(`${dupRaw} | rank: cal-v2 1.0/5 — old`, [{ raw: dupRaw, segment: 'rank: cal-v2 5.0/5 — new' }]).written === 0);
+    applyAnnotations(`${dupRaw} | rank: cal-v3 1.0/5 — old`, [{ raw: dupRaw, segment: 'rank: cal-v3 5.0/5 — new' }]).written === 0);
   check('a stale target is a no-op, not a corruption',
-    applyAnnotations('- [ ] https://other.test | X | Y', [{ raw: dupRaw, segment: 'rank: cal-v2 3.0/5 — x' }]).written === 0);
+    applyAnnotations('- [ ] https://other.test | X | Y', [{ raw: dupRaw, segment: 'rank: cal-v3 3.0/5 — x' }]).written === 0);
 
   // Regression: 3 byte-identical pending rows, --limit 1 selects only the first
   // in file order. Only that selected occurrence may end up annotated — the two
@@ -629,11 +631,11 @@ function selfTest() {
   const tripleDupSelected = selectBatch(tripleDupPending, 1);
   check('limit 1 selects exactly one of three duplicates', tripleDupSelected.length === 1);
   const tripleDupOut = applyAnnotations(tripleDupText, [
-    { raw: tripleDupSelected[0].raw, segment: 'rank: cal-v2 4.5/5 — only this one' },
+    { raw: tripleDupSelected[0].raw, segment: 'rank: cal-v3 4.5/5 — only this one' },
   ]);
   check('only the selected duplicate is annotated', tripleDupOut.written === 1);
   check('exactly one occurrence carries the segment',
-    (tripleDupOut.text.match(/rank: cal-v2 4\.5\/5/g) ?? []).length === 1);
+    (tripleDupOut.text.match(/rank: cal-v3 4\.5\/5/g) ?? []).length === 1);
   check('the two unselected duplicates remain pending',
     parsePendingEntries(tripleDupOut.text).length === 2);
 
