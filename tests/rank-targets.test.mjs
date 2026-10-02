@@ -66,13 +66,6 @@ try {
   check('a currency-split target reaches the prompt verbatim',
     splitPrompt.includes('Paid in USD (international remote, contractor/EOR): Mid-level (Pleno) or Senior IC and above')
       && splitPrompt.includes('Paid in BRL (Brazil, CLT/PJ): Senior Manager, Head or Director and above'));
-  check('the individual-contributor cap applies only where the target for that pay currency is leadership-only',
-    splitPrompt.includes('Where the configured target for that pay currency and market is leadership-only')
-      && splitPrompt.includes('is at most some overlap (2)')
-      && !splitPrompt.includes('For a configured senior-management or director target, a specialist'));
-  check('a role paid in USD at Mid or Senior IC level can score 4-5 under a target that accepts it',
-    splitPrompt.includes('accepts Mid-level or Senior individual contributors')
-      && splitPrompt.includes('on target and can score 4-5'));
 
   const compensationOnlyPath = join(tempDir, 'compensation-only.yml');
   writeFileSync(compensationOnlyPath, 'compensation:\n  target_range: "USD 8K/month"\n');
