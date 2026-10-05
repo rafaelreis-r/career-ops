@@ -1011,6 +1011,29 @@ The minimum is the walk-away floor. Missing posting fields remain unknown.
 The ranker never treats an absent salary as low. Review the selected provider's
 data-retention settings before sending sensitive CV content.
 
+**US-only postings.** Before any scorer call, the ranker screens each row for
+employment limited to the United States, unless `location.authorized_in` in
+`config/profile.yml` lists the United States. A row is US-only when it shows any
+of these, read from the title, the row's location, and the JD text saved at its
+`local:jds/...` path (a URL row has no local text, so only its title and location
+count):
+
+- a US benefit in the JD: 401(k), disability insurance, FSA, or HSA (the matcher
+  `eval-queue.mjs` uses, in `lib/us-only.mjs`);
+- a location that names only US places (`Remote - US`, `United States`,
+  `Austin, TX`);
+- remote work limited to the US (`Remote (US)`, `US only`, `must reside in the
+  United States`);
+- a JD that requires US work authorization and rules out sponsorship.
+
+A line or location that also names Brazil, Latin America, or a worldwide scope
+never counts, and a plain `Remote` row is scored as usual. A US-only row is
+annotated without a scorer call, so it costs no tokens and does not count
+against `--limit`. Its score is 1.0, or lower when `rank_forward_threshold` is at
+or below 1.1, so it falls below the forwarding cutoff, and the reason names the
+signal, for example `US-only employment: the JD offers 401(k), HSA`. This runs
+on both the Jev and CLI paths. Rows already carrying a `cal-v3` rank keep it.
+
 ```bash
 node rank-pipeline.mjs                  # check up to 20 pending entries and rank open ones
 node rank-pipeline.mjs --limit 10
