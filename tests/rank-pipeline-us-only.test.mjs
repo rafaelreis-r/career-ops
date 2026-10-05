@@ -40,10 +40,19 @@ try {
     ['Remote - US, Brazil, or Canada', 'Remote within the US or worldwide', 'Work with us remotely',
       'Our US-based company hires globally', 'The remote team ships to users in the US']
       .every(text => !limitsRemoteToUnitedStates(text)));
+  check('remote phrases naming another place do not restrict work to the US',
+    ['Remote - US, Canada', 'Remote - US / Canada', 'Remote - US or Canada',
+      'Remote - US and Mexico', 'Remote - US · London']
+      .every(text => !limitsRemoteToUnitedStates(text)));
   check('US work authorization without sponsorship fires; either half alone does not',
     requiresUsAuthorizationWithoutSponsorship('You must be authorized to work in the US. We are unable to provide visa sponsorship.')
       && !requiresUsAuthorizationWithoutSponsorship('You must be authorized to work in the US.')
       && !requiresUsAuthorizationWithoutSponsorship('We do not offer sponsorship for relocation to Mars.'));
+  check('authorization in another country keeps the JD open',
+    ['You must be authorized to work in the US or Canada. No visa sponsorship.',
+      'You must be authorized to work in the US. Applicants may also be eligible to work in Canada. No visa sponsorship.',
+      'You must be authorized to work in the US. Work authorization in the UK is also accepted. No visa sponsorship.']
+      .every(text => !requiresUsAuthorizationWithoutSponsorship(text)));
   check('signals carry the benefits matcher of the long evaluation',
     usOnlySignals({ text: 'We offer a 401(k) and HSA.' }).join() === 'the JD offers 401(k), HSA');
   check('a posting open to the world has no signal',
@@ -68,6 +77,8 @@ try {
       'Program Manager\n\nBenefits: medical, 401(k) with match, disability insurance, FSA.\n');
     writeFileSync(join(root, 'jds', 'global.md'),
       'Platform Engineer\n\nWork remotely from anywhere. Open to Brazil, Canada, and the US. Paid time off.\n');
+    writeFileSync(join(root, 'jds', 'mixed.md'),
+      'Engineer\n\nYou must be authorized to work in the US. Applicants may also be eligible to work in Canada. We cannot provide visa sponsorship.\n');
     const pipelinePath = join(root, 'data', 'pipeline.md');
     const pristine = [
       '## Pending',
@@ -78,6 +89,8 @@ try {
       '- [ ] local:jds/global.md | Globex | Platform Engineer | Remote',
       '- [ ] https://boards.example/latam/2 | Latamco | Platform Engineer | Remote - LATAM',
       '- [ ] https://boards.example/global/3 | Existing Global | Platform Engineer | Remote - LATAM | rank: cal-v3 4.6/5 — previous score',
+      '- [ ] https://boards.example/mixed/4 | Mixed Title | Engineer Remote - US, Canada | Remote',
+      '- [ ] local:jds/mixed.md | Mixed JD | Engineer | Remote',
       '',
     ].join('\n');
     writeFileSync(join(root, 'fake-scorer.cjs'), [
@@ -123,6 +136,10 @@ try {
     check('a global remote posting and a LATAM posting are scored by the scorer',
       run.row('local:jds/global.md').includes('| rank: cal-v3 4.6/5 — fake scorer')
         && run.row('boards.example/latam/2').includes('| rank: cal-v3 4.6/5 — fake scorer'));
+    check('mixed-country title and authorization JD reach the scorer',
+      run.row('boards.example/mixed/4').includes('| rank: cal-v3 4.6/5 — fake scorer')
+        && run.row('local:jds/mixed.md').includes('| rank: cal-v3 4.6/5 — fake scorer')
+        && run.prompts.includes('Mixed Title') && run.prompts.includes('Mixed JD'));
     check('the scorer never sees a US-only posting',
       ['Focus', 'Ad Hoc', 'Koniag'].every(name => !run.prompts.includes(name))
         && run.prompts.includes('Globex') && run.prompts.includes('Latamco')
