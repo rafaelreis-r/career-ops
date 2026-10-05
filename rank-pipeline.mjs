@@ -52,7 +52,10 @@ const DEFAULT_LIMIT = 20;
 // A ceiling the flag cannot raise. The whole reason the core scan is zero-token is
 // that people run it daily; an unbounded re-rank would quietly undo that.
 export const LIMIT_CEILING = 200;
-const BATCH_SIZE = 10;
+export const DEFAULT_BATCH_SIZE = 10;
+export const DEFAULT_CLI_TIMEOUT_MS = 120_000;
+// Node's timer limit: a larger `timeout` overflows to 1 ms and kills every call.
+const TIMEOUT_MS_CEILING = 2 ** 31 - 1;
 // cal-v3: the scorer's own 0-5 score under the target-aware prompt, persisted
 // as scored. cal-v1 remapped the eligibility-only prompt's scores through the
 // knots in lib/rank-calibration.mjs; those knots were fitted to that prompt and
@@ -80,13 +83,17 @@ export const CLI_CANDIDATES = [
 const USAGE = `
   rank-pipeline.mjs — opt-in LLM relevance re-ranker (annotates, never filters)
 
-  node rank-pipeline.mjs [--limit N] [--cli <name>] [--model <name>] [--dry-run]
+  node rank-pipeline.mjs [--limit N] [--cli <name>] [--model <name>] [--batch N] [--timeout-ms N] [--dry-run]
 
-    --limit N     max entries to rank this run (default ${DEFAULT_LIMIT}, ceiling ${LIMIT_CEILING})
-    --cli <name>  force a CLI instead of auto-detecting
-    --model <n>   passed through to the CLI when it accepts one
-    --dry-run     print the annotations, write nothing
-    --self-test   run the in-memory suite (no subprocess, no network)
+    --limit N        max entries to rank this run (default ${DEFAULT_LIMIT}, ceiling ${LIMIT_CEILING})
+    --cli <name>     force a CLI instead of auto-detecting
+    --model <n>      passed through to the CLI when it accepts one
+    --batch N        entries per CLI call (default ${DEFAULT_BATCH_SIZE}, max ${LIMIT_CEILING};
+                     env CAREER_OPS_RANK_BATCH). CLI path only; Jev scores one entry per call
+    --timeout-ms N   per-call CLI timeout in ms (default ${DEFAULT_CLI_TIMEOUT_MS};
+                     env CAREER_OPS_RANK_TIMEOUT_MS). CLI path only
+    --dry-run        print the annotations, write nothing
+    --self-test      run the in-memory suite (no subprocess, no network)
 `;
 
 /**
@@ -205,6 +212,39 @@ export function detectCli(candidates = CLI_CANDIDATES, probe = defaultProbe) {
     if (probe(candidate.bin)) return candidate;
   }
   return null;
+}
+
+function parsePositiveInt(name, raw, max) {
+  const text = String(raw).trim();
+  const n = Number(text);
+  if (!/^\d+$/.test(text) || !Number.isSafeInteger(n) || n < 1 || n > max) {
+    throw new Error(`Invalid ${name}: ${JSON.stringify(raw)} — expected a whole number from 1 to ${max}.`);
+  }
+  return n;
+}
+
+/**
+ * CLI-path tuning: per-call batch size and timeout. A flag wins over its
+ * environment variable, which wins over the default. An unusable value is
+ * refused (throws) rather than ignored, because a silent fallback to the old
+ * 120 s ceiling is exactly the failure this setting exists to remove.
+ * An empty environment variable counts as unset.
+ */
+export function resolveCliTuning(args, env = process.env) {
+  const pick = (flag, envName, fallback, max) => {
+    const fromFlag = flagValue(args, flag);
+    if (hasFlag(args, flag) && (fromFlag === undefined || fromFlag.startsWith('--'))) {
+      throw new Error(`Invalid ${flag}: missing value — expected a whole number from 1 to ${max}.`);
+    }
+    if (fromFlag !== undefined) return parsePositiveInt(flag, fromFlag, max);
+    const fromEnv = env[envName];
+    if (fromEnv !== undefined && String(fromEnv).trim() !== '') return parsePositiveInt(envName, fromEnv, max);
+    return fallback;
+  };
+  return {
+    batchSize: pick('--batch', 'CAREER_OPS_RANK_BATCH', DEFAULT_BATCH_SIZE, LIMIT_CEILING),
+    timeoutMs: pick('--timeout-ms', 'CAREER_OPS_RANK_TIMEOUT_MS', DEFAULT_CLI_TIMEOUT_MS, TIMEOUT_MS_CEILING),
+  };
 }
 
 function defaultProbe(bin) {
@@ -389,7 +429,7 @@ export async function scoreBatchWithJev(batch, cvExcerpt, opts) {
   return results;
 }
 
-function callCli(cli, prompt, model) {
+function callCli(cli, prompt, model, timeoutMs) {
   const args = cli.args(prompt);
   if (model && cli.bin !== 'codex' && cli.bin !== 'opencode') args.push('--model', model);
   // Explicit maxBuffer: a verbose response otherwise throws
@@ -397,7 +437,7 @@ function callCli(cli, prompt, model) {
   return execFileSync(cli.bin, args, {
     encoding: 'utf-8',
     maxBuffer: 10 * 1024 * 1024,
-    timeout: 120_000,
+    timeout: timeoutMs,
   });
 }
 
@@ -405,6 +445,13 @@ async function main(args) {
   if (hasFlag(args, '--help') || hasFlag(args, '-h')) {
     console.log(USAGE);
     return 0;
+  }
+  let tuning;
+  try {
+    tuning = resolveCliTuning(args);
+  } catch (err) {
+    console.error(err.message);
+    return 1;
   }
   if (!existsSync(PIPELINE_PATH)) {
     console.log('No data/pipeline.md yet — run a scan first. Nothing to rank.');
@@ -453,8 +500,10 @@ async function main(args) {
   let attemptedCalls = 0;
   let skippedBatches = 0;
 
-  for (let i = 0; i < selected.length; i += BATCH_SIZE) {
-    const batch = selected.slice(i, i + BATCH_SIZE);
+  // Jev scores one entry per call, so the batch size only shapes the CLI path.
+  const batchSize = jevEnabled ? DEFAULT_BATCH_SIZE : tuning.batchSize;
+  for (let i = 0; i < selected.length; i += batchSize) {
+    const batch = selected.slice(i, i + batchSize);
     attemptedCalls += 1;
     let results;
     if (jevEnabled) {
@@ -462,9 +511,12 @@ async function main(args) {
     } else {
       let response;
       try {
-        response = callCli(cli, buildPrompt(batch, cvExcerpt, targets), model);
+        response = callCli(cli, buildPrompt(batch, cvExcerpt, targets), model, tuning.timeoutMs);
       } catch (err) {
-        console.error(`  batch ${i / BATCH_SIZE + 1}: CLI call failed (${err.code ?? err.message}) — entries left un-annotated`);
+        const hint = err.code === 'ETIMEDOUT'
+          ? `; raise --timeout-ms (now ${tuning.timeoutMs}) or lower --batch (now ${batchSize})`
+          : '';
+        console.error(`  batch ${i / batchSize + 1}: CLI call failed (${err.code ?? err.message}${hint}) — entries left un-annotated`);
         skippedBatches += 1;
         continue;
       }
@@ -472,7 +524,7 @@ async function main(args) {
     }
     if (!results.length) {
       const why = jevEnabled ? 'no confident Jev scores' : 'no usable JSON in response';
-      console.error(`  batch ${i / BATCH_SIZE + 1}: ${why} — entries left un-annotated`);
+      console.error(`  batch ${i / batchSize + 1}: ${why} — entries left un-annotated`);
       skippedBatches += 1;
       continue;
     }
