@@ -16,7 +16,7 @@
 import { pass, fail, ROOT } from './helpers.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { calibrateRankScore } from '../lib/rank-calibration.mjs';
@@ -271,6 +271,97 @@ try {
           && !persistedPipeline.includes('| rank: 4.5/5 — legacy raw score'));
     } finally {
       rmSync(rankerRoot, { recursive: true, force: true });
+    }
+
+    // Batch size and per-call timeout of the CLI path. The fake CLI is this
+    // node binary: `node -p <prompt>` throws on the prompt text, the preload's
+    // uncaughtException handler answers (after FAKE_DELAY_MS) for ids 0-2 and
+    // extra ids are ignored by the ranker.
+    const tuneRoot = mkdtempSync(join(tmpdir(), 'career-ops-ranker-tuning-'));
+    try {
+      mkdirSync(join(tuneRoot, 'data'));
+      mkdirSync(join(tuneRoot, 'config'));
+      writeFileSync(join(tuneRoot, 'config', 'profile.yml'),
+        'target_roles:\n  target_level: Director\ncompensation:\n  target_range: USD 8K/month\n');
+      const tunePipeline = join(tuneRoot, 'data', 'pipeline.md');
+      const pristine = [
+        '## Pending',
+        '- [ ] https://x.test/1 | Acme | Engineer',
+        '- [ ] https://x.test/2 | Beta | Engineer',
+        '- [ ] https://x.test/3 | Gamma | Engineer',
+        '',
+      ].join('\n');
+      writeFileSync(join(tuneRoot, 'slow-scorer.cjs'), [
+        'if (process.argv.length === 1) {',
+        '  process.on("uncaughtException", () => {',
+        '    setTimeout(() => {',
+        '      process.stdout.write(JSON.stringify([0, 1, 2].map(id => ({ id, score: 3, reason: "slow fake" }))));',
+        '    }, Number(process.env.FAKE_DELAY_MS || 0));',
+        '  });',
+        '}',
+        '',
+      ].join('\n'));
+      const rank = (extraArgs, extraEnv = {}) => {
+        writeFileSync(tunePipeline, pristine);
+        const env = { ...process.env, CAREER_OPS_ROOT: tuneRoot, TYPESAFE_API_KEY: '',
+          NODE_OPTIONS: '--require=./slow-scorer.cjs' };
+        delete env.CAREER_OPS_RANK_BATCH;
+        delete env.CAREER_OPS_RANK_TIMEOUT_MS;
+        const r = spawnSync(process.execPath,
+          [join(ROOT, 'rank-pipeline.mjs'), '--cli', process.execPath, ...extraArgs],
+          { encoding: 'utf8', cwd: tuneRoot, env: { ...env, ...extraEnv } });
+        return { ...r, pipeline: readFileSync(tunePipeline, 'utf8') };
+      };
+      const ranked = text => (text.match(/\| rank: cal-v3/g) ?? []).length;
+
+      const byDefault = rank([]);
+      check('default batch size is 10: three rows go in one CLI call',
+        byDefault.status === 0 && /in 1 CLI call\(s\)/.test(byDefault.stdout) && ranked(byDefault.pipeline) === 3);
+
+      const byEnvBatch = rank([], { CAREER_OPS_RANK_BATCH: '1' });
+      check('CAREER_OPS_RANK_BATCH=1 sends one row per CLI call',
+        byEnvBatch.status === 0 && /in 3 CLI call\(s\)/.test(byEnvBatch.stdout) && ranked(byEnvBatch.pipeline) === 3);
+
+      const byFlagBatch = rank(['--batch', '2'], { CAREER_OPS_RANK_BATCH: '1' });
+      check('--batch overrides CAREER_OPS_RANK_BATCH',
+        byFlagBatch.status === 0 && /in 2 CLI call\(s\)/.test(byFlagBatch.stdout) && ranked(byFlagBatch.pipeline) === 3);
+
+      const timedOut = rank(['--timeout-ms=200'], { FAKE_DELAY_MS: '1500' });
+      check('a call slower than the timeout is skipped, not written, and the hint names the knobs',
+        timedOut.status === 0 && ranked(timedOut.pipeline) === 0 && timedOut.pipeline === pristine
+          && /ETIMEDOUT/.test(timedOut.stderr) && /--timeout-ms/.test(timedOut.stderr));
+
+      const envTimedOut = rank([], { FAKE_DELAY_MS: '1500', CAREER_OPS_RANK_TIMEOUT_MS: '200' });
+      check('CAREER_OPS_RANK_TIMEOUT_MS applies the timeout',
+        envTimedOut.status === 0 && ranked(envTimedOut.pipeline) === 0 && /ETIMEDOUT/.test(envTimedOut.stderr));
+
+      const roomy = rank(['--timeout-ms', '30000'], { FAKE_DELAY_MS: '1500', CAREER_OPS_RANK_TIMEOUT_MS: '200' });
+      check('--timeout-ms overrides the env and lets the slow call finish',
+        roomy.status === 0 && ranked(roomy.pipeline) === 3 && !/ETIMEDOUT/.test(roomy.stderr));
+
+      const invalid = [
+        [['--batch', '0'], {}, '--batch'],
+        [['--batch=abc'], {}, '--batch'],
+        [['--batch', '201'], {}, '--batch'],
+        [['--batch'], {}, '--batch'],
+        [['--batch', '--dry-run'], {}, '--batch'],
+        [['--timeout-ms', '-5'], {}, '--timeout-ms'],
+        [['--timeout-ms=1.5'], {}, '--timeout-ms'],
+        [['--timeout-ms=99999999999'], {}, '--timeout-ms'],
+        [[], { CAREER_OPS_RANK_BATCH: 'many' }, 'CAREER_OPS_RANK_BATCH'],
+        [[], { CAREER_OPS_RANK_TIMEOUT_MS: '0' }, 'CAREER_OPS_RANK_TIMEOUT_MS'],
+      ];
+      for (const [flags, env, name] of invalid) {
+        const r = rank(flags, env);
+        check(`invalid ${name} (${[...flags, ...Object.values(env)].join(' ')}) is refused before any CLI call`,
+          r.status === 1 && r.stderr.includes(`Invalid ${name}`) && r.pipeline === pristine && !/CLI call/.test(r.stdout));
+      }
+
+      const emptyEnv = rank([], { CAREER_OPS_RANK_BATCH: '', CAREER_OPS_RANK_TIMEOUT_MS: '' });
+      check('empty tuning variables count as unset',
+        emptyEnv.status === 0 && ranked(emptyEnv.pipeline) === 3);
+    } finally {
+      rmSync(tuneRoot, { recursive: true, force: true });
     }
 
     const fixturePath = join(testDir, 'fixture.json');
