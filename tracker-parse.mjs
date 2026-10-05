@@ -270,6 +270,31 @@ export function resolveColumns(lines) {
 const ROW_START_SIGNATURE_RE = /\|\s*\d+\s*\|\s*\d{4}-\d{2}-\d{2}\s*\|/g;
 
 /**
+ * The `#` of every tracker row that starts on one physical line, in order. One
+ * entry for a normal row, several for a glued line. Lets a caller reserve every
+ * number on a line it cannot parse as a single row.
+ *
+ * @param {string} line - One line from applications.md.
+ * @returns {number[]}
+ */
+export function rowStartNumbers(line) {
+  return [...line.matchAll(ROW_START_SIGNATURE_RE)].map(m => parseInt(m[0].slice(1), 10));
+}
+
+/**
+ * True when one physical line carries two or more tracker rows glued together
+ * (a row's trailing pipe directly followed, with no newline, by the next row's
+ * leading pipe). Callers that would rewrite the line must treat it as
+ * unparseable: a replace keyed on such a line destroys the other row(s).
+ *
+ * @param {string} line - One line from applications.md.
+ * @returns {boolean}
+ */
+export function isGluedRow(line) {
+  return rowStartNumbers(line).length > 1;
+}
+
+/**
  * Parse one markdown table row into a tracker object using a column map.
  *
  * Header and separator rows (non-numeric `num` cell) and malformed rows return
@@ -282,7 +307,7 @@ const ROW_START_SIGNATURE_RE = /\|\s*\d+\s*\|\s*\d{4}-\d{2}-\d{2}\s*\|/g;
  */
 export function parseTrackerRow(line, colmap = LEGACY_COLMAP) {
   if (typeof line !== 'string' || !line.startsWith('|')) return null;
-  if ((line.match(ROW_START_SIGNATURE_RE) ?? []).length > 1) return null;
+  if (isGluedRow(line)) return null;
   const parts = line.split('|').map(s => s.trim());
   // Dynamic width guard: a complete row splits into leading '' + one cell per
   // column (+ trailing '' when the row ends with a pipe). Anything shorter is
