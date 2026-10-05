@@ -6,6 +6,11 @@
 
 * **scoring:** require level and compensation targets for ranking and full evaluations; persist the final global score in the tracker.
 * **eligibility:** treat a JD that offers 401(k), disability insurance, FSA, or HSA as US-only employment when `location.authorized_in` does not list the United States: `eval-queue.mjs` holds the row when its JD is saved locally, and the evaluation scores it below 3.5 with the reason in the report.
+* **rank-pipeline:** make the CLI path's batch size and per-call timeout configurable (`--batch` / `CAREER_OPS_RANK_BATCH`, `--timeout-ms` / `CAREER_OPS_RANK_TIMEOUT_MS`); defaults stay 10 and 120 s, invalid values are refused.
+
+### Bug Fixes
+
+* **merge-tracker:** a re-evaluation no longer replaces a physical tracker line that holds two glued rows, which deleted the second row.
 
 ## [1.33.0](https://github.com/career-ops-hq/career-ops/compare/career-ops-v1.32.0...career-ops-v1.33.0) (2026-09-16)
 

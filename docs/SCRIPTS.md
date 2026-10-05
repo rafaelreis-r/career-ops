@@ -1017,6 +1017,25 @@ node rank-pipeline.mjs --cli codex      # override auto-detection
 node rank-pipeline.mjs --dry-run        # print annotations, write nothing
 ```
 
+The CLI path sends 10 entries per call and gives each call 120 seconds. A slow
+model can exceed that and leave whole batches un-annotated (the run prints
+`CLI call failed (ETIMEDOUT …)` and exits 0). Both limits are configurable:
+
+| Flag | Environment variable | Default | Accepts |
+|---|---|---|---|
+| `--batch N` | `CAREER_OPS_RANK_BATCH` | `10` | whole number, 1 to 200 (entries per CLI call) |
+| `--timeout-ms N` | `CAREER_OPS_RANK_TIMEOUT_MS` | `120000` | whole number of milliseconds, 1 to 2147483647 |
+
+A flag beats its variable, and an empty variable counts as unset. A value that is
+not a whole number in range is refused with exit code 1 before any CLI call. It
+is never silently replaced by the default. Both settings apply only to the CLI
+path; Jev scores one entry per call and ignores them.
+
+```bash
+node rank-pipeline.mjs --batch 3 --timeout-ms 300000
+CAREER_OPS_RANK_TIMEOUT_MS=300000 node rank-pipeline.mjs
+```
+
 The offline replay writes both its canonical 84-pair fixture and calibrated
 output below `data/rank-calibration/`, which is covered by the repository's
 blanket `data/*` ignore rule:
