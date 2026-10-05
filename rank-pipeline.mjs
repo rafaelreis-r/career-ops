@@ -17,6 +17,10 @@
  * rank version are eligible, `--limit` caps how many are ranked per run
  * (default 20, hard ceiling 200), and a summary prints at the end.
  *
+ * A posting that limits employment to the United States (see lib/us-only.mjs)
+ * is annotated below the forwarding cutoff without a scorer call, with the
+ * reason on the row.
+ *
  * When Jev is enabled it scores entries directly; otherwise the work is done by
  * whichever installed agent CLI is selected from the headless runners documented
  * in AGENTS.md.
@@ -41,6 +45,8 @@ import { withPipelineLock } from './pipeline-lock.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { isJevEnabled, jevScore } from './lib/jev-client.mjs';
+import { loadForwardThreshold } from './lib/forward-threshold.mjs';
+import { loadUsAuthorized, readLocalJdText, usOnlySignals } from './lib/us-only.mjs';
 
 const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = getCareerOpsRoot();
@@ -118,9 +124,14 @@ function withoutLegacyRank(rawLine) {
   return rawLine.replace(LEGACY_RANK_AT_END, '');
 }
 
+const isLabeled = value => /^(?:posted|trust|note|rank):/i.test(value);
+
+function publicLocation(cells) {
+  return cells[3] && !isLabeled(cells[3]) ? cells[3] : '';
+}
+
 function publicPostingContext(cells) {
-  const isLabeled = value => /^(?:posted|trust|note|rank):/i.test(value);
-  const location = cells[3] && !isLabeled(cells[3]) ? `location: ${cells[3]}` : '';
+  const location = publicLocation(cells) ? `location: ${cells[3]}` : '';
   const compensation = cells[4] && !isLabeled(cells[4]) ? `compensation: ${cells[4]}` : '';
   return [location, compensation].filter(Boolean).join(' | ');
 }
@@ -141,6 +152,7 @@ export function parsePendingEntries(text) {
       url: cells[0] ?? '',
       company: cells[1] ?? '',
       title: cells[2] ?? '',
+      location: publicLocation(cells),
       postingContext: publicPostingContext(cells),
     });
   });
@@ -197,6 +209,44 @@ export function applyAnnotations(text, pending) {
     })
     .join('\n');
   return { text: out, written };
+}
+
+/** Score for a US-only posting: strictly below the forwarding cutoff, and no higher than 1.0. */
+export function usOnlyRankScore(threshold) {
+  return Math.max(0, Math.min(1, Math.floor((threshold - 0.1) * 10) / 10));
+}
+
+/**
+ * The reason function for postings that limit employment to the United States,
+ * or a function that never fires when the candidate is authorized there.
+ * The JD text comes from the row's `local:` file under the data root, when it has one.
+ * @param {boolean} usAuthorized - `location.authorized_in` lists the United States.
+ * @returns {(entry: {url: string, title: string, location: string}) => string}
+ */
+export function usOnlyReasonFor(usAuthorized, readJd = url => readLocalJdText(DATA_ROOT, url)) {
+  return entry => {
+    if (usAuthorized) return '';
+    const signals = usOnlySignals({ title: entry.title, location: entry.location, text: readJd(entry.url) });
+    return signals.length ? `US-only employment: ${signals.join('; ')}` : '';
+  };
+}
+
+/**
+ * Split entries into US-only postings, each with its rank segment, and the rest.
+ * The cutoff is read only when a posting is US-only.
+ * @param {object[]} entries
+ * @param {{ usOnlyReason: (entry: object) => string, segmentFor: (reason: string) => string }} screen
+ */
+export function screenUsOnly(entries, { usOnlyReason, segmentFor }) {
+  const usOnly = [];
+  const scorable = [];
+  for (const entry of entries) {
+    const reason = usOnlyReason(entry);
+    const segment = reason ? segmentFor(reason) : '';
+    if (segment) usOnly.push({ entry, segment });
+    else scorable.push(entry);
+  }
+  return { usOnly, scorable };
 }
 
 /** Respects --limit and the ceiling the flag cannot raise. Deterministic: file order. */
@@ -484,7 +534,14 @@ async function main(args) {
     console.log('No unranked pending entries. Nothing to do.');
     return 0;
   }
-  const selected = selectBatch(pending, limit);
+  // US-only postings are annotated without a scorer call and do not count against --limit.
+  const usOnlyReason = usOnlyReasonFor(loadUsAuthorized(PROFILE_PATH));
+  let usOnlyScore;
+  const { usOnly, scorable } = screenUsOnly(pending, {
+    usOnlyReason,
+    segmentFor: reason => formatRankSegment(usOnlyScore ??= usOnlyRankScore(loadForwardThreshold(PROFILE_PATH)), reason),
+  });
+  const selected = selectBatch(scorable, limit);
   const cvExcerpt = existsSync(CV_PATH) ? readFileSync(CV_PATH, 'utf-8').slice(0, 2000) : '';
   const targets = loadRankTargets();
 
@@ -493,7 +550,7 @@ async function main(args) {
   // uniqueness, and two byte-identical pending rows are scored as two separate
   // entries — keying by raw text would collapse them, discarding one score and
   // applying the other twice. Each annotation is consumed once, in file order.
-  const annotations = [];
+  const annotations = usOnly.map(({ entry, segment }) => ({ raw: entry.raw, segment, used: false }));
   // Counts calls ATTEMPTED, not just ones that returned successfully — a call
   // that throws or times out still spends tokens, so it must still show up in
   // the final summary.
@@ -540,7 +597,7 @@ async function main(args) {
 
   if (dryRun) {
     for (const { raw, segment } of annotations) console.log(`${raw} | ${segment}`);
-    console.log(`\n  [dry-run] would annotate ${annotations.length} of ${selected.length} selected entr(ies).`);
+    console.log(`\n  [dry-run] would annotate ${annotations.length} of ${selected.length + usOnly.length} selected entr(ies).`);
     return 0;
   }
 
@@ -561,8 +618,8 @@ async function main(args) {
   const via = jevEnabled ? 'Jev' : cli.bin;
   console.log(`\n  Ranked ${written} entr(ies) of ${pending.length} pending in ${attemptedCalls} ${jevEnabled ? 'Jev' : 'CLI'} call(s) via ${via}.`);
   if (skippedBatches) console.log(`  ${skippedBatches} batch(es) skipped — those rows are un-annotated, not dropped.`);
-  if (pending.length > selected.length) {
-    console.log(`  ${pending.length - selected.length} pending entr(ies) not ranked this run (--limit ${selectBatch(pending, limit).length}). Re-run to continue.`);
+  if (scorable.length > selected.length) {
+    console.log(`  ${scorable.length - selected.length} pending entr(ies) not ranked this run (--limit ${selected.length}). Re-run to continue.`);
   }
   console.log(`  Elapsed: ${elapsed}s`);
   console.log(`  Cost: not reported by \`${via}\` in headless mode — check your CLI's own usage view.`);
