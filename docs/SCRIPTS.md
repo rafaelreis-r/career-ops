@@ -989,13 +989,16 @@ available for historical analysis. A row that reaches scoring stays unannotated
 when the scorer cannot return a usable reason or the CLI returns invalid JSON.
 
 Cost is bounded and reported. The ranker considers pending (`- [ ]`) rows
-without a current `cal-v3` annotation. `--limit` caps each run (default 20,
-hard ceiling 200), and the summary prints entries ranked, calls attempted, and
-elapsed time. Re-runs skip current annotations. Unversioned, cal-v1, and cal-v2
-annotations remain eligible for re-ranking. The target level may differ by pay
-currency (for example Mid-level or Senior individual contributors on target when
-paid in USD, Senior Manager, Head, or Director and above when paid in BRL); the
-ranker applies the one that matches the role's pay currency and market.
+without a current `cal-v3` annotation for scorer calls. `--limit` caps the
+entries sent to the scorer per run (default 20, hard ceiling 200). The summary
+prints entries ranked, current ranks replaced, calls attempted, and elapsed
+time. Re-runs skip current annotations unless the US-only screen applies.
+Unversioned, cal-v1, and cal-v2 annotations remain eligible for re-ranking.
+The target level
+may differ by pay currency (for example Mid-level or Senior individual
+contributors on target when paid in USD, Senior Manager, Head, or Director and
+above when paid in BRL); the ranker applies the one that matches the role's pay
+currency and market.
 
 With `TYPESAFE_API_KEY` set, Jev scores each entry and accepts results at or
 above `JEV_RANK_CONFIDENCE_THRESHOLD` (default `0.45`). Otherwise ranking uses
@@ -1026,13 +1029,14 @@ count):
   United States`);
 - a JD that requires US work authorization and rules out sponsorship.
 
-A line or location that also names Brazil, Latin America, or a worldwide scope
-never counts, and a plain `Remote` row is scored as usual. A US-only row is
+A location or remote-work line that also names another country or an open scope
+does not establish a US-only location or remote-work restriction. A plain
+`Remote` row is scored as usual unless another signal applies. A US-only row is
 annotated without a scorer call, so it costs no tokens and does not count
 against `--limit`. Its score is 1.0, or lower when `rank_forward_threshold` is at
-or below 1.1, so it falls below the forwarding cutoff, and the reason names the
-signal, for example `US-only employment: the JD offers 401(k), HSA`. This runs
-on both the Jev and CLI paths. Pending rows already carrying a `cal-v3` rank
+or below 1.1. The reason names the signal, for example
+`US-only employment: the JD offers 401(k), HSA`. This runs on both the Jev and
+CLI paths. Pending rows already carrying a `cal-v3` rank
 also pass through the US-only screen: a US-only rank is replaced, while other
 current ranks stay unchanged and are not sent to the scorer.
 
