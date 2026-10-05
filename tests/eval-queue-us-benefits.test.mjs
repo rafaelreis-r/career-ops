@@ -18,7 +18,11 @@ try {
   const { usOnlyBenefits } = await import(pathToFileURL(join(ROOT, 'eval-queue.mjs')).href);
 
   const found = text => usOnlyBenefits(text).join(', ');
-  check('401(k) spellings match', ['401(k) match', '401k plan', '401 (k)', '401K'].every(t => found(t) === '401(k)'));
+  check('401(k) spellings match',
+    ['401(k) match', '401k plan', '401 (k)', '401K', '401 k', '$401(k)', '250-401(k)'].every(t => found(t) === '401(k)'));
+  check('a 401k match percentage and a numbered benefit line match',
+    ['401k - 4% match', '401k-4% match', '401k - 100% match up to 4%', 'matching 401k - 6%', '1 - 401k with match']
+      .every(t => found(t) === '401(k)'));
   check('disability insurance matches', found('Short-term Disability Insurance') === 'disability insurance');
   check('FSA and its spelled-out form match',
     found('FSA') === 'FSA' && found('Flexible Spending Accounts') === 'FSA');
@@ -29,7 +33,8 @@ try {
   check('generic benefits and look-alikes do not match',
     usOnlyBenefits('Health insurance, retirement plan, 401 kg payload, the hsa crew, HSAB').length === 0);
   check('a 401 thousand pay figure is not a 401(k)',
-    ['Compensation: $180k–$401k OTE', 'Compensation: $180k-$401k OTE', 'TC band 250-401k', '$401k', '250–401k', '401k-500k']
+    ['Compensation: $180k–$401k OTE', 'Compensation: $180k-$401k OTE', '$401k',
+      'TC band 250-401k', '250–401k', '250—401k', '180k - 401k', '180k–$401k']
       .every(text => usOnlyBenefits(text).length === 0));
   check('a real 401(k) still matches beside a pay band of 401 thousand',
     found('401(k) match, TC 250-401k') === '401(k)' && found('401k plan, band $180k-$401k') === '401(k)');

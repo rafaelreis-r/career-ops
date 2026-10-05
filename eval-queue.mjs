@@ -99,10 +99,10 @@ export function loadForwardThreshold(profilePath) {
  * US employee benefits. A posting that offers any of them is US employment,
  * even when it says remote: a contractor or EOR hire abroad does not get them.
  * Acronyms match in capitals only, so ordinary words never trip them.
- * A compensation figure of 401 thousand ($401k, 180k-401k, 401k-500k) is not a 401(k).
+ * $401k, and 401k at the top of a dashed range (250-401k, 180k - 401k), are pay.
  */
 const US_ONLY_BENEFITS = [
-  ['401(k)', [/\b401\s?\(k\)|(?<!\$\s*)(?<![\dk]\s*[-–—]\s*\$?\s*)\b401\s?k(?![a-z0-9])(?!\s*[-–—]\s*\$?\s*\d)/i]],
+  ['401(k)', [/\b401\s?\(k\)|(?<!\$)(?<!\d{2,}\s*[-–—]\s*\$?)(?<!\d+k\s*[-–—]\s*\$?)\b401\s?k(?![a-z0-9])/i]],
   ['disability insurance', [/\bdisability insurance\b/i]],
   ['FSA', [/\bFSAs?\b/, /\bflexible spending accounts?\b/i]],
   ['HSA', [/\bHSAs?\b/, /\bhealth savings accounts?\b/i]],
