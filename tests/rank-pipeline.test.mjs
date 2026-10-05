@@ -383,6 +383,7 @@ try {
         '- [ ] https://boards.greenhouse.io/acme/jobs/222 | Beta | Live Role',
         '- [ ] https://jobs.lever.co/gamma/abc | Gamma | Inconclusive Role',
         '- [ ] https://x.test/4 | Delta | No Public API',
+        '- [ ] https://x.test/5 | Epsilon | US-only Role | Remote - US',
         '',
       ].join('\n');
       writeFileSync(join(liveRoot, 'preload.cjs'), [
@@ -420,10 +421,14 @@ try {
         gated.status === 0
           && gated.lines[1] === '- [x] ~~https://boards.greenhouse.io/acme/jobs/111 | Acme | Closed Role~~ — posting expired (liveness sweep)');
       check('live, inconclusive, and no-API rows are all scored and keep their position',
-        rankedRows(gated.lines) === 3
+        rankedRows(gated.lines) === 4
           && gated.lines[2].startsWith('- [ ] https://boards.greenhouse.io/acme/jobs/222 | Beta | Live Role | rank: cal-v3')
           && gated.lines[3].startsWith('- [ ] https://jobs.lever.co/gamma/abc | Gamma | Inconclusive Role | rank: cal-v3')
           && gated.lines[4].startsWith('- [ ] https://x.test/4 | Delta | No Public API | rank: cal-v3'));
+      check('US-only screening and liveness marking both run in the same pass',
+        gated.lines[5].includes('rank: cal-v3 1.0/5 — US-only employment:')
+          && /in 1 CLI call\(s\)/.test(gated.stdout)
+          && gated.fetched.length === 3);
       check('only ATS postings are fetched, one request each',
         gated.fetched.length === 3 && gated.fetched.every(u => /boards-api\.greenhouse\.io|api\.lever\.co/.test(u)));
       check('the run reports how many closed postings were marked',
