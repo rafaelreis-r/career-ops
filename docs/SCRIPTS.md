@@ -1012,7 +1012,7 @@ The ranker never treats an absent salary as low. Review the selected provider's
 data-retention settings before sending sensitive CV content.
 
 ```bash
-node rank-pipeline.mjs                  # rank up to 20 pending entries
+node rank-pipeline.mjs                  # check up to 20 pending entries and rank open ones
 node rank-pipeline.mjs --limit 10
 node rank-pipeline.mjs --cli codex      # override auto-detection
 node rank-pipeline.mjs --dry-run        # print annotations and expired marks, write nothing

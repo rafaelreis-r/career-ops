@@ -24,7 +24,7 @@
  * in AGENTS.md.
  *
  * Usage:
- *   node rank-pipeline.mjs                     # rank up to --limit pending entries
+ *   node rank-pipeline.mjs                     # check and rank up to --limit pending entries
  *   node rank-pipeline.mjs --limit 10
  *   node rank-pipeline.mjs --cli codex         # override CLI auto-detection
  *   node rank-pipeline.mjs --model <name>      # passed through when the CLI takes one
@@ -86,21 +86,24 @@ export const CLI_CANDIDATES = [
 ];
 
 const USAGE = `
-  rank-pipeline.mjs — opt-in LLM relevance re-ranker (annotates, never filters)
+  rank-pipeline.mjs — opt-in posting check and LLM relevance re-ranker
 
   node rank-pipeline.mjs [--limit N] [--cli <name>] [--model <name>] [--batch N] [--timeout-ms N] [--no-liveness] [--dry-run]
 
-    --limit N        max entries to rank this run (default ${DEFAULT_LIMIT}, ceiling ${LIMIT_CEILING})
+  A posting confirmed closed by the ATS API is marked in place as
+  \`- [x] ~~URL | Company | Role~~ — posting expired (liveness sweep)\` and is not scored.
+  All other selected rows are only annotated; no rows are removed or reordered.
+
+    --limit N        max entries to check and rank this run (default ${DEFAULT_LIMIT}, ceiling ${LIMIT_CEILING})
     --cli <name>     force a CLI instead of auto-detecting
     --model <n>      passed through to the CLI when it accepts one
     --batch N        entries per CLI call (default ${DEFAULT_BATCH_SIZE}, max ${LIMIT_CEILING};
                      env CAREER_OPS_RANK_BATCH). CLI path only; Jev scores one entry per call
     --timeout-ms N   per-call CLI timeout in ms (default ${DEFAULT_CLI_TIMEOUT_MS};
                      env CAREER_OPS_RANK_TIMEOUT_MS). CLI path only
-    --no-liveness    skip the closed-posting check that runs before scoring (env
-                     CAREER_OPS_RANK_LIVENESS=0). Confirmed-closed rows are marked
-                     \`- [x] ~~…~~ — posting expired (liveness sweep)\` and not scored
-    --dry-run        print the annotations, write nothing
+    --no-liveness    skip the closed-posting check before scoring (env
+                     CAREER_OPS_RANK_LIVENESS=0)
+    --dry-run        print expired marks and annotations, write nothing
     --self-test      run the in-memory suite (no subprocess, no network)
 `;
 
