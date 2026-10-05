@@ -24,11 +24,12 @@ try {
 
   check('locations naming only US places are US-only',
     ['Remote - US', 'Remote (US)', 'US Remote', 'Remote, United States', 'United States', 'Remote - USA',
-      'Austin, TX', 'San Francisco, CA; New York, NY', 'Remote - Colorado']
+      'Austin, TX', 'San Francisco, CA', 'San Francisco, CA; New York, NY', 'Remote - Colorado']
       .every(isUsOnlyLocation));
   check('remote and mixed locations are not US-only',
     ['Remote', '', 'Remote - LATAM', 'Remote - Brazil', 'Remote - US or Brazil', 'Remote (Worldwide)',
-      'Remote - Global', 'London, UK', 'Remote - Georgia', 'San Francisco, CA; London', 'Remote; New York, NY']
+      'Remote - Global', 'London, UK', 'Remote - Georgia', 'San Francisco, CA; London', 'Remote; New York, NY',
+      'New York · London', 'Remote - US, Canada']
       .every(location => !isUsOnlyLocation(location)));
   check('remote limited to the US is read from title and JD lines',
     ['Staff Platform Engineer (Remote - US)', 'Remote within the United States', 'US-only role',
@@ -70,12 +71,13 @@ try {
     const pipelinePath = join(root, 'data', 'pipeline.md');
     const pristine = [
       '## Pending',
-      '- [ ] https://boards.example/focus/1 | Focus | Staff Platform Engineer | Remote - US | posted: 2026-10-01',
+      '- [ ] https://boards.example/focus/1 | Focus | Staff Platform Engineer | Remote - US | posted: 2026-10-01 | rank: cal-v3 4.6/5 — previous score',
       '- [ ] local:jds/focus.md | Focus JD | Staff Platform Engineer | Remote',
       '- [ ] local:jds/adhoc.md | Ad Hoc | Senior Engineer | Remote',
       '- [ ] local:jds/koniag.md | Koniag | Program Manager | Remote',
       '- [ ] local:jds/global.md | Globex | Platform Engineer | Remote',
       '- [ ] https://boards.example/latam/2 | Latamco | Platform Engineer | Remote - LATAM',
+      '- [ ] https://boards.example/global/3 | Existing Global | Platform Engineer | Remote - LATAM | rank: cal-v3 4.6/5 — previous score',
       '',
     ].join('\n');
     writeFileSync(join(root, 'fake-scorer.cjs'), [
@@ -107,6 +109,11 @@ try {
     check('the run succeeds', run.status === 0);
     check('Focus, restricted to remote US by location, is ranked 1.0 with the reason',
       run.row('boards.example/focus/1').includes('| rank: cal-v3 1.0/5 — US-only employment: location is US-only (Remote - US)'));
+    check('the previous Focus rank is replaced once',
+      !run.row('boards.example/focus/1').includes('previous score')
+        && (run.row('boards.example/focus/1').match(/rank: cal-v3/g) ?? []).length === 1);
+    check('a ranked non-US row keeps its score and reason',
+      run.row('boards.example/global/3') === pristine.split('\n').find(line => line.includes('boards.example/global/3')));
     check('Focus, restricted to US residents by its JD, is ranked 1.0 with the reason',
       run.row('local:jds/focus.md').includes('| rank: cal-v3 1.0/5 — US-only employment: remote work is limited to the United States'));
     check('Ad Hoc, requiring US work authorization without sponsorship, is ranked 1.0 with the reason',
@@ -118,7 +125,8 @@ try {
         && run.row('boards.example/latam/2').includes('| rank: cal-v3 4.6/5 — fake scorer'));
     check('the scorer never sees a US-only posting',
       ['Focus', 'Ad Hoc', 'Koniag'].every(name => !run.prompts.includes(name))
-        && run.prompts.includes('Globex') && run.prompts.includes('Latamco'));
+        && run.prompts.includes('Globex') && run.prompts.includes('Latamco')
+        && !run.prompts.includes('Existing Global'));
     check('every US-only score is below the configured 3.5 cutoff',
       ['boards.example/focus/1', 'local:jds/focus.md', 'local:jds/adhoc.md', 'local:jds/koniag.md']
         .every(needle => Number(/rank: cal-v3 (\d+\.\d)\/5/.exec(run.row(needle))?.[1]) < 3.5));

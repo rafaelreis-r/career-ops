@@ -150,12 +150,12 @@ function publicPostingContext(cells) {
 /**
  * Pending rows without the current rank version, in file order.
  */
-export function parsePendingEntries(text) {
+export function parsePendingEntries(text, includeRanked = false) {
   const out = [];
   const lines = String(text ?? '').split('\n');
   lines.forEach((raw, index) => {
     if (!raw.startsWith('- [ ] ')) return;
-    if (raw.includes(RANK_LABEL)) return;
+    if (!includeRanked && raw.includes(RANK_LABEL)) return;
     const cells = raw.slice(6).split('|').map(c => c.trim());
     out.push({
       index,
@@ -211,11 +211,14 @@ export function applyAnnotations(text, pending) {
   const out = String(text ?? '')
     .split('\n')
     .map(line => {
-      if (line.includes(RANK_LABEL)) return line;
       const hit = queue.find(a => !a.used && a.raw === line);
       if (!hit) return line;
+      if (line.includes(RANK_LABEL) && !hit.replaceExisting) return line;
       hit.used = true;
       written += 1;
+      if (hit.replaceExisting) {
+        return line.replace(/\|\s*rank:\s*cal-v3\b[^|]*/i, `| ${hit.segment}`);
+      }
       return `${withoutLegacyRank(line)} | ${hit.segment}`;
     })
     .join('\n');
@@ -624,18 +627,20 @@ async function main(args) {
     }
   }
 
-  const pending = parsePendingEntries(readFileSync(PIPELINE_PATH, 'utf-8'));
-  if (!pending.length) {
-    console.log('No unranked pending entries. Nothing to do.');
+  const allPending = parsePendingEntries(readFileSync(PIPELINE_PATH, 'utf-8'), true);
+  if (!allPending.length) {
+    console.log('No pending entries. Nothing to do.');
     return 0;
   }
+  const pending = allPending.filter(entry => !entry.raw.includes(RANK_LABEL));
   // US-only postings are annotated without a scorer call and do not count against --limit.
   const usOnlyReason = usOnlyReasonFor(loadUsAuthorized(PROFILE_PATH));
   let usOnlyScore;
-  const { usOnly, scorable } = screenUsOnly(pending, {
+  const { usOnly, scorable: eligible } = screenUsOnly(allPending, {
     usOnlyReason,
     segmentFor: reason => formatRankSegment(usOnlyScore ??= usOnlyRankScore(loadForwardThreshold(PROFILE_PATH)), reason),
   });
+  const scorable = eligible.filter(entry => !entry.raw.includes(RANK_LABEL));
   const picked = selectBatch(scorable, limit);
   let selected = picked;
   let closed = [];
@@ -648,7 +653,9 @@ async function main(args) {
   // uniqueness, and two byte-identical pending rows are scored as two separate
   // entries — keying by raw text would collapse them, discarding one score and
   // applying the other twice. Each annotation is consumed once, in file order.
-  const annotations = usOnly.map(({ entry, segment }) => ({ raw: entry.raw, segment, used: false }));
+  const annotations = usOnly.map(({ entry, segment }) => ({
+    raw: entry.raw, segment, replaceExisting: entry.raw.includes(RANK_LABEL),
+  }));
   // Counts calls ATTEMPTED, not just ones that returned successfully — a call
   // that throws or times out still spends tokens, so it must still show up in
   // the final summary.

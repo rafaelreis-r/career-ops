@@ -1032,7 +1032,9 @@ annotated without a scorer call, so it costs no tokens and does not count
 against `--limit`. Its score is 1.0, or lower when `rank_forward_threshold` is at
 or below 1.1, so it falls below the forwarding cutoff, and the reason names the
 signal, for example `US-only employment: the JD offers 401(k), HSA`. This runs
-on both the Jev and CLI paths. Rows already carrying a `cal-v3` rank keep it.
+on both the Jev and CLI paths. Pending rows already carrying a `cal-v3` rank
+also pass through the US-only screen: a US-only rank is replaced, while other
+current ranks stay unchanged and are not sent to the scorer.
 
 ```bash
 node rank-pipeline.mjs                  # check up to 20 pending entries and rank open ones
