@@ -29,7 +29,8 @@ try {
   check('remote and mixed locations are not US-only',
     ['Remote', '', 'Remote - LATAM', 'Remote - Brazil', 'Remote - US or Brazil', 'Remote (Worldwide)',
       'Remote - Global', 'London, UK', 'Remote - Georgia', 'San Francisco, CA; London', 'Remote; New York, NY',
-      'New York · London', 'Remote - US, Canada']
+      'New York · London', 'Remote - US, Canada', 'Remote - US/Canada', 'Remote - US/Brazil',
+      'Remote - US|Canada', 'Remote - US&Canada', 'Remote - US;Canada', 'Remote - US·Canada']
       .every(location => !isUsOnlyLocation(location)));
   check('remote limited to the US is read from title and JD lines',
     ['Staff Platform Engineer (Remote - US)', 'Remote within the United States', 'US-only role',
@@ -41,8 +42,10 @@ try {
       'Our US-based company hires globally', 'The remote team ships to users in the US']
       .every(text => !limitsRemoteToUnitedStates(text)));
   check('remote phrases naming another place do not restrict work to the US',
-    ['Remote - US, Canada', 'Remote - US / Canada', 'Remote - US or Canada',
-      'Remote - US and Mexico', 'Remote - US · London']
+    ['Remote - US, Canada', 'Remote - US / Canada', 'Remote - US/Canada',
+      'Engineer (Remote - US/Canada)', 'Remote - US/Brazil', 'Remote - US or Canada',
+      'Remote - US and Mexico', 'Remote - US · London', 'Remote - US|Canada',
+      'Remote - US&Canada', 'Remote - US;Canada']
       .every(text => !limitsRemoteToUnitedStates(text)));
   check('US work authorization without sponsorship fires; either half alone does not',
     requiresUsAuthorizationWithoutSponsorship('You must be authorized to work in the US. We are unable to provide visa sponsorship.')
@@ -51,7 +54,8 @@ try {
   check('authorization in another country keeps the JD open',
     ['You must be authorized to work in the US or Canada. No visa sponsorship.',
       'You must be authorized to work in the US. Applicants may also be eligible to work in Canada. No visa sponsorship.',
-      'You must be authorized to work in the US. Work authorization in the UK is also accepted. No visa sponsorship.']
+      'You must be authorized to work in the US. Work authorization in the UK is also accepted. No visa sponsorship.',
+      'US work authorization required; UK work authorization also accepted. No sponsorship.']
       .every(text => !requiresUsAuthorizationWithoutSponsorship(text)));
   check('signals carry the benefits matcher of the long evaluation',
     usOnlySignals({ text: 'We offer a 401(k) and HSA.' }).join() === 'the JD offers 401(k), HSA');
@@ -79,6 +83,8 @@ try {
       'Platform Engineer\n\nWork remotely from anywhere. Open to Brazil, Canada, and the US. Paid time off.\n');
     writeFileSync(join(root, 'jds', 'mixed.md'),
       'Engineer\n\nYou must be authorized to work in the US. Applicants may also be eligible to work in Canada. We cannot provide visa sponsorship.\n');
+    writeFileSync(join(root, 'jds', 'mixed-before.md'),
+      'Engineer\n\nUS work authorization required; UK work authorization also accepted. No sponsorship.\n');
     const pipelinePath = join(root, 'data', 'pipeline.md');
     const pristine = [
       '## Pending',
@@ -91,13 +97,16 @@ try {
       '- [ ] https://boards.example/global/3 | Existing Global | Platform Engineer | Remote - LATAM | rank: cal-v3 4.6/5 — previous score',
       '- [ ] https://boards.example/mixed/4 | Mixed Title | Engineer Remote - US, Canada | Remote',
       '- [ ] local:jds/mixed.md | Mixed JD | Engineer | Remote',
+      '- [ ] https://boards.example/mixed/5 | Mixed Slash | Engineer (Remote - US/Canada) | Remote',
+      '- [ ] https://boards.example/mixed/6 | Mixed Location | Engineer | Remote - US/Canada',
+      '- [ ] local:jds/mixed-before.md | Mixed Before JD | Engineer | Remote',
       '',
     ].join('\n');
     writeFileSync(join(root, 'fake-scorer.cjs'), [
       'if (process.argv.length === 1) {',
       '  process.on("uncaughtException", () => {',
       '    require("fs").appendFileSync(process.env.PROMPT_LOG, process.execArgv[1] + "\\n=====\\n");',
-      '    process.stdout.write(JSON.stringify([0, 1, 2, 3, 4, 5].map(id => ({ id, score: 4.6, reason: "fake scorer" }))));',
+      '    process.stdout.write(JSON.stringify(Array.from({ length: 10 }, (_, id) => ({ id, score: 4.6, reason: "fake scorer" }))));',
       '    process.exitCode = 0;',
       '  });',
       '}',
@@ -140,6 +149,12 @@ try {
       run.row('boards.example/mixed/4').includes('| rank: cal-v3 4.6/5 — fake scorer')
         && run.row('local:jds/mixed.md').includes('| rank: cal-v3 4.6/5 — fake scorer')
         && run.prompts.includes('Mixed Title') && run.prompts.includes('Mixed JD'));
+    check('unspaced mixed places and country-first authorization reach the scorer',
+      run.row('boards.example/mixed/5').includes('| rank: cal-v3 4.6/5 — fake scorer')
+        && run.row('boards.example/mixed/6').includes('| rank: cal-v3 4.6/5 — fake scorer')
+        && run.row('local:jds/mixed-before.md').includes('| rank: cal-v3 4.6/5 — fake scorer')
+        && run.prompts.includes('Mixed Slash') && run.prompts.includes('Mixed Location')
+        && run.prompts.includes('Mixed Before JD'));
     check('the scorer never sees a US-only posting',
       ['Focus', 'Ad Hoc', 'Koniag'].every(name => !run.prompts.includes(name))
         && run.prompts.includes('Globex') && run.prompts.includes('Latamco')
