@@ -15,9 +15,9 @@
  * rewritten in place as `- [x] ~~URL | Company | Role~~ — posting expired (liveness
  * sweep)`, the same form modes/pipeline.md uses. Anything inconclusive is scored.
  *
- * Cost is bounded and reported: only pending (`- [ ]`) rows without the current
- * rank version are eligible, `--limit` caps how many are ranked per run
- * (default 20, hard ceiling 200), and a summary prints at the end.
+ * Cost is bounded and reported: pending (`- [ ]`) rows with a current rank
+ * version skip scorer calls, and `--limit` caps entries sent to the scorer
+ * (default 20, hard ceiling 200). A summary prints at the end.
  *
  * A posting that limits employment to the United States (see lib/us-only.mjs)
  * is annotated below the forwarding cutoff without a scorer call, with the
@@ -28,7 +28,7 @@
  * in AGENTS.md.
  *
  * Usage:
- *   node rank-pipeline.mjs                     # check and rank up to --limit pending entries
+ *   node rank-pipeline.mjs                     # screen pending rows; check and score up to --limit others
  *   node rank-pipeline.mjs --limit 10
  *   node rank-pipeline.mjs --cli codex         # override CLI auto-detection
  *   node rank-pipeline.mjs --model <name>      # passed through when the CLI takes one
