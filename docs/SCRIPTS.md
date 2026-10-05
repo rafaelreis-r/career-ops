@@ -46,7 +46,7 @@ utilities run via `node <script>` directly.
 | `node fix-slugs.mjs` | `fix-slugs.mjs` | Write `verify-portals.mjs`'s suggested ATS slug fixes back to portals.yml (dry run by default, `--fix` to write) |
 | `node audit-portals.mjs` | `audit-portals.mjs` | Audit what each portals.yml board actually serves — provider, posting count, sample titles — not just whether it answers (network; `--baseline` diffs against an earlier `--json` run) |
 | `npm run reposts` | `detect-reposts.mjs` | Flag re-listed (ghost) postings from scan history |
-| `node rank-pipeline.mjs` | `rank-pipeline.mjs` | Opt-in target-aware ranker — marks confirmed closed postings and scores the remaining selected rows |
+| `node rank-pipeline.mjs` | `rank-pipeline.mjs` | Opt-in target-aware ranker — screens US-only postings, then checks liveness and scores selected rows |
 | `node rank-calibration-replay.mjs` | `rank-calibration-replay.mjs` | Replay the historical cal-v1 calibration against its 84-pair fixture and persist metrics under ignored user data |
 | `node eval-queue.mjs` | `eval-queue.mjs` | Forwarding gate: queue pending pipeline rows with a cal-v3 score at or above the cutoff (default 2.5) for the long evaluation, holding US-only postings whose local JD offers US benefits, and listing what was held and why |
 | `npm run gemini:eval` | `gemini-eval.mjs` | Evaluate a JD with Google Gemini (free-tier alternative) |
@@ -979,23 +979,26 @@ Opt-in LLM relevance re-ranker for `data/pipeline.md`. **Off by default and not
 part of any scan** — `scan.mjs` stays 100% zero-token, and this costs nothing
 unless you run it yourself.
 
-The ranker checks off confirmed closed rows in place, then annotates the
-remaining selected rows. It never deletes or reorders rows.
-It appends a `rank: cal-v3 {score}/5 — {reason}` segment after existing
-`posted:`, `trust:`, or `note:` segments. The `cal-v3` label identifies the
-target-aware prompt and stores the scorer's raw 0-5 score. It does not apply
+The ranker annotates US-only pending rows, then checks selected remaining rows
+for liveness and scores open ones. It never deletes or reorders rows.
+It writes a `rank: cal-v3 {score}/5 — {reason}` segment after existing
+`posted:`, `trust:`, or `note:` segments, replacing an existing `cal-v3` segment
+when the US-only screen applies. For scored rows, the `cal-v3` label identifies
+the target-aware prompt and stores the scorer's raw 0-5 score. It does not apply
 the historical cal-v1 calibration knots. The 84-pair cal-v1 replay remains
 available for historical analysis. A row that reaches scoring stays unannotated
 when the scorer cannot return a usable reason or the CLI returns invalid JSON.
 
 Cost is bounded and reported. The ranker considers pending (`- [ ]`) rows
-without a current `cal-v3` annotation. `--limit` caps each run (default 20,
-hard ceiling 200), and the summary prints entries ranked, calls attempted, and
-elapsed time. Re-runs skip current annotations. Unversioned, cal-v1, and cal-v2
-annotations remain eligible for re-ranking. The target level may differ by pay
-currency (for example Mid-level or Senior individual contributors on target when
-paid in USD, Senior Manager, Head, or Director and above when paid in BRL); the
-ranker applies the one that matches the role's pay currency and market.
+without a current `cal-v3` annotation for scorer calls. `--limit` caps the
+entries sent to the scorer per run (default 20, hard ceiling 200). The summary
+prints entries ranked, current ranks replaced, calls attempted, and elapsed
+time. Re-runs skip current annotations unless the US-only screen applies.
+Unversioned, cal-v1, and cal-v2 annotations remain eligible for re-ranking.
+The target level may differ by pay currency (for example Mid-level or Senior
+individual contributors on target when paid in USD, Senior Manager, Head, or
+Director and above when paid in BRL); the ranker applies the one that matches
+the role's pay currency and market.
 
 With `TYPESAFE_API_KEY` set, Jev scores each entry and accepts results at or
 above `JEV_RANK_CONFIDENCE_THRESHOLD` (default `0.45`). Otherwise ranking uses
@@ -1011,8 +1014,34 @@ The minimum is the walk-away floor. Missing posting fields remain unknown.
 The ranker never treats an absent salary as low. Review the selected provider's
 data-retention settings before sending sensitive CV content.
 
+**US-only postings.** Before any scorer call, the ranker screens each row for
+employment limited to the United States, unless `location.authorized_in` in
+`config/profile.yml` lists the United States. A row is US-only when it shows any
+of these, read from the title, the row's location, and the JD text saved at its
+`local:jds/...` path (a URL row has no local text, so only its title and location
+count):
+
+- a US benefit in the JD: 401(k), disability insurance, FSA, or HSA (the matcher
+  `eval-queue.mjs` uses, in `lib/us-only.mjs`);
+- a location that names only US places (`Remote - US`, `United States`,
+  `Austin, TX`);
+- remote work limited to the US (`Remote (US)`, `US only`, `must reside in the
+  United States`);
+- a JD that requires US work authorization and rules out sponsorship.
+
+A location or remote-work line that also names another country or an open scope
+does not establish a US-only location or remote-work restriction. A plain
+`Remote` row is scored as usual unless another signal applies. A US-only row is
+annotated without a scorer call, so it costs no tokens and does not count
+against `--limit`. Its score is 1.0, or lower when `rank_forward_threshold` is at
+or below 1.1. The reason names the signal, for example
+`US-only employment: the JD offers 401(k), HSA`. This runs on both the Jev and
+CLI paths. Pending rows already carrying a `cal-v3` rank
+also pass through the US-only screen: a US-only rank is replaced, while other
+current ranks stay unchanged and are not sent to the scorer.
+
 ```bash
-node rank-pipeline.mjs                  # check up to 20 pending entries and rank open ones
+node rank-pipeline.mjs                  # screen pending rows; check and score up to 20 others
 node rank-pipeline.mjs --limit 10
 node rank-pipeline.mjs --cli codex      # override auto-detection
 node rank-pipeline.mjs --dry-run        # print annotations and expired marks, write nothing
@@ -1053,8 +1082,9 @@ for a dead posting:
 The row keeps its position (the ranker still never deletes or reorders rows) and
 drops its trailing columns. A live, unreadable, or inconclusive result (no public
 API for that ATS, LinkedIn ambiguity, Lever's non-authoritative 404, rate limit,
-network error, timeout) is scored as usual. Only rows selected by `--limit` are
-checked, and `--dry-run` prints the rows it would mark without writing. Turn the
+network error, timeout) proceeds to scoring. Only rows selected by `--limit` are
+checked for liveness; US-only rows have already been annotated. `--dry-run`
+prints the rows it would mark without writing. Turn the
 check off with `--no-liveness` or `CAREER_OPS_RANK_LIVENESS=0` (also `false`,
 `off`, `no`); the flag wins, an empty variable counts as unset, and any other
 value is refused with exit code 1.

@@ -9,7 +9,7 @@ Key sections:
 - **target_roles**: Target titles and archetypes.
 - **narrative**: Your headline, exit story, superpowers, proof points
 - **compensation**: Target range, minimum, currency
-- **location**: Country, timezone, visa status, on-site availability, and structured work authorization (`authorized_in`, `needs_sponsorship`) that drives the Work-Auth signal in job evaluation (flags an explicit no-sponsorship JD as a hard blocker). Unless `authorized_in` lists the United States, a JD that offers 401(k), disability insurance, FSA, or HSA counts as US-only employment: `node eval-queue.mjs` holds it when the JD is saved under `jds/`, and the evaluation scores it below 3.5
+- **location**: Country, timezone, visa status, on-site availability, and structured work authorization (`authorized_in`, `needs_sponsorship`). Work authorization drives the evaluation's Work-Auth check, where an explicit no-sponsorship JD can be a hard blocker. See [rank-pipeline and eval-queue](SCRIPTS.md#rank-pipeline) for the US-only screens and [oferta](../modes/oferta.md) for the evaluation rule.
 - **culture_screen**: Structural criteria for team culture (the `deprioritize_if_absent` strict flag caps the culture score at 2/5 if evidence is entirely missing)
 
 Set `target_roles.target_level` and `compensation.target_range` in `config/profile.yml` before ranking or running a full evaluation. A target level such as `Senior or Staff` sets the seniority comparison. The ranker also reads `compensation.minimum` when present. Full evaluations use both targets to weigh seniority and pay in the global score; without either target, evaluation stops before Block A.
