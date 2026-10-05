@@ -51,6 +51,7 @@ import { join } from 'path';
 import { isJevEnabled, jevAsk } from './lib/jev-client.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { loadPreGateProfile } from './jev-pregate.mjs';
+import { authorizedInUnitedStates, usOnlyBenefits } from './eval-queue.mjs';
 import { flagValue, hasFlag } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 
@@ -676,6 +677,40 @@ export function composeLegitimacy(answers) {
 }
 
 /**
+ * The candidate constraints list the United States under either shape this path
+ * actually sees: `location.authorized_in` on a profile.yml object, or the flat
+ * `authorized_in` loadPreGateProfile() already copied off that field.
+ * @param {object|null|undefined} profile
+ * @returns {boolean}
+ */
+function profileListsUnitedStates(profile) {
+  if (!profile || typeof profile !== 'object') return false;
+  return authorizedInUnitedStates(profile.location?.authorized_in)
+    || authorizedInUnitedStates(profile.authorized_in);
+}
+
+/**
+ * Deterministic Block A stop for a posting that offers US employee benefits
+ * the candidate cannot receive. Null when the United States is in authorized_in
+ * or the posting offers none of them — never a model gate.
+ * @param {string} jdText
+ * @param {object|null|undefined} profile
+ * @returns {{id: string, label: string, hard: true, probability: null, fired: true}|null}
+ */
+function usOnlyEmploymentStop(jdText, profile) {
+  if (profileListsUnitedStates(profile)) return null;
+  const benefits = usOnlyBenefits(jdText);
+  if (benefits.length === 0) return null;
+  return {
+    id: 'us_only_benefits',
+    label: `US-only employment: the JD offers ${benefits.join(', ')}`,
+    hard: true,
+    probability: null,
+    fired: true,
+  };
+}
+
+/**
  * How much one point of missing red-flag cleanliness costs the global score.
  * A posting rated "Minor caveats only" (4/5) or better costs nothing; each rung
  * below that subtracts this much.
@@ -691,12 +726,16 @@ export const RED_FLAG_PENALTY_PER_RUNG = 0.3;
  * posting for entirely the wrong job pull itself back toward the middle — the
  * exact compression that made the first fan-out read 3.1 where the prose path
  * read 2.0. A Block A hard gate then caps the result below the apply line.
+ * So does a JD that offers US-only benefits when the candidate's authorized_in
+ * does not list the United States: that stop is read off the posting, not asked.
  *
  * @param {object} answers - Merged answers from every pass.
  * @param {{company: string, role: string}} identity
+ * @param {{jdText?: string, profile?: object}} [context] - Posting text and the
+ *   candidate constraints (`authorized_in`, or `location.authorized_in`).
  * @returns {object} The composed evaluation.
  */
-export function composeEvaluation(answers, identity) {
+export function composeEvaluation(answers, identity, { jdText = '', profile = null } = {}) {
   const dimensions = SCORING_DIMENSIONS.map((dim) => ({
     id: dim.id,
     label: dim.label,
@@ -720,6 +759,8 @@ export function composeEvaluation(answers, identity) {
     const p = answers[gate.id]?.probability ?? null;
     return { id: gate.id, label: gate.label, hard: gate.hard, probability: p, fired: p !== null && p >= YES_THRESHOLD };
   });
+  const benefitStop = usOnlyEmploymentStop(jdText, profile);
+  if (benefitStop) gates.push(benefitStop);
   const hardStops = gates.filter((g) => g.hard && g.fired);
   if (score !== null && hardStops.length > 0) score = Math.min(score, 2.5);
 
@@ -961,7 +1002,10 @@ export async function evaluateWithJevFanout({ jdText, url = null, profile, cv, a
   if (failure) return { ok: false, error: failure.error || 'Jev is not enabled (no TYPESAFE_API_KEY)' };
 
   const answers = { ...pass1.answers, ...pass2Constraints.answers, ...pass2Cv.answers };
-  const evaluation = composeEvaluation(answers, extractPostingIdentity(jdText, url));
+  const evaluation = composeEvaluation(answers, extractPostingIdentity(jdText, url), {
+    jdText,
+    profile: candidateConstraints,
+  });
   if (evaluation.score === null) {
     return { ok: false, error: 'Jev returned no usable dimension scores', answers };
   }

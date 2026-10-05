@@ -12,9 +12,15 @@
  *              --force (which overrides the cutoff for a ranked posting).
  *   held       already evaluated (URL in a report's `**URL:**` header or in the
  *              tracker), already queued in batch-input.tsv, a duplicate of an
- *              equivalent pending row with an equal or higher rank, no cal-v3
- *              rank yet (waits for the daily rank run), or ranked below the
- *              cutoff.
+ *              equivalent pending row with an equal or higher rank, US-only
+ *              employment (the local JD offers 401(k), disability insurance,
+ *              FSA, or HSA), no cal-v3 rank yet (waits for the daily rank run),
+ *              or ranked below the cutoff.
+ *
+ * The US-only check reads the JD text only where it is on disk: a `local:jds/...`
+ * row. A URL row has no local text and goes on to the evaluation, which applies
+ * the same rule (docs/SCRIPTS.md → eval-queue). The check is skipped
+ * when `location.authorized_in` in config/profile.yml lists the United States.
  *
  * URLs compare on `normalizeUrlForDedup`, the scanners' key, so a LinkedIn
  * posting matches on its job id whatever tracking URL it arrived under.
@@ -32,7 +38,7 @@
  *   node eval-queue.mjs --force <url>      # repeatable
  */
 
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { parseArgs } from 'util';
@@ -87,6 +93,53 @@ export function loadForwardThreshold(profilePath) {
   const profile = yaml.load(readFileSync(profilePath, 'utf-8')) || {};
   return parseForwardThreshold(profile.rank_forward_threshold, `${profilePath} rank_forward_threshold`)
     ?? DEFAULT_FORWARD_THRESHOLD;
+}
+
+/**
+ * US employee benefits. A posting that offers any of them is US employment,
+ * even when it says remote: a contractor or EOR hire abroad does not get them.
+ * Acronyms match in capitals only, so ordinary words never trip them.
+ * $401k, and 401k at the top of a dashed range (250-401k, 180k - 401k), are pay.
+ */
+const US_ONLY_BENEFITS = [
+  ['401(k)', [/\b401\s?\(k\)|(?<!\$)(?<!\d{2,}\s*[-–—]\s*\$?)(?<!\d+k\s*[-–—]\s*\$?)\b401\s?k(?![a-z0-9])/i]],
+  ['disability insurance', [/\bdisability insurance\b/i]],
+  ['FSA', [/\bFSAs?\b/, /\bflexible spending accounts?\b/i]],
+  ['HSA', [/\bHSAs?\b/, /\bhealth savings accounts?\b/i]],
+];
+
+/**
+ * The US-only benefits a JD text offers, in a fixed order.
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function usOnlyBenefits(text) {
+  const jd = String(text ?? '');
+  return US_ONLY_BENEFITS
+    .filter(([, patterns]) => patterns.some(pattern => pattern.test(jd)))
+    .map(([label]) => label);
+}
+
+const UNITED_STATES = /^(u\.?s\.?(a\.?)?|united states( of america)?)$/i;
+
+/**
+ * Does this `authorized_in` list include the United States?
+ * @param {unknown} countries
+ * @returns {boolean}
+ */
+export function authorizedInUnitedStates(countries) {
+  return Array.isArray(countries) && countries.some(country => UNITED_STATES.test(String(country).trim()));
+}
+
+/**
+ * Does `location.authorized_in` in config/profile.yml list the United States?
+ * @param {string} profilePath
+ * @returns {boolean}
+ */
+export function loadUsAuthorized(profilePath) {
+  if (!existsSync(profilePath)) return false;
+  const authorized = (yaml.load(readFileSync(profilePath, 'utf-8')) || {}).location?.authorized_in;
+  return authorizedInUnitedStates(authorized);
 }
 
 /**
@@ -161,8 +214,10 @@ const fmt = score => score.toFixed(1);
  * @param {Map<string, string>} input.evaluated - from collectEvaluated.
  * @param {Map<string, string>} input.queued - normalized URL -> batch id.
  * @param {string[]} [input.force] - ranked URLs to forward regardless of cutoff.
+ * @param {(url: string) => string} [input.readLocalJd] - the JD text stored on disk
+ *   for a row, or '' when there is none; text offering US-only benefits holds the row.
  */
-export function planQueue({ rows, threshold, evaluated, queued, force = [] }) {
+export function planQueue({ rows, threshold, evaluated, queued, force = [], readLocalJd = () => '' }) {
   const forced = new Set(force.map(normalizeUrlForDedup));
   const representative = new Map();
   for (const row of rows) {
@@ -179,6 +234,11 @@ export function planQueue({ rows, threshold, evaluated, queued, force = [] }) {
     if (representative.get(key) !== row) { hold(`duplicate of pipeline.md line ${representative.get(key).line}`); continue; }
     if (evaluated.has(key)) { hold(`already evaluated (${evaluated.get(key)})`); continue; }
     if (queued.has(key)) { hold(`already queued (batch-input id ${queued.get(key)})`); continue; }
+    const benefits = usOnlyBenefits(readLocalJd(row.url));
+    if (benefits.length) {
+      hold(`US-only employment: the JD offers ${benefits.join(', ')}${forced.has(key) ? '; --force does not override it' : ''}`);
+      continue;
+    }
     if (row.rank === null) {
       hold(`no ${RANK_CALIBRATION_VERSION} rank yet, waits for the daily rank run${forced.has(key) ? `; --force requires a ${RANK_CALIBRATION_VERSION} rank` : ''}`);
       continue;
@@ -225,6 +285,14 @@ function readReports(dir) {
     .map(name => ({ name, text: readFileSync(join(dir, name), 'utf-8') }));
 }
 
+/** Text of a `local:` row's JD file under the data root; '' for URL rows, PDFs, and missing files. */
+function readLocalJd(url) {
+  if (!url.startsWith('local:')) return '';
+  const path = join(DATA_ROOT, url.slice('local:'.length));
+  if (/\.pdf$/i.test(path) || !existsSync(path) || !statSync(path).isFile()) return '';
+  return readFileSync(path, 'utf-8');
+}
+
 function printPlan(plan, write) {
   const line = row => `  ${row.url} | ${row.company} | ${row.title}\n      ${row.reason}`;
   console.log(`Forwarding cutoff: ${RANK_CALIBRATION_VERSION} >= ${fmt(plan.threshold)}`);
@@ -254,9 +322,12 @@ async function main(argv) {
   }
   if (values.help) { console.log(USAGE); return 0; }
 
+  const profilePath = join(DATA_ROOT, 'config', 'profile.yml');
   let threshold;
+  let usAuthorized;
   try {
-    threshold = loadForwardThreshold(join(DATA_ROOT, 'config', 'profile.yml'));
+    threshold = loadForwardThreshold(profilePath);
+    usAuthorized = loadUsAuthorized(profilePath);
   } catch (err) {
     console.error(err.message);
     return 2;
@@ -276,6 +347,7 @@ async function main(argv) {
       }),
       queued: inputRows.byKey,
       force: values.force,
+      readLocalJd: usAuthorized ? undefined : readLocalJd,
     });
     if (plan.unknownForce.length) return { plan, written: '' };
 
