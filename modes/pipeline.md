@@ -118,9 +118,10 @@ are defined:
 - `| rank: cal-v3 {score}/5 — {reason}` — an **opt-in** target-aware rank annotation written
   only by `node rank-pipeline.mjs`, never by a scan. The score is 0–5 to one
   decimal and always carries a one-line reason, so you can disagree with it. It
-  is advisory only: the ranker never removes, reorders, or hides a row, and an
-  unranked row simply has no usable current-version annotation, not that it
-  scored badly. `eval-queue.mjs` reads it as the forwarding gate (see
+  is advisory only: an unranked pending row has no usable current-version
+  annotation, not a low score. The ranker can also mark a confirmed closed
+  posting in place before scoring it; see `docs/SCRIPTS.md` → rank-pipeline
+  for that behavior. `eval-queue.mjs` reads the score as the forwarding gate (see
   **Forwarding gate** above); the ranker itself never decides. Unmarked
   `rank: {score}/5` segments and cal-v1 or cal-v2 scores are old versions that
   the ranker replaces when it successfully re-ranks the row. (A row can go
