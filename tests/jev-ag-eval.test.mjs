@@ -209,3 +209,50 @@ const broken = await evaluateWithJevFanout({ jdText: JD, ask: async () => ({ ena
 ok('a Jev error is reported so the caller can fall back', broken.ok === false && broken.error === 'Jev HTTP 500');
 if (hadKey === undefined) delete process.env.TYPESAFE_API_KEY;
 else process.env.TYPESAFE_API_KEY = hadKey;
+
+// --- 6. US-only benefits cap the fan-out without asking a model gate --------
+// A remote posting that never mentions sponsorship still clears gate_no_sponsorship.
+// 401(k), disability insurance, FSA, and HSA are US employment anyway, and the
+// composed score has to land below the 3.5 apply line in the report the runners parse.
+
+const MON_AMI = [
+  'Senior Product Manager (Remote)',
+  '',
+  'Benefits: medical, dental, 401(k) with match, disability insurance, FSA and HSA.',
+].join('\n');
+const NO_BENEFITS = 'Senior Product Manager (Remote)\n\nPerks: home-office stipend, paid time off.';
+const BENEFIT_STOP = 'US-only employment: the JD offers 401(k), disability insurance, FSA, HSA';
+
+async function answerHigh({ questions }) {
+  const answers = {};
+  const all = answersAt({ dimension: 4, gate: 0.05 });
+  for (const id of Object.keys(questions)) answers[id] = all[id];
+  return { enabled: true, usage: { input_tokens: 1, output_tokens: 1 }, answers };
+}
+
+function evaluateHigh(jdText, profile) {
+  return evaluateWithJevFanout({ jdText, profile, cv: 'Product manager.', ask: answerHigh });
+}
+
+const capped = await evaluateHigh(MON_AMI, { country: 'Brazil', authorized_in: ['Brazil'], needs_sponsorship: false });
+const cappedSummary = capped.text?.match(/^SCORE:\s*(\d+\.\d)/m);
+ok('US-only benefits cap a remote JD below 3.5 when sponsorship was never mentioned',
+  capped.ok && capped.evaluation.score <= 2.5 && capped.evaluation.score < 3.5
+  && cappedSummary && Number(cappedSummary[1]) === capped.evaluation.score);
+ok('the cap is a hard stop naming the benefits, and the sponsorship gate stays clear',
+  capped.evaluation.warnings.some((w) => w.includes(BENEFIT_STOP))
+  && capped.text.includes(BENEFIT_STOP)
+  && capped.evaluation.gates.find((g) => g.id === 'gate_no_sponsorship')?.fired === false);
+ok('the same JD caps when authorized_in is still nested under location',
+  (await evaluateHigh(MON_AMI, { location: { authorized_in: ['Brazil'] }, needs_sponsorship: false })).evaluation.score <= 2.5);
+
+const authorizedFlat = await evaluateHigh(MON_AMI, { authorized_in: ['Brazil', 'United States'] });
+const authorizedNested = await evaluateHigh(MON_AMI, { location: { authorized_in: ['United States'] } });
+const noBenefits = await evaluateHigh(NO_BENEFITS, { authorized_in: ['Brazil'] });
+ok('listing the United States skips the benefits cap',
+  authorizedFlat.evaluation.score >= 3.5 && authorizedFlat.evaluation.score === noBenefits.evaluation.score
+  && !authorizedFlat.evaluation.warnings.some((w) => w.includes('US-only employment')));
+ok('a nested location.authorized_in of United States also skips the cap',
+  authorizedNested.evaluation.score === noBenefits.evaluation.score);
+ok('a JD without those benefits is not capped for a candidate outside the US',
+  noBenefits.evaluation.score >= 3.5);
