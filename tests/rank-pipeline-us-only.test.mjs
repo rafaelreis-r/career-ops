@@ -30,7 +30,8 @@ try {
     ['Remote', '', 'Remote - LATAM', 'Remote - Brazil', 'Remote - US or Brazil', 'Remote (Worldwide)',
       'Remote - Global', 'London, UK', 'Remote - Georgia', 'San Francisco, CA; London', 'Remote; New York, NY',
       'New York · London', 'Remote - US, Canada', 'Remote - US/Canada', 'Remote - US/Brazil',
-      'Remote - US|Canada', 'Remote - US&Canada', 'Remote - US;Canada', 'Remote - US·Canada']
+      'Remote - US|Canada', 'Remote - US&Canada', 'Remote - US;Canada', 'Remote - US·Canada',
+      'Remote - Canada (New York office)']
       .every(location => !isUsOnlyLocation(location)));
   check('remote limited to the US is read from title and JD lines',
     ['Staff Platform Engineer (Remote - US)', 'Remote within the United States', 'US-only role',
@@ -100,6 +101,7 @@ try {
       '- [ ] https://boards.example/mixed/5 | Mixed Slash | Engineer (Remote - US/Canada) | Remote',
       '- [ ] https://boards.example/mixed/6 | Mixed Location | Engineer | Remote - US/Canada',
       '- [ ] local:jds/mixed-before.md | Mixed Before JD | Engineer | Remote',
+      '- [ ] https://boards.example/mixed/7 | Canada Office | Engineer | Remote - Canada (New York office)',
       '',
     ].join('\n');
     writeFileSync(join(root, 'fake-scorer.cjs'), [
@@ -155,6 +157,9 @@ try {
         && run.row('local:jds/mixed-before.md').includes('| rank: cal-v3 4.6/5 — fake scorer')
         && run.prompts.includes('Mixed Slash') && run.prompts.includes('Mixed Location')
         && run.prompts.includes('Mixed Before JD'));
+    check('a Canadian location with a New York office reaches the scorer',
+      run.row('boards.example/mixed/7').includes('| rank: cal-v3 4.6/5 — fake scorer')
+        && run.prompts.includes('Canada Office'));
     check('the scorer never sees a US-only posting',
       ['Focus', 'Ad Hoc', 'Koniag'].every(name => !run.prompts.includes(name))
         && run.prompts.includes('Globex') && run.prompts.includes('Latamco')
