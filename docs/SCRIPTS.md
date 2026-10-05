@@ -1036,6 +1036,28 @@ node rank-pipeline.mjs --batch 3 --timeout-ms 300000
 CAREER_OPS_RANK_TIMEOUT_MS=300000 node rank-pipeline.mjs
 ```
 
+Before scoring, the ranker checks each selected row's posting against its ATS's
+public API (`liveness-api.mjs`: Greenhouse, Lever, Ashby, Workday, and the other
+providers listed under `check-liveness`). It uses no browser and no tokens, runs
+at most 5 checks at a time, and keeps the library's per-request timeouts and
+per-provider throttle. Only a definitive closed verdict (HTTP 404/410, or an
+Ashby job missing from the org board) acts: the row is not scored and is
+rewritten in place, with the same strikethrough form `modes/pipeline.md` uses
+for a dead posting:
+
+```
+- [x] ~~https://boards.greenhouse.io/acme/jobs/111 | Acme | Closed Role~~ — posting expired (liveness sweep)
+```
+
+The row keeps its position (the ranker still never deletes or reorders rows) and
+drops its trailing columns. A live, unreadable, or inconclusive result (no public
+API for that ATS, LinkedIn ambiguity, Lever's non-authoritative 404, rate limit,
+network error, timeout) is scored as usual. Only rows selected by `--limit` are
+checked, and `--dry-run` prints the rows it would mark without writing. Turn the
+check off with `--no-liveness` or `CAREER_OPS_RANK_LIVENESS=0` (also `false`,
+`off`, `no`); the flag wins, an empty variable counts as unset, and any other
+value is refused with exit code 1.
+
 The offline replay writes both its canonical 84-pair fixture and calibrated
 output below `data/rank-calibration/`, which is covered by the repository's
 blanket `data/*` ignore rule:

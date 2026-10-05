@@ -13,6 +13,11 @@
  * the scorer cannot explain is left un-annotated rather than reduced to a bare
  * number.
  *
+ * Before scoring, each selected row is checked against its ATS's public API
+ * (liveness-api.mjs, zero tokens). A posting confirmed closed is not scored; it is
+ * rewritten in place as `- [x] ~~URL | Company | Role~~ — posting expired (liveness
+ * sweep)`, the same form modes/pipeline.md uses. Anything inconclusive is scored.
+ *
  * Cost is bounded and reported: only pending (`- [ ]`) rows without the current
  * rank version are eligible, `--limit` caps how many are ranked per run
  * (default 20, hard ceiling 200), and a summary prints at the end.
@@ -26,6 +31,7 @@
  *   node rank-pipeline.mjs --limit 10
  *   node rank-pipeline.mjs --cli codex         # override CLI auto-detection
  *   node rank-pipeline.mjs --model <name>      # passed through when the CLI takes one
+ *   node rank-pipeline.mjs --no-liveness       # skip the closed-posting check before scoring
  *   node rank-pipeline.mjs --dry-run           # print what would be written
  *   node rank-pipeline.mjs --self-test         # in-memory suite; spawns no subprocess
  */
@@ -41,6 +47,8 @@ import { withPipelineLock } from './pipeline-lock.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { isJevEnabled, jevScore } from './lib/jev-client.mjs';
+import { checkLivenessViaApi } from './liveness-api.mjs';
+import { mapLimit } from './lib/email-reconcile.mjs';
 
 const CAREER_OPS = dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = getCareerOpsRoot();
@@ -83,7 +91,7 @@ export const CLI_CANDIDATES = [
 const USAGE = `
   rank-pipeline.mjs — opt-in LLM relevance re-ranker (annotates, never filters)
 
-  node rank-pipeline.mjs [--limit N] [--cli <name>] [--model <name>] [--batch N] [--timeout-ms N] [--dry-run]
+  node rank-pipeline.mjs [--limit N] [--cli <name>] [--model <name>] [--batch N] [--timeout-ms N] [--no-liveness] [--dry-run]
 
     --limit N        max entries to rank this run (default ${DEFAULT_LIMIT}, ceiling ${LIMIT_CEILING})
     --cli <name>     force a CLI instead of auto-detecting
@@ -92,6 +100,9 @@ const USAGE = `
                      env CAREER_OPS_RANK_BATCH). CLI path only; Jev scores one entry per call
     --timeout-ms N   per-call CLI timeout in ms (default ${DEFAULT_CLI_TIMEOUT_MS};
                      env CAREER_OPS_RANK_TIMEOUT_MS). CLI path only
+    --no-liveness    skip the closed-posting check that runs before scoring (env
+                     CAREER_OPS_RANK_LIVENESS=0). Confirmed-closed rows are marked
+                     \`- [x] ~~…~~ — posting expired (liveness sweep)\` and not scored
     --dry-run        print the annotations, write nothing
     --self-test      run the in-memory suite (no subprocess, no network)
 `;
@@ -197,6 +208,88 @@ export function applyAnnotations(text, pending) {
     })
     .join('\n');
   return { text: out, written };
+}
+
+// ── Liveness gate ────────────────────────────────────────────────────────────
+//
+// A closed posting is not worth a scoring call, and a high score on a dead link
+// sends the long evaluation after a posting nobody can apply to. Before scoring,
+// each selected row goes through the zero-token ATS-API rung of the repo's
+// liveness ladder (liveness-api.mjs). Only a definitive `expired` verdict acts:
+// `active`, `uncertain`, and `null` (no public API for that ATS, LinkedIn-style
+// ambiguity, rate limit, network error) all fall through to normal scoring.
+// A confirmed-closed row is written the way modes/pipeline.md records a dead
+// posting — `- [x] ~~URL | Company | Role~~ — posting expired (liveness sweep)` —
+// in place, so the row is neither dropped nor reordered.
+export const LIVENESS_CONCURRENCY = 5;
+const EXPIRED_NOTE = 'posting expired (liveness sweep)';
+const LIVENESS_OFF_VALUES = new Set(['0', 'false', 'off', 'no']);
+const LIVENESS_ON_VALUES = new Set(['1', 'true', 'on', 'yes']);
+
+/**
+ * Whether the liveness gate runs. On by default; `--no-liveness` or
+ * `CAREER_OPS_RANK_LIVENESS=0|false|off|no` turns it off (flag wins). An
+ * unrecognised variable value is refused rather than read as "on".
+ */
+export function resolveLivenessEnabled(args, env = process.env) {
+  if (hasFlag(args, '--no-liveness')) return false;
+  const raw = env.CAREER_OPS_RANK_LIVENESS;
+  if (raw === undefined || String(raw).trim() === '') return true;
+  const value = String(raw).trim().toLowerCase();
+  if (LIVENESS_OFF_VALUES.has(value)) return false;
+  if (LIVENESS_ON_VALUES.has(value)) return true;
+  throw new Error(`Invalid CAREER_OPS_RANK_LIVENESS: "${raw}" — expected 1/true/on/yes or 0/false/off/no.`);
+}
+
+/** The pipeline row for a closed posting: strikethrough, checked, url/company/role only. */
+export function markExpiredRow(rawLine) {
+  const cells = rawLine.slice(6).split('|').map(c => c.trim());
+  return `- [x] ~~${cells.slice(0, 3).join(' | ')}~~ — ${EXPIRED_NOTE}`;
+}
+
+/**
+ * Split entries into those still worth scoring and those confirmed closed.
+ * `check` is liveness-api's checkLivenessViaApi; a throw counts as inconclusive.
+ *
+ * @param {{url: string}[]} entries
+ * @returns {Promise<{open: object[], closed: object[]}>}
+ */
+export async function splitClosedPostings(entries, check = checkLivenessViaApi, concurrency = LIVENESS_CONCURRENCY) {
+  const verdicts = await mapLimit(entries, concurrency, async entry => {
+    try {
+      return (await check(entry.url))?.result === 'expired';
+    } catch {
+      return false;
+    }
+  });
+  return {
+    open: entries.filter((_, i) => !verdicts[i]),
+    closed: entries.filter((_, i) => verdicts[i]),
+  };
+}
+
+/**
+ * Rewrite confirmed-closed pending rows, each matched once in file order (the
+ * same duplicate-row rule as applyAnnotations).
+ *
+ * @param {string} text - current pipeline.md contents.
+ * @param {string[]} rawLines - original rows to mark.
+ * @returns {{text: string, marked: number}}
+ */
+export function applyExpiredMarks(text, rawLines) {
+  const queue = [...rawLines];
+  let marked = 0;
+  const out = String(text ?? '')
+    .split('\n')
+    .map(line => {
+      const at = queue.indexOf(line);
+      if (at === -1 || !line.startsWith('- [ ] ')) return line;
+      queue.splice(at, 1);
+      marked += 1;
+      return markExpiredRow(line);
+    })
+    .join('\n');
+  return { text: out, marked };
 }
 
 /** Respects --limit and the ceiling the flag cannot raise. Deterministic: file order. */
@@ -447,8 +540,10 @@ async function main(args) {
     return 0;
   }
   let tuning;
+  let livenessEnabled;
   try {
     tuning = resolveCliTuning(args);
+    livenessEnabled = resolveLivenessEnabled(args);
   } catch (err) {
     console.error(err.message);
     return 1;
@@ -484,7 +579,10 @@ async function main(args) {
     console.log('No unranked pending entries. Nothing to do.');
     return 0;
   }
-  const selected = selectBatch(pending, limit);
+  const picked = selectBatch(pending, limit);
+  let selected = picked;
+  let closed = [];
+  if (livenessEnabled) ({ open: selected, closed } = await splitClosedPostings(picked));
   const cvExcerpt = existsSync(CV_PATH) ? readFileSync(CV_PATH, 'utf-8').slice(0, 2000) : '';
   const targets = loadRankTargets();
 
@@ -539,30 +637,36 @@ async function main(args) {
   const elapsed = ((Date.now() - started) / 1000).toFixed(1);
 
   if (dryRun) {
+    for (const { raw } of closed) console.log(markExpiredRow(raw));
     for (const { raw, segment } of annotations) console.log(`${raw} | ${segment}`);
-    console.log(`\n  [dry-run] would annotate ${annotations.length} of ${selected.length} selected entr(ies).`);
+    if (livenessEnabled) console.log(`\n  [dry-run] would mark ${closed.length} closed posting(s) expired.`);
+    console.log(`  [dry-run] would annotate ${annotations.length} of ${selected.length} selected entr(ies).`);
     return 0;
   }
 
   let written = 0;
-  if (annotations.length) {
+  let marked = 0;
+  if (annotations.length || closed.length) {
     // Re-read inside the lock: scan.mjs, scan-ats-full.mjs and a concurrent run of
     // this script all write data/pipeline.md, so the file may have moved since the
     // read above. Matching on the original raw line makes a stale target a no-op
     // rather than a corrupted row.
     await withPipelineLock(PIPELINE_PATH, () => {
       const current = readFileSync(PIPELINE_PATH, 'utf-8');
-      const result = applyAnnotations(current, annotations);
+      const expired = applyExpiredMarks(current, closed.map(e => e.raw));
+      const result = applyAnnotations(expired.text, annotations);
+      marked = expired.marked;
       written = result.written;
-      if (written) writeFileSync(PIPELINE_PATH, result.text);
+      if (marked || written) writeFileSync(PIPELINE_PATH, result.text);
     });
   }
 
   const via = jevEnabled ? 'Jev' : cli.bin;
   console.log(`\n  Ranked ${written} entr(ies) of ${pending.length} pending in ${attemptedCalls} ${jevEnabled ? 'Jev' : 'CLI'} call(s) via ${via}.`);
+  if (livenessEnabled) console.log(`  Liveness: ${marked} closed posting(s) marked expired and not scored.`);
   if (skippedBatches) console.log(`  ${skippedBatches} batch(es) skipped — those rows are un-annotated, not dropped.`);
-  if (pending.length > selected.length) {
-    console.log(`  ${pending.length - selected.length} pending entr(ies) not ranked this run (--limit ${selectBatch(pending, limit).length}). Re-run to continue.`);
+  if (pending.length > picked.length) {
+    console.log(`  ${pending.length - picked.length} pending entr(ies) not ranked this run (--limit ${picked.length}). Re-run to continue.`);
   }
   console.log(`  Elapsed: ${elapsed}s`);
   console.log(`  Cost: not reported by \`${via}\` in headless mode — check your CLI's own usage view.`);

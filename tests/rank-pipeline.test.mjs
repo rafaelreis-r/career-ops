@@ -364,6 +364,92 @@ try {
       rmSync(tuneRoot, { recursive: true, force: true });
     }
 
+    // Liveness gate. The preload stubs globalThis.fetch (as the other liveness
+    // suites do) so no request leaves the machine: Greenhouse job 111 answers 404
+    // (closed), 222 answers 200 (live), and Lever's public API answers 404 but is
+    // non-authoritative, so that row is inconclusive and must still be scored.
+    const liveRoot = mkdtempSync(join(tmpdir(), 'career-ops-ranker-liveness-'));
+    try {
+      mkdirSync(join(liveRoot, 'data'));
+      mkdirSync(join(liveRoot, 'config'));
+      writeFileSync(join(liveRoot, 'config', 'profile.yml'),
+        'target_roles:\n  target_level: Director\ncompensation:\n  target_range: USD 8K/month\n');
+      const livePipeline = join(liveRoot, 'data', 'pipeline.md');
+      const fetchLog = join(liveRoot, 'fetch.log');
+      const closedRow = '- [ ] https://boards.greenhouse.io/acme/jobs/111 | Acme | Closed Role | Remote | posted: 2026-09-28';
+      const pristine = [
+        '## Pending',
+        closedRow,
+        '- [ ] https://boards.greenhouse.io/acme/jobs/222 | Beta | Live Role',
+        '- [ ] https://jobs.lever.co/gamma/abc | Gamma | Inconclusive Role',
+        '- [ ] https://x.test/4 | Delta | No Public API',
+        '',
+      ].join('\n');
+      writeFileSync(join(liveRoot, 'preload.cjs'), [
+        'const { appendFileSync } = require("fs");',
+        'globalThis.fetch = async (url) => {',
+        '  appendFileSync(process.env.FETCH_LOG, String(url) + "\\n");',
+        '  if (String(url).endsWith("/jobs/111")) return new Response("", { status: 404 });',
+        '  if (String(url).endsWith("/jobs/222")) return new Response("{}", { status: 200 });',
+        '  if (String(url).includes("/postings/")) return new Response("", { status: 404 });',
+        '  throw new Error("unexpected fetch " + url);',
+        '};',
+        'if (process.argv.length === 1) {',
+        '  process.on("uncaughtException", () => {',
+        '    process.stdout.write(JSON.stringify([0, 1, 2].map(id => ({ id, score: 3, reason: "fake" }))));',
+        '  });',
+        '}',
+        '',
+      ].join('\n'));
+      const rank = (extraArgs, extraEnv = {}) => {
+        writeFileSync(livePipeline, pristine);
+        writeFileSync(fetchLog, '');
+        const env = { ...process.env, CAREER_OPS_ROOT: liveRoot, TYPESAFE_API_KEY: '',
+          NODE_OPTIONS: '--require=./preload.cjs', FETCH_LOG: fetchLog };
+        delete env.CAREER_OPS_RANK_LIVENESS;
+        const r = spawnSync(process.execPath,
+          [join(ROOT, 'rank-pipeline.mjs'), '--cli', process.execPath, ...extraArgs],
+          { encoding: 'utf8', cwd: liveRoot, env: { ...env, ...extraEnv } });
+        return { ...r, lines: readFileSync(livePipeline, 'utf8').split('\n'),
+          fetched: readFileSync(fetchLog, 'utf8').split('\n').filter(Boolean) };
+      };
+      const rankedRows = lines => lines.filter(l => l.includes('| rank: cal-v3')).length;
+
+      const gated = rank([]);
+      check('a closed Greenhouse posting is rewritten in the repo\'s expired-row form, in place',
+        gated.status === 0
+          && gated.lines[1] === '- [x] ~~https://boards.greenhouse.io/acme/jobs/111 | Acme | Closed Role~~ — posting expired (liveness sweep)');
+      check('live, inconclusive, and no-API rows are all scored and keep their position',
+        rankedRows(gated.lines) === 3
+          && gated.lines[2].startsWith('- [ ] https://boards.greenhouse.io/acme/jobs/222 | Beta | Live Role | rank: cal-v3')
+          && gated.lines[3].startsWith('- [ ] https://jobs.lever.co/gamma/abc | Gamma | Inconclusive Role | rank: cal-v3')
+          && gated.lines[4].startsWith('- [ ] https://x.test/4 | Delta | No Public API | rank: cal-v3'));
+      check('only ATS postings are fetched, one request each',
+        gated.fetched.length === 3 && gated.fetched.every(u => /boards-api\.greenhouse\.io|api\.lever\.co/.test(u)));
+      check('the run reports how many closed postings were marked',
+        /Liveness: 1 closed posting\(s\) marked expired/.test(gated.stdout));
+
+      const dry = rank(['--dry-run']);
+      check('--dry-run reports the closed row but writes nothing',
+        dry.status === 0 && dry.lines.join('\n') === pristine && /posting expired \(liveness sweep\)/.test(dry.stdout));
+
+      for (const [label, flags, env] of [
+        ['--no-liveness', ['--no-liveness'], {}],
+        ['CAREER_OPS_RANK_LIVENESS=0', [], { CAREER_OPS_RANK_LIVENESS: '0' }],
+      ]) {
+        const off = rank(flags, env);
+        check(`${label} makes no liveness request and leaves the closed row pending`,
+          off.status === 0 && off.fetched.length === 0 && off.lines[1].startsWith(closedRow)
+            && !off.lines.some(l => l.startsWith('- [x]')));
+      }
+
+      const bad = rank([], { CAREER_OPS_RANK_LIVENESS: 'maybe' });
+      check('an unrecognised CAREER_OPS_RANK_LIVENESS value is refused',
+        bad.status === 1 && /CAREER_OPS_RANK_LIVENESS/.test(bad.stderr) && bad.lines.join('\n') === pristine);
+    } finally {
+      rmSync(liveRoot, { recursive: true, force: true });
+    }
+
     const fixturePath = join(testDir, 'fixture.json');
     const outputPath = join(testDir, 'replay.json');
     execFileSync(process.execPath, [join(ROOT, 'rank-calibration-replay.mjs'),
