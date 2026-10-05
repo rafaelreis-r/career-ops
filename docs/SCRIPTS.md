@@ -1071,10 +1071,12 @@ when it says remote. The gate checks the JD text only when it is on disk: a
 `local:jds/...` row whose file is not a PDF. The held row's reason names the
 benefits found, for example
 `US-only employment: the JD offers 401(k), HSA`, and `--force` does not
-override it. A URL row has no local text, so it goes on to the evaluation, where
-`modes/oferta.md` and `batch/batch-prompt.md` apply the same rule: work
-authorization ⛔, a `hard_stop`, and a global score below 3.5. Both the gate and
-the evaluation skip the rule when `location.authorized_in` in
+override it. A URL row has no local text, so it goes on to the evaluation,
+which records the same reason and scores below 3.5. Prose evaluations follow
+`modes/oferta.md` and `batch/batch-prompt.md`. The Jev fan-out
+(`jev-ag-eval.mjs`) does not send those prompts: it reads the benefits off the
+posting and caps the score through the existing hard-stop cap. Both the gate
+and the evaluation skip the rule when `location.authorized_in` in
 `config/profile.yml` lists the United States.
 
 The cutoff is `rank_forward_threshold` in `config/profile.yml`, on the raw

@@ -19,7 +19,7 @@
  *
  * The US-only check reads the JD text only where it is on disk: a `local:jds/...`
  * row. A URL row has no local text and goes on to the evaluation, which applies
- * the same rule (modes/oferta.md, batch/batch-prompt.md). The check is skipped
+ * the same rule (docs/SCRIPTS.md → eval-queue). The check is skipped
  * when `location.authorized_in` in config/profile.yml lists the United States.
  *
  * URLs compare on `normalizeUrlForDedup`, the scanners' key, so a LinkedIn
