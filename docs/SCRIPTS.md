@@ -48,7 +48,7 @@ utilities run via `node <script>` directly.
 | `npm run reposts` | `detect-reposts.mjs` | Flag re-listed (ghost) postings from scan history |
 | `node rank-pipeline.mjs` | `rank-pipeline.mjs` | Opt-in target-aware ranker — annotates pending pipeline rows with a score + reason (off by default) |
 | `node rank-calibration-replay.mjs` | `rank-calibration-replay.mjs` | Replay the historical cal-v1 calibration against its 84-pair fixture and persist metrics under ignored user data |
-| `node eval-queue.mjs` | `eval-queue.mjs` | Forwarding gate: queue pending pipeline rows with a cal-v3 score at or above the cutoff (default 2.5) for the long evaluation, listing what was held and why |
+| `node eval-queue.mjs` | `eval-queue.mjs` | Forwarding gate: queue pending pipeline rows with a cal-v3 score at or above the cutoff (default 2.5) for the long evaluation, holding US-only postings whose local JD offers US benefits, and listing what was held and why |
 | `npm run gemini:eval` | `gemini-eval.mjs` | Evaluate a JD with Google Gemini (free-tier alternative) |
 | `npm run ollama:eval` | `ollama-eval.mjs` | Evaluate a JD with a local Ollama model |
 | `npm run openai:eval` | `openai-eval.mjs` | Evaluate a JD via any OpenAI-compatible endpoint |
@@ -1057,11 +1057,25 @@ It prints two lists, with one reason per row:
     `reports/`, or in the tracker;
   - already queued in `batch-input.tsv`;
   - another pending row for the same posting has an equal or higher cal-v3 rank;
+  - US-only employment: the JD offers 401(k), disability insurance, FSA, or HSA;
   - no `cal-v3` rank yet: the row stays pending until a rank run scores it;
   - ranked below the cutoff.
 
 URLs compare on the scanners' dedupe key (`normalizeUrlForDedup`), so a
 LinkedIn posting matches on its job id whatever tracking URL it arrived under.
+
+**US-only benefits.** 401(k) (also 401k or 401 (k)), disability insurance, FSA
+(Flexible Spending Account), and HSA (Health Savings Account) are benefits for
+employees on a US payroll, so a JD that offers any of them is US employment even
+when it says remote. The gate checks the JD text only when it is on disk: a
+`local:jds/...` row whose file is not a PDF. The held row's reason names the
+benefits found, for example
+`US-only employment: the JD offers 401(k), HSA`, and `--force` does not
+override it. A URL row has no local text, so it goes on to the evaluation, where
+`modes/oferta.md` and `batch/batch-prompt.md` apply the same rule: work
+authorization ⛔, a `hard_stop`, and a global score below 3.5. Both the gate and
+the evaluation skip the rule when `location.authorized_in` in
+`config/profile.yml` lists the United States.
 
 The cutoff is `rank_forward_threshold` in `config/profile.yml`, on the raw
 cal-v3 score scale (0-5), default **2.5**. A value outside 0-5 stops the

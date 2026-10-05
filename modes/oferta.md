@@ -96,6 +96,19 @@ On a ⛔ determination, add exactly one flag line at the top of Block B in the r
 
 The flag is additive only; ✅ / ➖ / ⚠️ emit no flag line.
 
+### US-only benefits check
+
+A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: these are benefits for employees on a US payroll, and a contractor or EOR hire abroad does not get them. When the United States is **not** in `authorized_in`, this is an eligibility blocker regardless of `needs_sponsorship` or a "remote" label:
+
+- Classify the work-authorization tier as ⛔ **No sponsorship**.
+- Record `US-only employment: the JD offers {benefits found}` as a `hard_stop`.
+- Score the global result **below 3.5**, whatever the role and CV match, and give that reason in the report.
+- Add this flag line at the top of Block B instead of the No-sponsorship line, quoting the benefits **verbatim**:
+
+`⛔ **US-only benefits:** JD offers "{verbatim benefits line}", which is US employment, and the United States is outside your authorized_in`
+
+When the United States is in `authorized_in`, these benefits are not a blocker and the check emits nothing.
+
 ## Block B — Match with CV
 
 One table, one row per significant JD requirement, mapped to exact evidence in the primary files (`cv.md` first, then `article-digest.md`, `config/profile.yml`, `modes/_profile.md`). Block B **is** the requirement→evidence mapping for the whole report: never emit a second matrix that re-enumerates the same requirements, because nothing keeps two lists in sync and the first disagreement between them contradicts the report in a way no test can catch.
