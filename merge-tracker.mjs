@@ -31,7 +31,7 @@ import { normalizeReportLink as normalizeLink } from './tracker-links.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { roleFuzzyMatch } from './role-matcher.mjs';
 import { parsePdfIndex, livePdfIndex } from './find.mjs';
-import { LEGACY_COLMAP, TSV_REQUIRED_FIELDS, detectColumns, isHeaderRow, resolveScoreStatus, looksLikeTsvHeaderRow, resolveTsvColumns, looksLikeScoreCell, normalizeVia, normalizeTextKey, SEPARATOR_ROW_RE, extractReqNumber, extractCellUrl, parseMarkdownLinks } from './tracker-parse.mjs';
+import { LEGACY_COLMAP, TSV_REQUIRED_FIELDS, detectColumns, isHeaderRow, isGluedRow, rowStartNumbers, resolveScoreStatus, looksLikeTsvHeaderRow, resolveTsvColumns, looksLikeScoreCell, normalizeVia, normalizeTextKey, SEPARATOR_ROW_RE, extractReqNumber, extractCellUrl, parseMarkdownLinks } from './tracker-parse.mjs';
 // The ATS vendor table shared with analyze-patterns.mjs and the scanners, so
 // the URL cell's label and the per-vendor analysis name a board identically.
 import { atsVendorOf } from './ats-vendor.mjs';
@@ -936,14 +936,17 @@ export async function mergeTracker(options = {}) {
   /**
    * Parse one Markdown applications.md table row into a tracker object.
    *
-   * Header/separator rows and malformed rows return null. Valid rows preserve the
-   * original raw line so the merge logic can locate and replace the exact tracker
-   * line when a higher-scored re-evaluation arrives.
+   * Header/separator rows, malformed rows and glued rows (two tracker rows on one
+   * physical line) return null. Valid rows preserve the original raw line so the
+   * merge logic can locate and replace the exact tracker line when a
+   * higher-scored re-evaluation arrives. A glued line is never a replace target:
+   * replacing it would delete the other row(s) sharing the line.
    *
    * @param {string} line - One line from applications.md.
    * @returns {object|null} Parsed tracker row, or null for non-data rows.
    */
   function parseAppLine(line) {
+    if (isGluedRow(line)) return null;
     const parts = line.split('|').map(s => s.trim());
     const maxIdx = Math.max(...Object.values(COLMAP));
     if (parts.length <= maxIdx) return null;
@@ -1667,12 +1670,16 @@ export async function mergeTracker(options = {}) {
     const MAX_COL_IDX = Math.max(...Object.values(COLMAP));
     for (const line of appLines) {
       if (!line.startsWith('|')) continue;
+      // A glued line holds several rows but parses as none (parseAppLine): reserve
+      // every number on it so a new entry never reuses the second row's number.
+      const glued = isGluedRow(line) ? rowStartNumbers(line) : null;
       const parts = line.split('|').map(s => s.trim());
       if (parts.length <= MAX_COL_IDX) continue;
-      const n = parseInt(parts[COLMAP.num]);
-      if (!isNaN(n) && n !== 0) {
-        usedNumbers.add(n);
-        if (n > maxNum) maxNum = n;
+      for (const n of glued ?? [parseInt(parts[COLMAP.num])]) {
+        if (!isNaN(n) && n !== 0) {
+          usedNumbers.add(n);
+          if (n > maxNum) maxNum = n;
+        }
       }
     }
 
