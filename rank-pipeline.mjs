@@ -208,6 +208,7 @@ export function readRankScore(rawLine) {
 export function applyAnnotations(text, pending) {
   const queue = pending.map(a => ({ ...a, used: false }));
   let written = 0;
+  let replaced = 0;
   const out = String(text ?? '')
     .split('\n')
     .map(line => {
@@ -217,12 +218,13 @@ export function applyAnnotations(text, pending) {
       hit.used = true;
       written += 1;
       if (hit.replaceExisting) {
+        replaced += 1;
         return line.replace(/\|\s*rank:\s*cal-v3\b[^|]*/i, `| ${hit.segment}`);
       }
       return `${withoutLegacyRank(line)} | ${hit.segment}`;
     })
     .join('\n');
-  return { text: out, written };
+  return { text: out, written, replaced };
 }
 
 // ── Liveness gate ────────────────────────────────────────────────────────────
@@ -632,7 +634,6 @@ async function main(args) {
     console.log('No pending entries. Nothing to do.');
     return 0;
   }
-  const pending = allPending.filter(entry => !entry.raw.includes(RANK_LABEL));
   // US-only postings are annotated without a scorer call and do not count against --limit.
   const usOnlyReason = usOnlyReasonFor(loadUsAuthorized(PROFILE_PATH));
   let usOnlyScore;
@@ -702,14 +703,16 @@ async function main(args) {
 
   if (dryRun) {
     for (const { raw } of closed) console.log(markExpiredRow(raw));
-    for (const { raw, segment } of annotations) console.log(`${raw} | ${segment}`);
+    for (const annotation of annotations) console.log(applyAnnotations(annotation.raw, [annotation]).text);
     if (livenessEnabled) console.log(`\n  [dry-run] would mark ${closed.length} closed posting(s) expired.`);
-    console.log(`  [dry-run] would annotate ${annotations.length} of ${selected.length + usOnly.length} selected entr(ies).`);
+    const replaced = annotations.filter(annotation => annotation.replaceExisting).length;
+    console.log(`\n  [dry-run] would rank ${annotations.length} entr(ies), ${replaced} re-ranked as US-only.`);
     return 0;
   }
 
   let written = 0;
   let marked = 0;
+  let replaced = 0;
   if (annotations.length || closed.length) {
     // Re-read inside the lock: scan.mjs, scan-ats-full.mjs and a concurrent run of
     // this script all write data/pipeline.md, so the file may have moved since the
@@ -721,12 +724,13 @@ async function main(args) {
       const result = applyAnnotations(expired.text, annotations);
       marked = expired.marked;
       written = result.written;
+      replaced = result.replaced;
       if (marked || written) writeFileSync(PIPELINE_PATH, result.text);
     });
   }
 
   const via = jevEnabled ? 'Jev' : cli.bin;
-  console.log(`\n  Ranked ${written} entr(ies) of ${pending.length} pending in ${attemptedCalls} ${jevEnabled ? 'Jev' : 'CLI'} call(s) via ${via}.`);
+  console.log(`\n  Ranked ${written} entr(ies) in ${attemptedCalls} ${jevEnabled ? 'Jev' : 'CLI'} call(s) via ${via}; ${replaced} re-ranked as US-only.`);
   if (livenessEnabled) console.log(`  Liveness: ${marked} closed posting(s) marked expired and not scored.`);
   if (skippedBatches) console.log(`  ${skippedBatches} batch(es) skipped — those rows are un-annotated, not dropped.`);
   if (scorable.length > picked.length) {

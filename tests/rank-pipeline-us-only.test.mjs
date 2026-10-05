@@ -115,8 +115,8 @@ try {
       '',
     ].join('\n'));
     const promptLog = join(root, 'prompts.log');
-    const rank = (extraArgs = []) => {
-      writeFileSync(pipelinePath, pristine);
+    const rank = (extraArgs = [], pipeline = pristine) => {
+      writeFileSync(pipelinePath, pipeline);
       writeFileSync(promptLog, '');
       const r = spawnSync(process.execPath, [join(ROOT, 'rank-pipeline.mjs'), '--cli', process.execPath, ...extraArgs], {
         encoding: 'utf8',
@@ -179,12 +179,31 @@ try {
       dry.stdout.includes('US-only employment: location is US-only (Remote - US)')
         && readFileSync(pipelinePath, 'utf8') === pristine);
 
+    const rankedOnly = [
+      '## Pending',
+      pristine.split('\n').find(line => line.includes('boards.example/focus/1')),
+      pristine.split('\n').find(line => line.includes('boards.example/global/3')),
+      '',
+    ].join('\n');
+    const replaced = rank([], rankedOnly);
+    check('the run summary counts an existing rank replacement without a pending denominator',
+      replaced.stdout.includes('Ranked 1 entr(ies) in 0 CLI call(s)')
+        && replaced.stdout.includes('1 re-ranked as US-only')
+        && !replaced.stdout.includes('of 0 pending'));
+    const dryReplacement = rank(['--dry-run'], rankedOnly);
+    check('--dry-run previews the replaced rank, not two rank segments',
+      dryReplacement.stdout.split('\n').find(line => line.includes('boards.example/focus/1'))
+        === replaced.row('boards.example/focus/1')
+        && !dryReplacement.stdout.includes('rank: cal-v3 4.6/5')
+        && dryReplacement.stdout.includes('1 re-ranked as US-only')
+        && readFileSync(pipelinePath, 'utf8') === rankedOnly);
+
     writeFileSync(profile, `${baseProfile}location:\n  authorized_in: ["Brazil", "United States"]\n`);
     const authorized = rank();
     check('a candidate authorized in the US keeps every posting for the scorer',
       authorized.row('boards.example/focus/1').includes('rank: cal-v3 4.6/5')
         && authorized.row('local:jds/koniag.md').includes('rank: cal-v3 4.6/5')
-        && !authorized.stdout.includes('US-only'));
+        && !authorized.row('local:jds/koniag.md').includes('US-only employment'));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
