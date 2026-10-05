@@ -99,9 +99,10 @@ export function loadForwardThreshold(profilePath) {
  * US employee benefits. A posting that offers any of them is US employment,
  * even when it says remote: a contractor or EOR hire abroad does not get them.
  * Acronyms match in capitals only, so ordinary words never trip them.
+ * A compensation figure of 401 thousand ($401k, 180k-401k, 401k-500k) is not a 401(k).
  */
 const US_ONLY_BENEFITS = [
-  ['401(k)', [/\b401\s?\(?k\)?(?![a-z0-9])/i]],
+  ['401(k)', [/\b401\s?\(k\)|(?<!\$\s*)(?<![\dk]\s*[-–—]\s*\$?\s*)\b401\s?k(?![a-z0-9])(?!\s*[-–—]\s*\$?\s*\d)/i]],
   ['disability insurance', [/\bdisability insurance\b/i]],
   ['FSA', [/\bFSAs?\b/, /\bflexible spending accounts?\b/i]],
   ['HSA', [/\bHSAs?\b/, /\bhealth savings accounts?\b/i]],
@@ -122,6 +123,15 @@ export function usOnlyBenefits(text) {
 const UNITED_STATES = /^(u\.?s\.?(a\.?)?|united states( of america)?)$/i;
 
 /**
+ * Does this `authorized_in` list include the United States?
+ * @param {unknown} countries
+ * @returns {boolean}
+ */
+export function authorizedInUnitedStates(countries) {
+  return Array.isArray(countries) && countries.some(country => UNITED_STATES.test(String(country).trim()));
+}
+
+/**
  * Does `location.authorized_in` in config/profile.yml list the United States?
  * @param {string} profilePath
  * @returns {boolean}
@@ -129,7 +139,7 @@ const UNITED_STATES = /^(u\.?s\.?(a\.?)?|united states( of america)?)$/i;
 export function loadUsAuthorized(profilePath) {
   if (!existsSync(profilePath)) return false;
   const authorized = (yaml.load(readFileSync(profilePath, 'utf-8')) || {}).location?.authorized_in;
-  return Array.isArray(authorized) && authorized.some(country => UNITED_STATES.test(String(country).trim()));
+  return authorizedInUnitedStates(authorized);
 }
 
 /**

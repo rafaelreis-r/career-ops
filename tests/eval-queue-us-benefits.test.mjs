@@ -28,6 +28,11 @@ try {
     found('HSA, FSA, disability insurance and a 401(k)') === '401(k), disability insurance, FSA, HSA');
   check('generic benefits and look-alikes do not match',
     usOnlyBenefits('Health insurance, retirement plan, 401 kg payload, the hsa crew, HSAB').length === 0);
+  check('a 401 thousand pay figure is not a 401(k)',
+    ['Compensation: $180k–$401k OTE', 'Compensation: $180k-$401k OTE', 'TC band 250-401k', '$401k', '250–401k', '401k-500k']
+      .every(text => usOnlyBenefits(text).length === 0));
+  check('a real 401(k) still matches beside a pay band of 401 thousand',
+    found('401(k) match, TC 250-401k') === '401(k)' && found('401k plan, band $180k-$401k') === '401(k)');
 
   const root = mkdtempSync(join(ROOT, 'tests', '.eval-queue-us-'));
   try {
