@@ -6,6 +6,10 @@
 
 * **scoring:** require level and compensation targets for ranking and full evaluations; persist the final global score in the tracker.
 
+### Bug Fixes
+
+* **merge-tracker:** a re-evaluation no longer replaces a physical tracker line that holds two glued rows, which deleted the second row.
+
 ## [1.33.0](https://github.com/career-ops-hq/career-ops/compare/career-ops-v1.32.0...career-ops-v1.33.0) (2026-09-16)
 
 
