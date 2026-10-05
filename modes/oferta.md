@@ -132,6 +132,19 @@ When gated in, scan the JD body (case-insensitive) for a statement, within one s
 
 **Hard rule:** this check NEVER discloses, implies, or references the candidate's diagnosis in any generated content — not the CV, not the cover letter, not a draft form answer. It only notices language the employer already put in the JD. If an application form later asks a disability/self-identification question, that goes through `modes/apply.md`'s existing `needs_candidate_confirmation` flow — always a per-application, candidate-confirmed decision, never auto-filled from this check.
 
+### US-only benefits check
+
+A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: these are benefits for employees on a US payroll, and a contractor or EOR hire abroad does not get them. When the United States is **not** in `authorized_in`, this is an eligibility blocker regardless of `needs_sponsorship` or a "remote" label:
+
+- Classify the work-authorization tier as ⛔ **No sponsorship**.
+- Record `US-only employment: the JD offers {benefits found}` as a `hard_stop`.
+- Score the global result **below 3.5**, whatever the role and CV match, and give that reason in the report.
+- Add this flag line at the top of Block B instead of the No-sponsorship line, quoting the benefits **verbatim**:
+
+`⛔ **US-only benefits:** JD offers "{verbatim benefits line}", which is US employment, and the United States is outside your authorized_in`
+
+When the United States is in `authorized_in`, these benefits are not a blocker and the check emits nothing.
+
 ## Block B — Match with CV
 
 One table, one row per significant JD requirement, mapped to exact evidence in the primary files (`cv.md` first, then `article-digest.md`, `config/profile.yml`, `modes/_profile.md`). Block B **is** the requirement→evidence mapping for the whole report: never emit a second matrix that re-enumerates the same requirements, because nothing keeps two lists in sync and the first disagreement between them contradicts the report in a way no test can catch.
