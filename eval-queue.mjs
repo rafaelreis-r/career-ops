@@ -38,13 +38,14 @@
  *   node eval-queue.mjs --force <url>      # repeatable
  */
 
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { parseArgs } from 'util';
-import * as yaml from 'js-yaml';
 import { getCareerOpsRoot, resolveTrackerPath } from './path-resolver.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
+import { parseForwardThreshold, loadForwardThreshold } from './lib/forward-threshold.mjs';
+import { usOnlyBenefits, authorizedInUnitedStates, loadUsAuthorized, readLocalJdText } from './lib/us-only.mjs';
 import { DEFAULT_FORWARD_THRESHOLD } from './lib/rank-calibration.mjs';
 import { RANK_CALIBRATION_VERSION, readRankScore } from './rank-pipeline.mjs';
 import { collectSeenUrls, normalizeUrlForDedup } from './scan.mjs';
@@ -68,79 +69,8 @@ const USAGE = `
     --dry-run            print the plan, write nothing
 `;
 
-/**
- * A cutoff on the cal-v3 score scale. Blank means "not configured".
- * @param {unknown} raw
- * @param {string} source - where the value came from, for the error message.
- * @returns {number | null}
- */
-export function parseForwardThreshold(raw, source) {
-  if (raw === undefined || raw === null || String(raw).trim() === '') return null;
-  const value = typeof raw === 'number' ? raw : Number(String(raw).trim());
-  if (!Number.isFinite(value) || value < 0 || value > 5) {
-    throw new Error(`${source}: forwarding cutoff must be a number from 0 to 5 on the ${RANK_CALIBRATION_VERSION} scale, got "${raw}"`);
-  }
-  return value;
-}
-
-/**
- * The configured cutoff: `rank_forward_threshold` in config/profile.yml, or the default.
- * @param {string} profilePath
- * @returns {number}
- */
-export function loadForwardThreshold(profilePath) {
-  if (!existsSync(profilePath)) return DEFAULT_FORWARD_THRESHOLD;
-  const profile = yaml.load(readFileSync(profilePath, 'utf-8')) || {};
-  return parseForwardThreshold(profile.rank_forward_threshold, `${profilePath} rank_forward_threshold`)
-    ?? DEFAULT_FORWARD_THRESHOLD;
-}
-
-/**
- * US employee benefits. A posting that offers any of them is US employment,
- * even when it says remote: a contractor or EOR hire abroad does not get them.
- * Acronyms match in capitals only, so ordinary words never trip them.
- * $401k, and 401k at the top of a dashed range (250-401k, 180k - 401k), are pay.
- */
-const US_ONLY_BENEFITS = [
-  ['401(k)', [/\b401\s?\(k\)|(?<!\$)(?<!\d{2,}\s*[-–—]\s*\$?)(?<!\d+k\s*[-–—]\s*\$?)\b401\s?k(?![a-z0-9])/i]],
-  ['disability insurance', [/\bdisability insurance\b/i]],
-  ['FSA', [/\bFSAs?\b/, /\bflexible spending accounts?\b/i]],
-  ['HSA', [/\bHSAs?\b/, /\bhealth savings accounts?\b/i]],
-];
-
-/**
- * The US-only benefits a JD text offers, in a fixed order.
- * @param {string} text
- * @returns {string[]}
- */
-export function usOnlyBenefits(text) {
-  const jd = String(text ?? '');
-  return US_ONLY_BENEFITS
-    .filter(([, patterns]) => patterns.some(pattern => pattern.test(jd)))
-    .map(([label]) => label);
-}
-
-const UNITED_STATES = /^(u\.?s\.?(a\.?)?|united states( of america)?)$/i;
-
-/**
- * Does this `authorized_in` list include the United States?
- * @param {unknown} countries
- * @returns {boolean}
- */
-export function authorizedInUnitedStates(countries) {
-  return Array.isArray(countries) && countries.some(country => UNITED_STATES.test(String(country).trim()));
-}
-
-/**
- * Does `location.authorized_in` in config/profile.yml list the United States?
- * @param {string} profilePath
- * @returns {boolean}
- */
-export function loadUsAuthorized(profilePath) {
-  if (!existsSync(profilePath)) return false;
-  const authorized = (yaml.load(readFileSync(profilePath, 'utf-8')) || {}).location?.authorized_in;
-  return authorizedInUnitedStates(authorized);
-}
+// Re-exported for callers that read these from the forwarding gate.
+export { parseForwardThreshold, loadForwardThreshold, usOnlyBenefits, authorizedInUnitedStates, loadUsAuthorized };
 
 /**
  * Keys of every posting already evaluated, each mapped to where it was found.
@@ -285,14 +215,6 @@ function readReports(dir) {
     .map(name => ({ name, text: readFileSync(join(dir, name), 'utf-8') }));
 }
 
-/** Text of a `local:` row's JD file under the data root; '' for URL rows, PDFs, and missing files. */
-function readLocalJd(url) {
-  if (!url.startsWith('local:')) return '';
-  const path = join(DATA_ROOT, url.slice('local:'.length));
-  if (/\.pdf$/i.test(path) || !existsSync(path) || !statSync(path).isFile()) return '';
-  return readFileSync(path, 'utf-8');
-}
-
 function printPlan(plan, write) {
   const line = row => `  ${row.url} | ${row.company} | ${row.title}\n      ${row.reason}`;
   console.log(`Forwarding cutoff: ${RANK_CALIBRATION_VERSION} >= ${fmt(plan.threshold)}`);
@@ -347,7 +269,7 @@ async function main(argv) {
       }),
       queued: inputRows.byKey,
       force: values.force,
-      readLocalJd: usAuthorized ? undefined : readLocalJd,
+      readLocalJd: usAuthorized ? undefined : url => readLocalJdText(DATA_ROOT, url),
     });
     if (plan.unknownForce.length) return { plan, written: '' };
 
