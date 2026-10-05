@@ -7,7 +7,7 @@
 * **scoring:** require level and compensation targets for ranking and full evaluations; persist the final global score in the tracker.
 * **eligibility:** treat a JD that offers 401(k), disability insurance, FSA, or HSA as US-only employment when `location.authorized_in` does not list the United States: `eval-queue.mjs` holds the row when its JD is saved locally, and the evaluation scores it below 3.5 with the reason in the report.
 * **rank-pipeline:** make the CLI path's batch size and per-call timeout configurable (`--batch` / `CAREER_OPS_RANK_BATCH`, `--timeout-ms` / `CAREER_OPS_RANK_TIMEOUT_MS`); defaults stay 10 and 120 s, invalid values are refused.
-* **rank-pipeline:** check that a posting still exists before scoring it. Rows whose ATS public API (Greenhouse, Lever, Ashby, Workday) confirms the posting closed are not scored and are rewritten in place as `- [x] ~~URL | Company | Role~~ — posting expired (liveness sweep)`; inconclusive results are scored as before. Disable with `--no-liveness` or `CAREER_OPS_RANK_LIVENESS=0`.
+* **rank-pipeline:** check selected postings against public ATS APIs before scoring, and mark confirmed closed ones as expired. See [rank-pipeline](docs/SCRIPTS.md#rank-pipeline) for the check's limits and options.
 
 ### Bug Fixes
 

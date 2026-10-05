@@ -46,7 +46,7 @@ utilities run via `node <script>` directly.
 | `node fix-slugs.mjs` | `fix-slugs.mjs` | Write `verify-portals.mjs`'s suggested ATS slug fixes back to portals.yml (dry run by default, `--fix` to write) |
 | `node audit-portals.mjs` | `audit-portals.mjs` | Audit what each portals.yml board actually serves — provider, posting count, sample titles — not just whether it answers (network; `--baseline` diffs against an earlier `--json` run) |
 | `npm run reposts` | `detect-reposts.mjs` | Flag re-listed (ghost) postings from scan history |
-| `node rank-pipeline.mjs` | `rank-pipeline.mjs` | Opt-in target-aware ranker — annotates pending pipeline rows with a score + reason (off by default) |
+| `node rank-pipeline.mjs` | `rank-pipeline.mjs` | Opt-in target-aware ranker — marks confirmed closed postings and scores the remaining selected rows |
 | `node rank-calibration-replay.mjs` | `rank-calibration-replay.mjs` | Replay the historical cal-v1 calibration against its 84-pair fixture and persist metrics under ignored user data |
 | `node eval-queue.mjs` | `eval-queue.mjs` | Forwarding gate: queue pending pipeline rows with a cal-v3 score at or above the cutoff (default 2.5) for the long evaluation, holding US-only postings whose local JD offers US benefits, and listing what was held and why |
 | `npm run gemini:eval` | `gemini-eval.mjs` | Evaluate a JD with Google Gemini (free-tier alternative) |
@@ -979,13 +979,14 @@ Opt-in LLM relevance re-ranker for `data/pipeline.md`. **Off by default and not
 part of any scan** — `scan.mjs` stays 100% zero-token, and this costs nothing
 unless you run it yourself.
 
-The ranker annotates eligible rows. It never removes or reorders them.
+The ranker checks off confirmed closed rows in place, then annotates the
+remaining selected rows. It never deletes or reorders rows.
 It appends a `rank: cal-v3 {score}/5 — {reason}` segment after existing
 `posted:`, `trust:`, or `note:` segments. The `cal-v3` label identifies the
 target-aware prompt and stores the scorer's raw 0-5 score. It does not apply
 the historical cal-v1 calibration knots. The 84-pair cal-v1 replay remains
-available for historical analysis. The ranker leaves a row untouched when it
-cannot return a usable reason or the CLI returns invalid JSON.
+available for historical analysis. A row that reaches scoring stays unannotated
+when the scorer cannot return a usable reason or the CLI returns invalid JSON.
 
 Cost is bounded and reported. The ranker considers pending (`- [ ]`) rows
 without a current `cal-v3` annotation. `--limit` caps each run (default 20,
@@ -1014,7 +1015,7 @@ data-retention settings before sending sensitive CV content.
 node rank-pipeline.mjs                  # rank up to 20 pending entries
 node rank-pipeline.mjs --limit 10
 node rank-pipeline.mjs --cli codex      # override auto-detection
-node rank-pipeline.mjs --dry-run        # print annotations, write nothing
+node rank-pipeline.mjs --dry-run        # print annotations and expired marks, write nothing
 ```
 
 The CLI path sends 10 entries per call and gives each call 120 seconds. A slow
@@ -1084,9 +1085,10 @@ concurrent scan cannot lose rows to this script.
 
 ## eval-queue
 
-The forwarding gate in front of the long A-G evaluation. `rank-pipeline` only
-annotates; this command decides which pending rows of `data/pipeline.md` go on
-to the evaluation and appends them to `batch/batch-input.tsv`, the queue
+The forwarding gate in front of the long A-G evaluation. `rank-pipeline` scores
+selected pending rows and checks off confirmed closed postings; this command
+decides which remaining pending rows of `data/pipeline.md` go on to the
+evaluation and appends them to `batch/batch-input.tsv`, the queue
 `batch/batch-runner.sh` reads. It never writes `data/pipeline.md`.
 
 It prints two lists, with one reason per row:

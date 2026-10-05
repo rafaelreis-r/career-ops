@@ -5,13 +5,10 @@
  * The core scan stays 100% zero-token: `scan.mjs` is not touched, and nothing here
  * runs unless you invoke this script yourself.
  *
- * It ANNOTATES pending pipeline rows with a versioned
- * `rank: cal-v3 {score}/5 — {reason}` segment. It never filters, reorders, or
- * deletes a row — a relevance pass that
- * removes rows hides roles from you; one that writes a score and a reason next to
- * the row lets you disagree with it. The reason is part of the contract: an entry
- * the scorer cannot explain is left un-annotated rather than reduced to a bare
- * number.
+ * Scored rows receive a versioned `rank: cal-v3 {score}/5 — {reason}` segment.
+ * A relevance score never removes, reorders, or hides a row: the reason lets
+ * the user disagree with it. An entry the scorer cannot explain is left
+ * unannotated rather than reduced to a bare number.
  *
  * Before scoring, each selected row is checked against its ATS's public API
  * (liveness-api.mjs, zero tokens). A posting confirmed closed is not scored; it is
