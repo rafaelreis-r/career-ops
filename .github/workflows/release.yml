@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   release-please:
+    if: github.repository == 'career-ops-hq/career-ops'
     runs-on: ubuntu-latest
     steps:
       # release-please opens and updates its release PR with a GitHub App token,
