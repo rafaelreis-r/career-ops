@@ -6,6 +6,10 @@ Aday bir ilan yapıştırdığında (metin veya URL) HER ZAMAN 7 bloğun tamamı
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Açık sorular, puan kesintisi değil:** Yalnızca şu belirtilmemiş bilgiler tarafsızdır; Red flags veya genel puandan kesinti yapılmadan raporda işe alım uzmanına sorulacak sorular olarak kaydedilir: yayımlanmamış maaş veya aralık (bu nedenle ücret güvenilirliğinin bilinmemesi dâhil), çalışma izni düzeyi ⚠️ Unstated, kabul edilen ülkeleri belirtmeyen uzaktan iş ve belirtilmemiş contractor/EOR sözleşme yolu. Açık engeller geçerliliğini korur: ⛔ No sponsorship, US-only benefits, adayı dışlayan açık konum veya ikamet kısıtı ve rolün kendisi hedef düzeyin altındaysa yerel pazar kuralı. Diğer tüm puanlama kuralları ve üst sınırlar da geçerlidir; `culture_screen.deprioritize_if_absent: true` iken gerekli kültür ölçütlerine ilişkin kanıt yoksa `modes/_shared.md` içindeki Cultural signals üst sınırı uygulanır.
+
+**Unvandan önce içerik:** Adayın kanıtlanmış görev kapsamı ve sonuçları rolün sorumluluklarını karşılıyorsa hedef rolle aynı resmî unvanın bulunmaması tek başına CV uyumunu veya genel puanı düşürmez. Yapılan işi değerlendirin. İlanda açıkça istenen araç, alan veya düzenlemeye tabi alanda deneyim yılı eksikleri geçerlidir.
+
 ## Adım 0 — Arketip Tespiti
 
 İlanı `_shared.md`'deki arketiplerden birine sınıflandır. Hibrit ise en yakın ikisini belirt. Bu tespite göre:

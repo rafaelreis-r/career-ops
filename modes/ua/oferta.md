@@ -6,6 +6,10 @@
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Відкриті питання, а не зниження оцінки:** Нейтральними є лише такі не вказані дані; заносьте їх до звіту як питання рекрутеру без зниження за Red flags чи загального балу: неопублікована зарплата або діапазон (зокрема невідома через це надійність компенсації), статус дозволу на роботу ⚠️ Unstated, дистанційна вакансія без переліку прийнятних країн і не вказаний спосіб оформлення contractor/EOR. Явні перешкоди залишаються чинними: ⛔ No sponsorship, US-only benefits, обмеження місця роботи або проживання, яке виключає кандидата, і правило місцевого ринку, якщо сама роль нижча за цільовий рівень. Усі інші правила та обмеження оцінювання також діють, зокрема обмеження Cultural signals у `modes/_shared.md` за `culture_screen.deprioritize_if_absent: true` і відсутності доказів необхідних культурних критеріїв.
+
+**Суть важливіша за назву:** Відсутність формальної назви посади, що дорівнює цільовій ролі, сама по собі не знижує збіг із CV і глобальний бал, якщо підтверджений обсяг роботи та результати кандидата покривають обов'язки ролі. Оцінювати суть, а не назву. Прогалини, які вакансія називає прямо (конкретні інструменти, домен, роки досвіду в регульованій сфері), залишаються справжніми прогалинами.
+
 ## Крок 0 — Визначення архетипу
 
 Класифікувати вакансію за одним з архетипів (див. `_shared.md`). Якщо гібрид — вказати 2 найближчих. Це визначає:

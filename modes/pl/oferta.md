@@ -6,6 +6,10 @@ Gdy kandydat wkleja ofertę (tekst lub URL), ZAWSZE dostarcz wszystkie 6 bloków
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Pytania otwarte, nie potrącenia:** Tylko te niepodane informacje są neutralne i trafiają do raportu jako pytania do rekrutera, bez potrącenia za Red flags ani obniżenia oceny globalnej: nieopublikowana pensja lub widełki (w tym nieznana z tego powodu wiarygodność wynagrodzenia), poziom uprawnień do pracy ⚠️ Unstated, praca zdalna bez wskazania akceptowanych krajów oraz nieokreślona forma kontraktu contractor/EOR. Jawne przeszkody nadal obowiązują: ⛔ No sponsorship, US-only benefits, ograniczenie lokalizacji lub miejsca zamieszkania wykluczające kandydata oraz reguła rynku krajowego, gdy sama rola jest poniżej poziomu docelowego. Wszystkie pozostałe zasady i limity ocen pozostają w mocy, w tym limit Cultural signals w `modes/_shared.md`, gdy `culture_screen.deprioritize_if_absent: true` i brak dowodów na wymagane kryteria kulturowe.
+
+**Treść ponad tytuł:** Brak formalnego tytułu równego roli docelowej sam w sobie nie obniża dopasowania do CV ani oceny globalnej, jeśli udokumentowany zakres i wyniki kandydata pokrywają obowiązki roli. Oceniaj treść, nie tytuł. Luki, które oferta wskazuje wprost (nazwane narzędzia, domena, lata doświadczenia w domenie regulowanej), pozostają prawdziwymi lukami.
+
 ## Krok 0 -- Wykrycie archetypu
 
 Sklasyfikuj ofertę do jednego z 6 archetypów (zobacz `_shared.md`). Jeśli hybrydowa, wskaż 2 najbliższe. To determinuje:

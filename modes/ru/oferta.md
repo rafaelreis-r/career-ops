@@ -8,6 +8,10 @@
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Открытые вопросы, а не вычеты:** Нейтральны только следующие неуказанные сведения; заносите их в отчёт как вопросы рекрутеру без вычета за Red flags и снижения общего балла: неопубликованная зарплата или вилка (включая неизвестную по этой причине надёжность компенсации), статус права на работу ⚠️ Unstated, удалённая вакансия без перечня допустимых стран и неуказанная схема найма contractor/EOR. Явные блокеры по-прежнему действуют: ⛔ No sponsorship, US-only benefits, ограничение местоположения или проживания, исключающее кандидата, и правило домашнего рынка, если сама роль ниже целевого уровня. Остальные правила и ограничения оценки также сохраняются, включая ограничение Cultural signals в `modes/_shared.md` при `culture_screen.deprioritize_if_absent: true` и отсутствии подтверждения обязательных культурных критериев.
+
+**Суть важнее названия:** Отсутствие формального названия должности, равного целевой роли, само по себе не снижает совпадение с CV и глобальный балл, если подтверждённый объём работы и результаты кандидата покрывают обязанности роли. Оценивать суть, а не название. Пробелы, которые вакансия называет прямо (конкретные инструменты, домен, годы опыта в регулируемой области), остаются настоящими пробелами.
+
 ## Гейт живости (для ввода по URL)
 
 Когда кандидат вставляет **URL** (а не текст вакансии), сначала убедиться, что вакансия ещё открыта, и только потом начинать оценку. Мёртвая ссылка не должна доходить до Блока A: 404 или истёкшая вакансия заставят зря потратить полную оценку A-G, отчёт и PDF.

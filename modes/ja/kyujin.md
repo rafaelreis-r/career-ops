@@ -6,6 +6,10 @@
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**未確認事項による減点なし：** 次の未記載事項だけを中立として、Red flags や総合点から減点せず、採用担当者への確認事項として報告書に記す。未公開の給与・給与帯（それが理由で報酬の確実性が不明な場合を含む）、就労資格区分 ⚠️ Unstated、受け入れ国を示さないリモート求人、記載のない contractor/EOR 契約経路。明示された障害は引き続き適用する。⛔ No sponsorship、US-only benefits、候補者を除外する勤務地・居住地制限、求人自体が目標レベルを下回る場合の国内市場ルールである。他の採点規則と上限も維持し、`culture_screen.deprioritize_if_absent: true` で必要な文化条件の証拠がない場合は `modes/_shared.md` の Cultural signals 上限を適用する。
+
+**肩書より実績：** 目標職種と同じ正式な肩書がないことだけを理由に、候補者の裏付けのある担当範囲と成果が職務を満たす場合、CV の適合度や総合点を下げない。実際の業務内容を評価する。求人が明記するツール、分野、規制分野での経験年数の不足は引き続き評価する。
+
 ## Liveness gate (URL inputs)
 
 候補者が **URL**（JD テキストではなく）を貼り付けた場合、評価を始める前に求人がまだ live であることを確認する。Dead link は Block A に進めない。404 / expired page に対して A-G 評価、report、PDF を作るのは無駄。
