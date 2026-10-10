@@ -6,6 +6,10 @@ Når kandidaten indsætter et opslag (tekst eller URL), så lever ALTID alle 6 b
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Åbne spørgsmål, ikke fradrag:** Kun disse uoplyste forhold er neutrale og noteres som spørgsmål til rekruttereren uden fradrag under Red flags eller lavere samlet score: upubliceret løn eller løninterval (herunder ukendt lønpålidelighed af den grund), niveauet ⚠️ Unstated for arbejdstilladelse, et fjernjob uden angivelse af accepterede lande og en uoplyst kontraktvej som contractor/EOR. Udtrykkelige blokeringer gælder stadig: ⛔ No sponsorship, US-only benefits, en lokations- eller bopælsbegrænsning, der udelukker kandidaten, og hjemmemarkedsreglen, når rollen selv er under målniveauet. Alle øvrige eksisterende regler og begrænsninger gælder fortsat, også loftet for Cultural signals i `modes/_shared.md`, når `culture_screen.deprioritize_if_absent: true` og dokumentation for krævede kulturkriterier mangler.
+
+**Substans frem for titel:** At en formel titel svarende til målrollen mangler, sænker ikke i sig selv CV-match eller den globale score, når kandidatens dokumenterede ansvarsområde og resultater dækker rollens ansvar. Vurder substansen, ikke titlen. Krav, som opslaget udtrykkeligt stiller (navngivne værktøjer, et domæne, års erfaring i et reguleret domæne), forbliver reelle mangler.
+
 ## Trin 0 -- Arketype-detektion
 
 Klassificér opslaget i en af de 6 arketyper (se `_shared.md`). Hvis hybrid, så angiv de 2 nærmeste. Det afgør:

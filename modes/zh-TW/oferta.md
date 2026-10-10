@@ -6,6 +6,10 @@
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**待確認問題，不扣分：** 只有下列未說明事項屬於中性資訊，應在報告中列為向招募方確認的問題，不計入 Red flags 扣分，也不降低整體評分：未公布的薪資或區間（包括因此無法判斷薪酬可靠性）、工作授權等級 ⚠️ Unstated、遠端職缺未說明接受哪些國家，以及未說明 contractor/EOR 聘用途徑。明確的阻斷條件仍然適用：⛔ No sponsorship、US-only benefits、明確排除候選人的工作地點或居住地限制，以及職缺本身低於目標職級時的本地市場規則。其他既有評分規則與上限也繼續適用，包括 `culture_screen.deprioritize_if_absent: true` 且缺少必要文化條件證據時，`modes/_shared.md` 中的 Cultural signals 評分上限。
+
+**實質優先於頭銜：** 缺少與目標職缺完全相同的正式頭銜，本身不會降低履歷匹配度或綜合評分，只要求職者有證據支持的工作範圍與成果涵蓋該職缺的職責。評估實質，而不是頭銜。職缺描述明確列出的落差（指定工具、領域、受監管領域的年資）仍然是真實落差。
+
 ## 步驟 0 — 職缺原型辨識
 
 將該職缺歸類為 6 種原型之一（參見 `_shared.md`）。若為混合型，標明最接近的 2 種。這會決定：

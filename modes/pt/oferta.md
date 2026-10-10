@@ -6,6 +6,10 @@ Quando o candidato cola uma vaga (texto ou URL), entregar SEMPRE os 6 blocos:
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Perguntas em aberto, não deduções:** Apenas estas informações não declaradas são neutras e devem constar no relatório como perguntas ao recrutador, sem desconto em Red flags nem redução da nota global: salário ou faixa não publicados (inclusive confiabilidade da remuneração desconhecida por esse motivo), autorização de trabalho no nível ⚠️ Unstated, vaga remota sem países aceitos informados e modalidade de contratação contractor/EOR não declarada. Bloqueios explícitos continuam válidos: ⛔ No sponsorship, US-only benefits, restrição de local ou residência que exclui o candidato e regra do mercado local quando a própria vaga está abaixo do nível-alvo. Todas as demais regras e limites continuam valendo, inclusive o teto de Cultural signals em `modes/_shared.md` quando `culture_screen.deprioritize_if_absent: true` e faltam evidências dos critérios culturais exigidos.
+
+**Substância acima do título:** A ausência de um título formal igual ao da vaga-alvo não reduz, por si só, o match com o currículo nem a nota global quando o escopo e os resultados comprovados do candidato cobrem as responsabilidades da vaga. Avaliar a substância, não o título. Gaps que o JD declara explicitamente (ferramentas nomeadas, um domínio, anos em um domínio regulado) continuam sendo gaps reais.
+
 ## Passo 0 -- Detecção de Arquétipo
 
 Classificar a vaga em um dos 6 arquétipos (ver `_shared.md`). Se for híbrido, indicar os 2 mais próximos. Isso determina:

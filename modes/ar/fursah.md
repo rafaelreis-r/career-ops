@@ -8,6 +8,10 @@
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**أسئلة مفتوحة بلا خصم:** المعلومات غير المذكورة التالية وحدها محايدة وتُسجّل في التقرير كأسئلة لمسؤول التوظيف، من دون خصم ضمن Red flags أو خفض التقييم العام: راتب أو نطاق غير منشور (بما في ذلك تعذّر تحديد موثوقية التعويض لهذا السبب)، مستوى تصريح العمل ⚠️ Unstated، وظيفة عن بُعد لا تحدد الدول المقبولة، ومسار تعاقد contractor/EOR غير مذكور. تبقى الموانع الصريحة سارية: ⛔ No sponsorship، وقاعدة US-only benefits، وقيد الموقع أو الإقامة الذي يستبعد المرشح، وقاعدة السوق المحلية إذا كانت الوظيفة نفسها دون المستوى المستهدف. وتبقى سائر قواعد التقييم وحدوده سارية، ومنها سقف Cultural signals في `modes/_shared.md` عند ضبط `culture_screen.deprioritize_if_absent: true` مع غياب دليل على معايير الثقافة المطلوبة.
+
+**الخبرة الفعلية قبل المسمى:** غياب مسمى وظيفي رسمي مطابق للدور المستهدف لا يخفض وحده ملاءمة السيرة أو التقييم العام إذا غطّت مسؤوليات المرشح ونتائجه المثبتة متطلبات الدور. قيّم العمل الفعلي. تبقى الفجوات المذكورة صراحة في الإعلان، مثل الأدوات أو المجال أو سنوات الخبرة في مجال منظم، فجوات حقيقية.
+
 ## الخطوة 0 — تحديد النمط الوظيفي (Archetype Detection)
 
 قم بتصنيف الوظيفة إلى أحد الأنماط الستة المحددة في ملف `_shared.md`. إذا كانت الوظيفة هجينة، فاذكر النمطين الأقرب إليها. يحدد هذا التصنيف:

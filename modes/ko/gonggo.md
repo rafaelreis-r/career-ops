@@ -6,6 +6,10 @@
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**확인할 사항, 감점 없음:** 명시되지 않은 정보 중 다음 항목만 중립으로 취급하고, Red flags 또는 종합 점수를 낮추지 않고 채용 담당자에게 확인할 질문으로 보고서에 적습니다. 공개되지 않은 급여 또는 급여 범위(이 때문에 보상의 신뢰도를 알 수 없는 경우 포함), 취업 허가 단계 ⚠️ Unstated, 허용 국가를 밝히지 않은 원격 채용 공고, 명시되지 않은 contractor/EOR 계약 경로입니다. 명시적인 결격 사유는 계속 적용합니다. ⛔ No sponsorship, US-only benefits, 후보자를 배제하는 근무지 또는 거주지 제한, 직무 자체가 목표 수준보다 낮을 때 적용하는 자국 시장 규칙입니다. 다른 모든 점수 규칙과 상한도 계속 적용하며, `culture_screen.deprioritize_if_absent: true`이고 필수 문화 기준에 대한 근거가 없으면 `modes/_shared.md`의 Cultural signals 상한을 적용합니다.
+
+**직함보다 실제 업무:** 목표 직무와 동일한 공식 직함이 없다는 이유만으로, 입증된 업무 범위와 성과가 직무 책임을 충족한다면 CV 적합도나 종합 점수를 낮추지 않습니다. 실제 수행한 업무를 평가합니다. 공고가 명시한 도구, 분야 또는 규제 분야 경력 연수의 부족은 여전히 평가합니다.
+
 ## Step 0 -- Archetype 감지
 
 공고를 6개 archetype 중 하나로 분류합니다(`_shared.md` 참고). 하이브리드 역할이면 가장 가까운 2개를 표시합니다. 이 분류는 다음을 결정합니다.
