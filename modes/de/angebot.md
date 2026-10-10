@@ -6,6 +6,10 @@ Wenn der Kandidat eine Stellenanzeige einfügt (Text oder URL), IMMER alle 6 Bl�
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Offene Fragen, keine Abzüge:** Nur diese nicht genannten Angaben sind neutral und werden im Bericht als Fragen an das Recruiting festgehalten, ohne Abzug bei Red flags oder der Gesamtwertung: unveröffentlichtes Gehalt oder Gehaltsband (einschließlich deshalb unbekannter Verlässlichkeit der Vergütung), Arbeitserlaubnisstufe ⚠️ Unstated, eine Remote-Stelle ohne Angabe der zugelassenen Länder und ein nicht genannter Vertragsweg über Contractor/EOR. Ausdrückliche Ausschlussgründe gelten weiter: ⛔ No sponsorship, US-only benefits, Standort- oder Wohnsitzvorgaben, die den Kandidaten ausschließen, sowie die Heimatmarktregel, wenn die Stelle selbst unter dem Zielniveau liegt. Alle übrigen Bewertungsregeln und Obergrenzen gelten ebenfalls, einschließlich der Obergrenze für Cultural signals in `modes/_shared.md` bei `culture_screen.deprioritize_if_absent: true` und fehlenden Belegen für geforderte Kulturkriterien.
+
+**Inhalt vor Titel:** Fehlt ein formaler Titel, der der Zielrolle entspricht, senkt das allein weder den CV-Match noch die Gesamtwertung, sofern belegte Aufgaben und Ergebnisse des Kandidaten die Anforderungen abdecken. Bewerten Sie die tatsächliche Arbeit. Ausdrücklich genannte Lücken bei Werkzeugen, Fachgebiet oder Jahren in einem regulierten Bereich bleiben relevant.
+
 ## Schritt 0 — Archetyp-Erkennung
 
 Die Stellenanzeige einem der 6 Archetypen zuordnen (siehe `_shared.md`). Bei Hybriden die zwei nächstliegenden angeben. Daraus folgt:

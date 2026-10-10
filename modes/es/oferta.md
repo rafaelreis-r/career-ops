@@ -8,6 +8,10 @@ Cuando el candidato pegue una oferta (texto o URL), SIEMPRE entregar los 7 bloqu
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Preguntas abiertas, no deducciones:** Solo estos datos no indicados son neutrales y se anotan como preguntas para el reclutador, sin deducción en Red flags ni reducción de la puntuación global: salario o banda no publicados (incluida la fiabilidad salarial desconocida por ese motivo), nivel de autorización laboral ⚠️ Unstated, puesto remoto que no indica qué países acepta y vía contractual contractor/EOR no especificada. Siguen aplicándose los bloqueos explícitos: ⛔ No sponsorship, US-only benefits, restricciones de ubicación o residencia que excluyan al candidato y la regla del mercado local cuando el puesto está por debajo del nivel objetivo. También siguen vigentes las demás reglas y límites, incluido el límite de Cultural signals en `modes/_shared.md` cuando `culture_screen.deprioritize_if_absent: true` y no hay evidencia de los criterios culturales requeridos.
+
+**Sustancia sobre título:** La ausencia de un título formal igual al rol objetivo no baja por sí sola el match con el CV ni el score global cuando el alcance y los resultados evidenciados del candidato cubren las responsabilidades del rol. Puntuar la sustancia, no el título. Los gaps que la JD declara explícitamente (herramientas nombradas, un dominio, años en un dominio regulado) siguen siendo gaps reales.
+
 ## Liveness gate (URL inputs)
 
 Cuando el candidato pegue una **URL** (no texto de la JD), confirmar que la oferta sigue activa antes de evaluar. Un enlace muerto nunca debe llegar al Bloque A.

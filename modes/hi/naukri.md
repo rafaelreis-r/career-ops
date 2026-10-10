@@ -6,6 +6,10 @@
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**खुले प्रश्न, अंक कटौती नहीं:** केवल ये अस्पष्ट बातें तटस्थ हैं और Red flags या कुल स्कोर से अंक घटाए बिना रिपोर्ट में recruiter के लिए प्रश्न बनती हैं: प्रकाशित न हुआ वेतन या वेतन दायरा (इसी कारण भुगतान की विश्वसनीयता अज्ञात होना भी), कार्य-अनुमति स्तर ⚠️ Unstated, वे देश न बताने वाली remote नौकरी जहाँ से आवेदन स्वीकार हैं, और न बताया गया contractor/EOR अनुबंध मार्ग। स्पष्ट अवरोध लागू रहते हैं: ⛔ No sponsorship, US-only benefits, उम्मीदवार को बाहर करने वाला स्थान या निवास प्रतिबंध, और जब भूमिका स्वयं लक्ष्य स्तर से नीचे हो तब घरेलू बाज़ार का नियम। बाकी सभी स्कोर नियम और सीमाएँ भी लागू हैं; `culture_screen.deprioritize_if_absent: true` होने पर आवश्यक संस्कृति मानदंडों का प्रमाण न मिले तो `modes/_shared.md` में Cultural signals की सीमा लागू करें।
+
+**पदनाम से अधिक काम:** यदि उम्मीदवार का प्रमाणित कार्यक्षेत्र और परिणाम भूमिका की ज़िम्मेदारियाँ पूरी करते हैं, तो लक्ष्य भूमिका से मिलता औपचारिक पदनाम न होना अकेले CV मेल या कुल स्कोर घटाने का कारण नहीं है। वास्तविक काम को आँकें। JD में स्पष्ट रूप से माँगे गए उपकरण, क्षेत्र या विनियमित क्षेत्र में अनुभव के वर्षों की कमी वास्तविक कमी बनी रहती है।
+
 ## Step 0 -- Archetype Detection
 
 Offer को 6 archetypes में से एक में classify करें (देखें `_shared.md`)। यदि hybrid हो, तो 2 सबसे करीबी indicate करें। यह निर्धारित करता है:

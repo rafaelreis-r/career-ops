@@ -6,6 +6,10 @@
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**待确认问题，不扣分：** 只有以下未说明事项属于中性信息，应在报告中列为向招聘方确认的问题，不计入 Red flags 扣分，也不降低综合评分：未公布的薪资或区间（包括因此无法判断薪酬可靠性）、工作授权等级 ⚠️ Unstated、远程岗位未说明接受哪些国家，以及未说明 contractor/EOR 用工途径。明确的阻断项仍然适用：⛔ No sponsorship、US-only benefits、明确排除候选人的工作地点或居住地限制，以及岗位本身低于目标职级时的本地市场规则。其他现有评分规则和上限也继续适用，包括 `culture_screen.deprioritize_if_absent: true` 且缺少必要文化标准证据时，`modes/_shared.md` 中的 Cultural signals 评分上限。
+
+**实质优先于头衔：** 缺少与目标岗位完全相同的正式头衔，本身不会降低简历匹配度或综合评分，只要候选人有证据支持的工作范围与成果覆盖该岗位的职责。评估实质，而不是头衔。职位描述明确列出的差距（指定工具、领域、受监管领域的年限）仍然是真实差距。
+
 ## 步骤 0 — 岗位画像识别
 将该职位划分为 6 种画像之一（参见 `_shared.md`）。如果是混合型，标明最接近的 2 种。这决定了：
 - 在维度 B 中优先匹配哪些量化佐证（Proof points）。

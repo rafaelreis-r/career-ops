@@ -6,6 +6,10 @@ Quand le candidat colle une offre (texte ou URL), TOUJOURS livrer les 6 blocs.
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Questions ouvertes, sans pénalité :** Seules ces informations absentes sont neutres et doivent figurer dans le rapport comme questions au recruteur, sans pénalité Red flags ni baisse de la note globale : salaire ou fourchette non publiés (y compris la fiabilité de la rémunération inconnue pour cette raison), niveau d'autorisation de travail ⚠️ Unstated, poste à distance sans indication des pays acceptés et voie contractuelle contractor/EOR non précisée. Les exclusions explicites restent applicables : ⛔ No sponsorship, US-only benefits, restriction géographique ou de résidence excluant le candidat et règle du marché local si le poste lui-même est sous le niveau visé. Toutes les autres règles et limites de notation restent en vigueur, notamment le plafond Cultural signals dans `modes/_shared.md` lorsque `culture_screen.deprioritize_if_absent: true` et qu'aucun élément ne confirme les critères culturels requis.
+
+**Le fond avant l'intitulé :** L'absence d'un titre formel identique au poste visé ne diminue pas à elle seule l'adéquation du CV ni la note globale si les responsabilités et résultats attestés du candidat couvrent le poste. Évaluer le travail réel. Les lacunes explicitement demandées dans l'annonce (outils, domaine, années dans un secteur réglementé) restent des lacunes.
+
 ## Etape 0 -- Detection d'archetype
 
 Classer l'offre dans l'un des 6 archetypes (voir `_shared.md`). Si hybride, indiquer les 2 plus proches. Cela determine :

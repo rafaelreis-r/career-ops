@@ -6,6 +6,10 @@ Ketika kandidat menempelkan lowongan (teks atau URL), SELALU sampaikan ke-6 blok
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Pertanyaan terbuka, bukan pengurangan nilai:** Hanya informasi berikut yang tidak disebutkan dianggap netral dan dicatat sebagai pertanyaan untuk perekrut, tanpa pengurangan pada Red flags atau skor keseluruhan: gaji atau rentang yang tidak diumumkan (termasuk ketidakpastian keandalan kompensasi karena hal itu), tingkat izin kerja ⚠️ Unstated, lowongan jarak jauh yang tidak menyebut negara yang diterima, serta jalur kontrak contractor/EOR yang tidak dijelaskan. Hambatan yang disebut secara jelas tetap berlaku: ⛔ No sponsorship, US-only benefits, batasan lokasi atau domisili yang mengecualikan kandidat, dan aturan pasar asal jika peran itu sendiri di bawah tingkat target. Semua aturan dan batas penilaian lain juga tetap berlaku, termasuk batas Cultural signals dalam `modes/_shared.md` saat `culture_screen.deprioritize_if_absent: true` dan tidak ada bukti untuk kriteria budaya yang diwajibkan.
+
+**Substansi lebih penting daripada jabatan:** Tidak adanya jabatan formal yang sama dengan peran target tidak dengan sendirinya mengurangi kecocokan CV atau skor keseluruhan jika cakupan kerja dan hasil kandidat yang terbukti memenuhi tanggung jawab peran itu. Nilai pekerjaan yang dilakukan. Kekurangan yang disebut jelas dalam iklan (alat, bidang, tahun pengalaman dalam bidang teregulasi) tetap diperhitungkan.
+
 ## Langkah 0 -- Deteksi arketipe
 
 Klasifikasikan lowongan ke salah satu dari 6 arketipe (lihat `_shared.md`). Jika hibrida, sebutkan 2 yang paling dekat. Ini menentukan:
