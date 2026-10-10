@@ -6,6 +6,10 @@ Quando il candidato incolla o fornisce un annuncio di lavoro (testo o URL), forn
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Domande aperte, non penalità:** Solo questi dati non dichiarati sono neutri e vanno riportati come domande al recruiter, senza penalità nei Red flags né riduzione del punteggio globale: retribuzione o fascia non pubblicate (compresa l'affidabilità del compenso sconosciuta per questo motivo), livello di autorizzazione al lavoro ⚠️ Unstated, posizione da remoto che non indica i paesi ammessi e modalità contrattuale contractor/EOR non specificata. Restano validi gli ostacoli espliciti: ⛔ No sponsorship, US-only benefits, vincoli di sede o residenza che escludono il candidato e regola del mercato nazionale se il ruolo stesso è sotto il livello obiettivo. Restano valide anche tutte le altre regole e soglie, incluso il limite Cultural signals in `modes/_shared.md` quando `culture_screen.deprioritize_if_absent: true` e mancano prove sui criteri culturali richiesti.
+
+**Sostanza prima del titolo:** La mancanza di un titolo formale identico al ruolo obiettivo non riduce da sola la corrispondenza del CV o il punteggio globale se responsabilità e risultati documentati del candidato coprono il ruolo. Valutare il lavoro svolto. Le lacune esplicitamente richieste nell'annuncio (strumenti, settore, anni in un ambito regolamentato) restano rilevanti.
+
 ## Blocco 0 -- Rilevamento dell'archetipo
 
 Classificare l'annuncio in uno dei 6 archetipi di riferimento (vedi `_shared.md`). Se è un ruolo ibrido, indicare i 2 archetipi più vicini. Questa classificazione determina:
