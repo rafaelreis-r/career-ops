@@ -6,6 +6,10 @@ Når kandidaten indsætter et opslag (tekst eller URL), så lever ALTID alle 6 b
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Åbne spørgsmål, ikke fradrag:** Alt, hvad opslaget lader være uklart, noteres i rapporten som et åbent spørgsmål til rekruttereren. Det er aldrig et fradrag under Red flags og aldrig en grund til at sænke den globale score. Det gælder: løn eller lønbånd, der ikke er offentliggjort, ukendt pålidelighed af aflønningen, work-authorization-niveauet ⚠️ Unstated, en remote-rolle, der ikke angiver, hvilke lande den accepterer, og en kontraktform (ansat, kontraktor, EOR), som opslaget ikke angiver. Eksplicitte blokeringer er uændrede og gælder stadig: niveauet ⛔ No sponsorship, reglen om US-only benefits, en eksplicit begrænsning af lokation eller opholdsstatus, der udelukker kandidaten, og reglen om hjemmemarkedet under målniveau, når selve rollen ligger under målniveauet. Red flags er til dokumenterede problemer, ikke til manglende information.
+
+**Substans frem for titel:** At en formel titel svarende til målrollen mangler, sænker ikke i sig selv CV-match eller den globale score, når kandidatens dokumenterede ansvarsområde og resultater dækker rollens ansvar. Vurder substansen, ikke titlen. Krav, som opslaget udtrykkeligt stiller (navngivne værktøjer, et domæne, års erfaring i et reguleret domæne), forbliver reelle mangler.
+
 ## Trin 0 -- Arketype-detektion
 
 Klassificér opslaget i en af de 6 arketyper (se `_shared.md`). Hvis hybrid, så angiv de 2 nærmeste. Det afgør:

@@ -6,6 +6,10 @@ Quando o candidato cola uma vaga (texto ou URL), entregar SEMPRE os 6 blocos:
 
 **US-only benefits:** A JD that offers 401(k) (also written 401k or 401 (k)), disability insurance, an FSA (Flexible Spending Account), or an HSA (Health Savings Account) is US employment, even when it says remote: a contractor or EOR hire abroad does not get these benefits. When the United States is not in `config/profile.yml` → `location.authorized_in`, treat it as an eligibility blocker regardless of `location.needs_sponsorship`: record `US-only employment: the JD offers {benefits found}` as a hard stop, score the final result below 3.5, and state that reason in the report.
 
+**Perguntas em aberto, não deduções:** Tudo o que a vaga deixa sem esclarecer é registrado no report como pergunta em aberto para o recrutador. Nunca é uma dedução em Red flags nem motivo para baixar a nota global. Isso inclui: salário ou faixa não publicados, confiabilidade da remuneração desconhecida, nível de autorização de trabalho ⚠️ Unstated, vaga remota que não informa quais países aceita e regime de contratação (CLT, PJ/contractor, EOR) que a vaga não informa. Os bloqueios explícitos continuam como estão: o nível ⛔ No sponsorship, a regra de US-only benefits, uma restrição explícita de localização ou residência que exclua o candidato e a regra do mercado local abaixo do nível-alvo quando a própria vaga está abaixo desse nível. Red flags servem para problemas comprovados, não para informação ausente.
+
+**Substância acima do título:** A ausência de um título formal igual ao da vaga-alvo não reduz, por si só, o match com o currículo nem a nota global quando o escopo e os resultados comprovados do candidato cobrem as responsabilidades da vaga. Avaliar a substância, não o título. Gaps que o JD declara explicitamente (ferramentas nomeadas, um domínio, anos em um domínio regulado) continuam sendo gaps reais.
+
 ## Passo 0 -- Detecção de Arquétipo
 
 Classificar a vaga em um dos 6 arquétipos (ver `_shared.md`). Se for híbrido, indicar os 2 mais próximos. Isso determina:
