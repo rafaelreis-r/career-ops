@@ -44,7 +44,7 @@ import { isNestedCheckout } from './lib/mjs-files.mjs';
 
 /** Size of one track's number block. A=100000-199999, B=200000-299999, ... */
 export const BLOCK = 100_000;
-const PLAN_VERSION = 1;
+const PLAN_VERSION = 2;
 const ID_MAP_HEADER = ['trilha', 'antigo', 'novo', 'tipo', 'detalhe'].join('\t');
 
 const TEXT_EXTS = new Set(['.md', '.markdown', '.tsv', '.csv', '.txt', '.json', '.yml', '.yaml', '.html', '.htm']);
@@ -343,6 +343,8 @@ function rewriteSegment(text, env, ctx, { hash }) {
       let newLabel;
       if (/^\d+$/.test(label) && target.ours === 'reports') {
         newLabel = mapField(label, 'report', 'plain', env, ctx, `${env.label}.link`);
+      } else if (/^#\d{3,}$/.test(label) && target.ours === 'reports') {
+        newLabel = `#${mapField(label.slice(1), 'report', 'plain', env, ctx, `${env.label}.link`)}`;
       } else {
         newLabel = rewriteSegment(label, env, ctx, { hash });
       }
@@ -351,6 +353,10 @@ function rewriteSegment(text, env, ctx, { hash }) {
     if (hashDigits !== undefined) {
       if (!hash) return match;
       const value = parseInt(hashDigits, 10);
+      if (env.mapper.direction === 'forward' && env.dupNums?.has(value)) {
+        recordPending(env, match);
+        return match;
+      }
       const mapped = env.mapper.member(value);
       if (mapped == null) return match;
       env.mapper.count(`${env.label}.hash`);
@@ -358,6 +364,10 @@ function rewriteSegment(text, env, ctx, { hash }) {
     }
     return rewritePathToken(match, env, ctx).text;
   });
+}
+
+function recordPending(env, token) {
+  env.pending.push({ file: env.filePath, line: env.lineNumber, token, excerpt: env.lineText.trim().slice(0, 200) });
 }
 
 /** Map one structural numeric field (whole cell or captured digits). */
@@ -369,8 +379,12 @@ function mapField(digits, space, style, env, ctx, category, override = null) {
   return env.mapper.spell(ctx, digits, value, mapped, style);
 }
 
-function rewriteLines(text, fn) {
-  return text.split('\n').map(fn).join('\n');
+function rewriteLines(text, fn, env) {
+  return text.split('\n').map((line, idx) => {
+    env.lineNumber = idx + 1;
+    env.lineText = line;
+    return fn(line);
+  }).join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -381,6 +395,8 @@ function processTracker(text, env, ctx) {
   const lines = text.split('\n');
   const colmap = resolveColumns(lines);
   return lines.map((line, idx) => {
+    env.lineNumber = idx + 1;
+    env.lineText = line;
     const row = parseTrackerRow(line, colmap);
     if (!row) return rewriteSegment(line, env, ctx, { hash: true });
     const parts = line.split('|');
@@ -409,7 +425,7 @@ function processLedger(text, env, ctx) {
     cols[0] = mapField(cols[0], 'tracker', 'plain', env, ctx, 'ledger.num', override);
     for (let i = 1; i < cols.length; i++) cols[i] = rewriteSegment(cols[i], env, ctx, { hash: true });
     return cols.join('\t');
-  });
+  }, env);
 }
 
 function processPdfIndex(text, env, ctx) {
@@ -419,7 +435,7 @@ function processPdfIndex(text, env, ctx) {
     if (/^\d+$/.test(cols[0])) cols[0] = mapField(cols[0], 'report', 'pad3', env, ctx, 'pdf-index.num');
     for (let i = 1; i < cols.length; i++) cols[i] = rewriteSegment(cols[i], env, ctx, { hash: true });
     return cols.join('\t');
-  });
+  }, env);
 }
 
 const PIPELINE_ITEM_RE = /^(\s*-\s+\[[ xX]\]\s+#)(\d+)(?!\d)/;
@@ -430,7 +446,7 @@ function processPipeline(text, env, ctx) {
     if (!m) return rewriteSegment(line, env, ctx, { hash: true });
     const head = m[1] + mapField(m[2], 'report', 'plain', env, ctx, 'pipeline.num');
     return head + rewriteSegment(line.slice(m[0].length), env, ctx, { hash: true });
-  });
+  }, env);
 }
 
 // `- next #<appNum> <date> (set <date>)` (followup-seed.mjs) and
@@ -447,7 +463,13 @@ function processFollowups(text, env, ctx) {
       if (isSeparatorRow(line)) return line;
       for (let i = 1; i < parts.length; i++) {
         if (i === appCol && /^\s*\d+\s*$/.test(parts[i])) {
-          parts[i] = parts[i].replace(/\d+/, (d) => mapField(d, 'tracker', 'plain', env, ctx, 'follow-ups.appnum'));
+          parts[i] = parts[i].replace(/\d+/, (d) => {
+            if (env.mapper.direction === 'forward' && env.dupNums.has(Number(d))) {
+              recordPending(env, `#${d}`);
+              return d;
+            }
+            return mapField(d, 'tracker', 'plain', env, ctx, 'follow-ups.appnum');
+          });
         } else {
           parts[i] = rewriteSegment(parts[i], env, ctx, { hash: true });
         }
@@ -456,9 +478,11 @@ function processFollowups(text, env, ctx) {
     }
     const m = line.match(FOLLOWUP_PIN_RE);
     if (!m) return rewriteSegment(line, env, ctx, { hash: true });
-    const head = m[1] + mapField(m[2], 'tracker', 'plain', env, ctx, 'follow-ups.pin');
+    const ambiguous = env.mapper.direction === 'forward' && env.dupNums.has(Number(m[2]));
+    if (ambiguous) recordPending(env, `#${m[2]}`);
+    const head = m[1] + (ambiguous ? m[2] : mapField(m[2], 'tracker', 'plain', env, ctx, 'follow-ups.pin'));
     return head + rewriteSegment(line.slice(m[0].length), env, ctx, { hash: true });
-  });
+  }, env);
 }
 
 function processorFor(rel, trackerRel) {
@@ -473,10 +497,10 @@ function processorFor(rel, trackerRel) {
   if (rel.split('/').some((part) => isBackupName(part) || part.startsWith('.')) || !isTextName(name)) return null;
   if (posix.dirname(rel) === 'reports') {
     if (ANCHOR_RE.test(name)) return null;
-    if (extname(name) === '.md') return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: true })), label: 'report' };
+    if (extname(name) === '.md') return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: true }), env), label: 'report' };
   }
   if (!SCOPE_DIRS.some(({ rel: dir }) => rel.startsWith(`${dir}/`))) return null;
-  return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: true })), label: 'paths' };
+  return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: true }), env), label: 'paths' };
 }
 
 /** How the entry name at `rel` carries a number, or null when it does not. */
@@ -701,17 +725,13 @@ function planTrackCore(snapshot, root, opts) {
       assign.used = true;
     });
     for (const a of ledgerAssign.values()) if (!a.used) errors.push(`--ledger-assign ${a.raw} matches no ledger event of a repeated tracker #`);
-    for (const rel of [FOLLOWUPS_REL]) {
-      const text = snapshot.entries.get(rel)?.text ?? '';
-      for (const n of exc.dupNums) {
-        if (new RegExp(`#${n}(?!\\d)`).test(text)) warnings.push(`${rel} cites #${n}, which names more than one tracker row; it maps to ${base + n}`);
-      }
-    }
   }
 
+  const manualPending = [];
   const env = {
     mapper, rootAliases, fileDir: '', label: '',
     rowExceptions: exc.rowExceptions, dupNums: exc.dupNums, ledgerAssign,
+    pending: manualPending,
   };
 
   // Entry renames. Each prefix is mapped once so a directory's spelling is
@@ -758,6 +778,7 @@ function planTrackCore(snapshot, root, opts) {
     const proc = processorFor(rel, trackerRel);
     if (!proc) continue;
     env.fileDir = posix.dirname(rel);
+    env.filePath = rel;
     env.label = proc.label;
     const ctx = newCtx(direction === 'forward' ? finals.get(rel) : rel, 'content');
     const next = proc.fn(e.text, env, ctx);
@@ -809,7 +830,7 @@ function planTrackCore(snapshot, root, opts) {
     }
   }
   return {
-    ops, texts, idMapRows, counts: mapper.counts, errors, warnings, base, trackerRel,
+    ops, texts, idMapRows, counts: mapper.counts, errors, warnings, manualPending, base, trackerRel,
     analysis: { rows, exc },
   };
 }
@@ -891,6 +912,7 @@ function planSharedCore(texts, opts) {
   const out = new Map();
   const idMapRows = [];
   const counts = {};
+  const manualPending = [];
   const mappers = new Map();
   const mapperFor = (t) => {
     if (!mappers.has(t.track)) {
@@ -929,7 +951,8 @@ function planSharedCore(texts, opts) {
         if (hits.length === 1) override = owner.rowExceptions.get(hits[0].idx)?.novo ?? null;
         else warnings.push(`${where}: #${n} names more than one ${owner.track} row; it maps to ${owner.base + n}`);
       }
-      const env = { mapper, rootAliases: new Set(), fileDir: '', label: `shared.${file.name}` };
+      const env = { mapper, rootAliases: new Set(), fileDir: '', label: `shared.${file.name}`,
+        dupNums: owner.dupNums, pending: manualPending, filePath: `shared/${file.name}`, lineNumber: i + 1, lineText: line };
       cols[file.numCol] = mapField(raw, file.space, 'plain', env, ctx, `shared.${file.name}`, override);
       if (opts.direction === 'forward') {
         idMapRows.push(idRow(owner.track, n, cols[file.numCol], 'shared', JSON.stringify({ file: file.name, line: i + 1 })));
@@ -948,7 +971,7 @@ function planSharedCore(texts, opts) {
       idMapRows.push(idRow(m.track, s.spelling, s.novo, 'spelling', JSON.stringify({ path: s.ctx.key, kind: s.ctx.kind, ordinal: s.ordinal })));
     }
   }
-  return { out, idMapRows, counts, errors, warnings };
+  return { out, idMapRows, counts, errors, warnings, manualPending };
 }
 
 function readSharedTexts(sharedDir) {
@@ -1035,7 +1058,7 @@ export function planShared(options) {
     inputs: { sharedDir, reverse: direction === 'reverse' },
     fingerprint: sha256(JSON.stringify(shas)),
     ops, texts: result.out, idMapRows: result.idMapRows, counts: result.counts,
-    errors: result.errors, warnings: result.warnings,
+    errors: result.errors, warnings: result.warnings, manualPending: result.manualPending,
   };
 }
 
@@ -1054,7 +1077,7 @@ export function writePlan(plan, outDir) {
     tool: 'renumber-ids', version: PLAN_VERSION, mode: plan.mode, direction: plan.direction,
     track: plan.track ?? null, created: new Date().toISOString(),
     inputs: plan.inputs, fingerprint: plan.fingerprint, digest: digestOf(plan),
-    counts: plan.counts, warnings: plan.warnings, ops: plan.ops,
+    counts: plan.counts, warnings: plan.warnings, manualPending: plan.manualPending, ops: plan.ops,
   };
   if (plan.mode === 'shared') doc.payload = Object.fromEntries(plan.texts);
   writeFileSync(join(outDir, 'plan.json'), `${JSON.stringify(doc, null, 2)}\n`);
@@ -1065,6 +1088,7 @@ export function writePlan(plan, outDir) {
     else changes.push(`${op.path.split('/')[0]}\t${op.op}\t${op.path}\t`);
   }
   writeFileSync(join(outDir, 'changes.tsv'), `${changes.join('\n')}\n`);
+  writeFileSync(join(outDir, 'manual-pending.json'), `${JSON.stringify(plan.manualPending, null, 2)}\n`);
 }
 
 function trackApplyBlockers(root, trackerRel) {
@@ -1123,7 +1147,7 @@ export async function applyPlan(planPath) {
         writeFileAtomic(abs, op.content);
       }
     }
-    return { mode: 'track', root, ops: plan.ops.length, counts: plan.counts };
+    return { mode: 'track', root, ops: plan.ops.length, counts: plan.counts, manualPending: doc.manualPending };
   } finally {
     pipelineLock?.release();
     trackerLock.release();
@@ -1142,7 +1166,7 @@ function applyShared(doc) {
     writeFileAtomic(abs, doc.payload[op.path]);
     chmodSync(abs, mode);
   }
-  return { mode: 'shared', root: sharedDir, ops: doc.ops.length, counts: doc.counts };
+  return { mode: 'shared', root: sharedDir, ops: doc.ops.length, counts: doc.counts, manualPending: doc.manualPending };
 }
 
 // ---------------------------------------------------------------------------
@@ -1189,7 +1213,13 @@ function printPlan(plan, outDir) {
   console.log(`renumber-ids ${plan.mode} ${plan.direction}${plan.track ? ` track ${plan.track}` : ''}: ${plan.ops.length} operations ${JSON.stringify(byOp)}`);
   for (const [k, v] of Object.entries(plan.counts).sort()) console.log(`  ${k}\t${v}`);
   for (const w of plan.warnings) console.log(`  warning: ${w}`);
-  if (outDir) console.log(`plan written to ${outDir} (plan.json, id-map.tsv, changes.tsv)`);
+  printPending(plan.manualPending);
+  if (outDir) console.log(`plan written to ${outDir} (plan.json, id-map.tsv, changes.tsv, manual-pending.json)`);
+}
+
+function printPending(rows) {
+  console.log(`manual-pending: ${rows.length}`);
+  for (const row of rows) console.log(`  ${row.file}:${row.line} ${row.token} ${row.excerpt}`);
 }
 
 async function runCli(argv) {
@@ -1206,6 +1236,7 @@ async function runCli(argv) {
     console.log(`applied ${summary.ops} operations to ${summary.root}`);
     for (const [k, v] of Object.entries(summary.counts).sort()) console.log(`  ${k}\t${v}`);
     if (summary.mode === 'track') console.log('data/applications.db is rebuilt from the tracker on the next tracker.mjs run.');
+    printPending(summary.manualPending);
     return 0;
   }
   const outDir = flagValue(args, '--out');

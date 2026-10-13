@@ -34,7 +34,7 @@ import { resolveTrackerPath, resolveWorkspaceRoot, resolvePdfIndexPath, trackerL
 // Canonical posting-URL key. Kept in its own module so scan.mjs / scan-history
 // can adopt the same key later without the definitions drifting.
 import { normalizeUrl } from './url-key.mjs';
-import { occupiedFromReports, readReportNumberRange } from './reserve-report-num.mjs';
+import { collectOccupied, readReportNumberRange } from './reserve-report-num.mjs';
 
 const MERGE_TRACKER_HELP_REQUESTED = process.argv.includes('--help') || process.argv.includes('-h');
 if (MERGE_TRACKER_HELP_REQUESTED) {
@@ -1341,7 +1341,7 @@ const failedAdditions = [];
 // does, read from the installation that owns this tracker. Without a range
 // (single installs) it keeps the unbounded max+1 behaviour.
 let trackerRangeCache;
-const occupiedReportNumbers = occupiedFromReports(join(REPORTS_ROOT, 'reports'));
+const occupiedNumbers = collectOccupied(join(REPORTS_ROOT, 'reports'), APPS_FILE);
 function trackerNumberRange() {
   if (trackerRangeCache === undefined) {
     trackerRangeCache = readReportNumberRange({ rootDir: resolveWorkspaceRoot(APPS_FILE) });
@@ -1353,11 +1353,11 @@ function trackerNumberRange() {
 function nextFreeTrackerNumber(range) {
   if (!range) {
     let n = maxNum + 1;
-    while (usedNumbers.has(n) || occupiedReportNumbers.has(n)) n++;
+    while (usedNumbers.has(n) || occupiedNumbers.has(n)) n++;
     return n;
   }
   let n = range.min;
-  while (n <= range.max && (usedNumbers.has(n) || occupiedReportNumbers.has(n))) n++;
+  while (n <= range.max && (usedNumbers.has(n) || occupiedNumbers.has(n))) n++;
   return n <= range.max ? n : null;
 }
 

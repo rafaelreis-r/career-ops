@@ -100,6 +100,13 @@ the repeated `#` has an owner, given as `--ledger-assign <old>@<date>=<new>`
 (`--ledger-assign A:<old>@<date>=<new>` in `shared`). A shared row whose owner
 the trackers cannot decide needs `--owner <file>:<line>=<track>`.
 
+A free-text `#NNN` whose tracker number repeats is left unchanged because its
+vacancy is ambiguous. This includes tracker notes, follow-up pins and `appNum`
+cells, and shared notes. Report-number fields still move. `plan` records each
+ambiguous occurrence with its file, line and excerpt in `plan.json` and
+`manual-pending.json`, and prints the list. `apply` prints the list again for
+manual resolution after migration.
+
 To undo, plan the reverse and apply it: `plan --root <track> --reverse --id-map
 <dir>/A/id-map.tsv --out <dir>/A-reverse`, and for the shared files `shared
 --reverse` with every track's id-map plus the shared one. Numbered fields and

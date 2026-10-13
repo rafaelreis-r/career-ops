@@ -28,7 +28,7 @@ function merge({ range, rows, add, reportFiles = [] }) {
     mkdirSync(join(work, 'adds'));
     mkdirSync(join(work, 'reports'));
     for (const name of reportFiles) writeFileSync(join(work, 'reports', name), '# Report\n');
-    writeFileSync(join(work, 'config', 'profile.yml'), `report_number_range: "${range}"\n`);
+    writeFileSync(join(work, 'config', 'profile.yml'), range == null ? 'name: Test\n' : `report_number_range: "${range}"\n`);
     const tracker = join(work, 'data', 'applications.md');
     writeFileSync(tracker, [...HEADER, ...rows, ''].join('\n'));
     writeFileSync(join(work, 'adds', 'a.tsv'), `${add}\n`);
@@ -78,4 +78,16 @@ test('a report without a tracker row occupies its number in collision fallback',
   assert.equal(r.run.status, 0, r.run.stderr);
   assert.deepEqual(r.nums.sort(), ['3001', '3002']);
   assert.equal(r.merged, true);
+});
+
+test('a tracker report link occupies its number even without a report file', () => {
+  const linked = row(3001, 'Acme').replace('[3001](../reports/3001-', '[3000](../reports/3000-');
+  const bounded = merge({ range: '3000-3002', rows: [linked], add: addition(3001, 'Newco') });
+  assert.equal(bounded.run.status, 0, bounded.run.stderr);
+  assert.deepEqual(bounded.nums.sort(), ['3001', '3002']);
+
+  const linkedNext = row(3001, 'Acme').replace('[3001](../reports/3001-', '[3002](../reports/3002-');
+  const unbounded = merge({ range: null, rows: [linkedNext], add: addition(3001, 'Newco') });
+  assert.equal(unbounded.run.status, 0, unbounded.run.stderr);
+  assert.deepEqual(unbounded.nums.sort(), ['3001', '3003']);
 });
