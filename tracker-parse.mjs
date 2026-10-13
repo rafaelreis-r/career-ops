@@ -768,23 +768,3 @@ export function resolveCanonicalState(input, states) {
   }
   return null;
 }
-
-/** Parse the user-owned do-not-apply markdown table by normalized company. */
-export function parseBlacklist(text) {
-  const entries = new Map();
-  for (const line of String(text ?? '').replace(/\r/g, '').split('\n')) {
-    if (!line.trim().startsWith('|')) continue;
-    const cells = line.split('|').map((cell) => cell.trim());
-    const company = cells[1] || '';
-    if (!company || /^[-: ]+$/.test(company) || company.toLowerCase() === 'company') continue;
-    const key = normalizeTextKey(company);
-    if (!key || entries.has(key)) continue;
-    entries.set(key, {
-      company,
-      since: cells[2] || '',
-      scope: cells[3] || '',
-      reason: cells[4] || '',
-    });
-  }
-  return entries;
-}

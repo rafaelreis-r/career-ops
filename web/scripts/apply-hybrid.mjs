@@ -249,7 +249,7 @@ async function main() {
     console.log(`[hybrid] not opened: submit was already attempted at ${priorSubmission.attemptedAt} (${priorSubmission.status}); check the employer and tracker before any retry`);
     process.exit(5);
   }
-  const eligibility = postingEligibility({ root, reportNumber, company: companySlug });
+  const eligibility = postingEligibility({ root, reportNumber, company: companySlug, url: args.url });
   if (!eligibility.eligible) {
     for (const reason of eligibility.reasons) console.log(`[hybrid] not opened: ${reason}`);
     process.exit(5);

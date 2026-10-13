@@ -19,7 +19,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as yaml from 'js-yaml';
 import { resolveTrackerPath } from '../../../../../path-resolver.mjs';
-import { canonicalStatesFromDocument, extractTrackerReportNumbers, isHeaderRow, isSeparatorRow, normalizeTextKey, parseBlacklist, parseTrackerRow, resolveCanonicalState, resolveColumns } from '../../../../../tracker-parse.mjs';
+import { canonicalStatesFromDocument, extractTrackerReportNumbers, isHeaderRow, isSeparatorRow, normalizeTextKey, parseTrackerRow, resolveCanonicalState, resolveColumns } from '../../../../../tracker-parse.mjs';
+// The scanner's blacklist reader, so the driver and the scan agree on what is
+// listed: company rows by normalized name, `domain` rows by hostname suffix.
+import { findBlacklistEntry, parseBlacklist } from '../../../../../scan.mjs';
 
 const FORK_STATES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../../templates/states.yml');
 
@@ -121,10 +124,10 @@ const addDays = (iso, n) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400
  * May this posting enter the round? Checks its own tracker row, the
  * blacklist, and the company's submission limit across every track.
  *
- * @param {{root: string, reportNumber?: string|number|null, company?: string|null, today?: string, shared?: string|null}} opts
+ * @param {{root: string, reportNumber?: string|number|null, company?: string|null, url?: string|null, today?: string, shared?: string|null}} opts
  * @returns {{eligible: boolean, reasons: string[], standing: object, company: string|null, limit: object|null}}
  */
-export function postingEligibility({ root, reportNumber = null, company = null, today = new Date().toISOString().slice(0, 10), shared = sharedDir() }) {
+export function postingEligibility({ root, reportNumber = null, company = null, url = null, today = new Date().toISOString().slice(0, 10), shared = sharedDir() }) {
   const standing = trackerStanding(root, reportNumber);
   const name = standing.company || company;
   const key = name ? normalizeCompany(name) : '';
@@ -132,8 +135,10 @@ export function postingEligibility({ root, reportNumber = null, company = null, 
   if (standing.sent) reasons.push(`tracker row ${standing.row} is "${standing.status}" (${standing.canonical}): the application was already sent`);
 
   const blacklistFile = [path.join(root, 'data', 'blacklist.md'), shared && path.join(shared, 'data', 'blacklist.md')].find((f) => f && fs.existsSync(f));
-  const listed = key && blacklistFile ? parseBlacklist(fs.readFileSync(blacklistFile, 'utf8')).get(key) : null;
-  if (listed) reasons.push(`${listed.company} is on the blacklist (since ${listed.since || '?'}): ${listed.reason || 'no reason recorded'}`);
+  const listed = blacklistFile && (name || url)
+    ? findBlacklistEntry(parseBlacklist(fs.readFileSync(blacklistFile, 'utf8')), name || '', url || '')
+    : null;
+  if (listed) reasons.push(`${listed.company} is on the blacklist${listed.scope === 'domain' ? ' (domain)' : ''} (since ${listed.since || '?'}): ${listed.reason || 'no reason recorded'}`);
 
   let limit = null;
   const limitsFile = [shared && path.join(shared, 'data', 'submission-limits.tsv'), path.join(root, 'data', 'submission-limits.tsv')].find((f) => f && fs.existsSync(f));

@@ -348,6 +348,22 @@ test('a company whose submission limit is used up across the tracks never enters
   }
 });
 
+test('a domain-scoped blacklist row keeps a posting on that host (and its subdomains) out of the round, as the scan does', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-domain-'));
+  try {
+    fs.mkdirSync(path.join(root, 'data'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'data', 'applications.md'), '# Applications Tracker\n\n| # | Date | Company | Via | Role | Score | Status | PDF | Report | Notes |\n|---|------|---------|-----|------|-------|--------|-----|--------|-------|\n| 300012 | 2026-10-10 | Confluent | — | SRE | 4.0/5 | Evaluated | ✅ | [300012](../reports/300012-confluent-2026-10-10.md) | |\n');
+    fs.writeFileSync(path.join(root, 'data', 'blacklist.md'), '| Company | Since | Scope | Reason |\n|---|---|---|---|\n| ibm.com | 2026-10-13 | domain | Grupo IBM |\n');
+    const onIbm = postingEligibility({ root, reportNumber: 300012, url: 'https://careers.ibm.com/job/123', shared: null });
+    assert.equal(onIbm.eligible, false);
+    assert.match(onIbm.reasons[0], /ibm\.com is on the blacklist \(domain\)/);
+    assert.equal(postingEligibility({ root, reportNumber: 300012, url: 'https://notibm.com/job/123', shared: null }).eligible, true, 'a host that only ends in the same letters is not the domain');
+    assert.equal(postingEligibility({ root, reportNumber: 300012, shared: null }).eligible, true, 'a domain row names a host, never a company');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a confirmed prior attempt reconciles the tracker and exits successfully without another click', { skip: CORE_RECONCILIATION_SKIP }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'co-hybrid-reconcile-'));
   const stateDir = path.join(root, 'state');
