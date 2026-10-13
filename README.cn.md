@@ -166,7 +166,7 @@ career-ops 对求职者永久免费。这些公司赞助了本项目：
 | 功能                     | 说明                                                                                                                                     |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **A-H 评估**             | 职位摘要、简历匹配（标注每条要求在这个职位里有多重要，以及权重来自职位描述的措辞、结构还是估算，逐条标注；估算永远不能进入最高档）、级别策略、薪酬调研、个性化、面试准备（STAR+R），再加上区块 G 的职位可信度检查（是否仍在招、是否为重复发布：只陈述观察，不下定论），以及一个工作许可信号（把明确不提供签证担保的职位描述标记为硬性阻碍） |
-| **Human-in-the-Loop**    | AI 评估并推荐，你决定并行动。系统从不提交申请：最终决定始终在你手中 <!-- hitl: absolute guarantee. Do not add "automatically", "by itself", "without your permission" or any other hedge when translating this row. -->               |
+| **Human-in-the-Loop**    | 请参阅[当前的申请提交规则](docs/APPLY_AUTOFILL.md)。 |
 | **ATS PDF 生成**         | ATS 可读的简历，基于你自己的经历、针对每份职位描述定制，采用 Space Grotesk + DM Sans 设计                                                  |
 | **求职信生成器**         | 基于调研的求职信：关键词呼应、四个交互式角度提问（为什么/问题/方法/语气）、在聊天中审批草稿，以及通过与简历相同的 HTML + Playwright 流水线生成 A4 PDF。每次评估自动起草；用 `/career-ops cover` 按需完成并生成 |
 | **简历之外**             | 公司调研（[`deep`](modes/deep.md)）揭示 AI 战略、近期动向、工程文化，以及你的简历应该采取的角度。联系人发现（[`contacto`](modes/contacto.md)）找出值得联系的招聘经理、招聘人员或团队成员，并起草一条不超过 300 字符、针对联系人类型调整过的 LinkedIn 消息。正式申请邮件草稿（[`email`](modes/email.md)）把已评估的报告或粘贴的职位描述变成主题、正文和附件清单，不发送、不提交、不点击任何内容。申请让你排进队伍，调研让你获得对话。 |
@@ -636,7 +636,7 @@ career-ops 通过开放的 Agent Skill Standard 运行在任何主流 AI 编码 
 career-ops 可以在 Windows 上运行。平台相关的设置和已知的坑（Git Bash 检测、行尾符、任务计划程序）在 [docs/WINDOWS.md](docs/WINDOWS.md)。如果安装时因符号链接错误导致 skills 无法加载，解决方法在 [docs/FAQ.md](docs/FAQ.md)。完整步骤见 [docs/SETUP.md](docs/SETUP.md)。
 
 **career-ops 会替我自动申请职位吗？**
-不会。career-ops 是一个过滤器，不是海投的自动申请器。AI 负责评估、排序和起草；你负责审阅与决定。它起草、填写，但从不提交。由你点击提交。这种保留人工决策的设计正是重点所在。
+请参阅[当前的申请提交规则](docs/APPLY_AUTOFILL.md)。
 
 **career-ops 是免费开源软件吗？**
 是。career-ops 是免费开源软件，而且对求职者会一直如此。它是 [CareerOps 宣言](https://career-ops.org/manifesto)的首个参考实现。读一读，如果它说出了你的想法，就签名。

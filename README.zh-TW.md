@@ -166,7 +166,7 @@ career-ops 對求職者永久免費。這些公司贊助了本專案：
 | 功能                     | 說明                                                                                                                                     |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **A-H 評估**             | 職缺摘要、履歷比對（標註每條要求在這個職缺裡有多重要，以及權重來自職缺描述的措辭、結構還是估算，逐條標註；估算永遠不能進入最高一級）、職級策略、薪酬調查、個人化、面試準備（STAR+R），再加上區塊 G 的職缺可信度檢查（是否仍在徵人、是否為重複刊登：只陳述觀察，不下定論），以及一個工作許可訊號（把明確不提供簽證擔保的職缺描述標記為硬性阻礙） |
-| **Human-in-the-Loop**    | AI 評估並推薦，你決定並行動。系統從不送出申請：最終決定權永遠在你手上 <!-- hitl: absolute guarantee. Do not add "automatically", "by itself", "without your permission" or any other hedge when translating this row. -->               |
+| **Human-in-the-Loop**    | 請參閱[目前的應徵提交規則](docs/APPLY_AUTOFILL.md)。 |
 | **ATS PDF 產生**         | ATS 可讀的履歷，根據你自己的經歷、針對每份職缺描述客製，採用 Space Grotesk + DM Sans 設計                                                  |
 | **求職信產生器**         | 基於調查的求職信：關鍵字呼應、四個互動式角度提問（為什麼／問題／方法／語氣）、在對話中審核草稿，以及透過與履歷相同的 HTML + Playwright 流程產生 A4 PDF。每次評估自動起草；用 `/career-ops cover` 依需求完成並產生 |
 | **履歷之外**             | 企業調查（[`deep`](modes/deep.md)）揭示 AI 策略、近期動向、工程文化，以及你的履歷應該採取的角度。聯絡人探索（[`contacto`](modes/contacto.md)）找出值得聯絡的招募主管、招募人員或團隊成員，並草擬一則不超過 300 字元、針對聯絡人類型調整過的 LinkedIn 訊息。正式申請郵件草稿（[`email`](modes/email.md)）把已評估的報告或貼上的職缺描述變成主旨、內文和附件清單，不寄送、不送出、不點擊任何內容。申請讓你排進隊伍，調查讓你獲得對話。 |
@@ -636,7 +636,7 @@ career-ops 透過開放的 Agent Skill Standard 跑在各主流 AI 程式碼 CLI
 career-ops 可以在 Windows 上執行。平台相關的設定和已知的坑（Git Bash 偵測、行尾符號、工作排程器）在 [docs/WINDOWS.md](docs/WINDOWS.md)。如果安裝過程中技能因 symlink 錯誤而載入失敗，解法在 [docs/FAQ.md](docs/FAQ.md)。完整步驟見 [docs/SETUP.md](docs/SETUP.md)。
 
 **career-ops 會自動幫我投遞職缺嗎？**
-不會。career-ops 是篩選器，不是亂槍打鳥的自動投遞工具。AI 負責評估、排序與草擬；審閱與決定由你來做。它會草擬、填寫，但從不送出。由你按下送出。這種保留人工把關的設計，正是整套系統的重點。
+請參閱[目前的應徵提交規則](docs/APPLY_AUTOFILL.md)。
 
 **career-ops 是免費且開源的嗎？**
 是。career-ops 免費且開源，而且對求職者而言永遠都會是。它是 [CareerOps 宣言](https://career-ops.org/manifesto)的第一個參考實作。讀一讀，如果它說中了你的想法，就簽署它。
