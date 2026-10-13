@@ -23,14 +23,14 @@
  * is annotated below the forwarding cutoff without a scorer call, with the
  * reason on the row.
  *
- * When Jev is enabled it scores entries directly; otherwise the work is done by
- * whichever installed agent CLI is selected from the headless runners documented
- * in AGENTS.md.
+ * When Jev is enabled it scores entries directly, unless --cli is passed; otherwise
+ * the work is done by whichever installed agent CLI is selected from the headless
+ * runners documented in AGENTS.md.
  *
  * Usage:
  *   node rank-pipeline.mjs                     # screen pending rows; check and score up to --limit others
  *   node rank-pipeline.mjs --limit 10
- *   node rank-pipeline.mjs --cli codex         # override CLI auto-detection
+ *   node rank-pipeline.mjs --cli codex         # override CLI auto-detection; also wins over Jev
  *   node rank-pipeline.mjs --model <name>      # passed through when the CLI takes one
  *   node rank-pipeline.mjs --no-liveness       # skip the closed-posting check before scoring
  *   node rank-pipeline.mjs --dry-run           # print what would be written
@@ -101,7 +101,8 @@ const USAGE = `
   All other selected rows are only annotated; no rows are removed or reordered.
 
     --limit N        max entries to check and rank this run (default ${DEFAULT_LIMIT}, ceiling ${LIMIT_CEILING})
-    --cli <name>     force a CLI instead of auto-detecting
+    --cli <name>     force a CLI instead of auto-detecting; also bypasses Jev when
+                     TYPESAFE_API_KEY is set (without it, Jev scores whenever the key exists)
     --model <n>      passed through to the CLI when it accepts one
     --batch N        entries per CLI call (default ${DEFAULT_BATCH_SIZE}, max ${LIMIT_CEILING};
                      env CAREER_OPS_RANK_BATCH). CLI path only; Jev scores one entry per call
@@ -611,12 +612,14 @@ async function main(args) {
   const dryRun = hasFlag(args, '--dry-run');
   const limit = flagValue(args, '--limit') ?? DEFAULT_LIMIT;
   const model = flagValue(args, '--model');
-  const forced = flagValue(args, '--cli') ?? process.env.CAREER_OPS_RANK_CLI;
+  const forcedFlag = flagValue(args, '--cli');
+  const forced = forcedFlag ?? process.env.CAREER_OPS_RANK_CLI;
 
+  // An explicit --cli beats Jev: the caller chose the scorer. Without the flag,
   // Jev takes priority when enabled and needs no local agent CLI at all; the
-  // CLI-subprocess path below is unchanged and is exactly what runs whenever
-  // TYPESAFE_API_KEY is unset.
-  const jevEnabled = isJevEnabled();
+  // CLI-subprocess path below is exactly what runs whenever TYPESAFE_API_KEY
+  // is unset.
+  const jevEnabled = isJevEnabled() && !forcedFlag;
   let cli = null;
   if (!jevEnabled) {
     cli = forced
