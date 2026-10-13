@@ -11,8 +11,8 @@
  * Usage:
  *   node reserve-report-num.mjs
  *   node reserve-report-num.mjs --count 8
- *   node reserve-report-num.mjs --release 035
- *   node reserve-report-num.mjs --release 042-049
+ *   node reserve-report-num.mjs --release 100035
+ *   node reserve-report-num.mjs --release 100042-100049
  *   node reserve-report-num.mjs --collisions <installation> <installation> [...]
  *   node reserve-report-num.mjs --gc
  *
