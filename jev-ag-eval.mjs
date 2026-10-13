@@ -51,7 +51,7 @@ import { join } from 'path';
 import { isJevEnabled, jevAsk } from './lib/jev-client.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { loadPreGateProfile } from './jev-pregate.mjs';
-import { authorizedInUnitedStates, usOnlyBenefits } from './eval-queue.mjs';
+import { authorizedInUnitedStates, usOnlyBenefits } from './lib/us-only.mjs';
 import { flagValue, hasFlag } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 

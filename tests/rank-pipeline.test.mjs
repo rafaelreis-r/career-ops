@@ -356,7 +356,8 @@ try {
       for (const [flags, env, name] of invalid) {
         const r = rank(flags, env);
         check(`invalid ${name} (${[...flags, ...Object.values(env)].join(' ')}) is refused before any CLI call`,
-          r.status === 1 && r.stderr.includes(`Invalid ${name}`) && r.pipeline === pristine && !/CLI call/.test(r.stdout));
+          r.status === 1 && (r.stderr.includes(`Invalid ${name}`) || r.stderr.includes(`${name} requires a value`))
+          && r.pipeline === pristine && !/CLI call/.test(r.stdout));
       }
 
       const emptyEnv = rank([], { CAREER_OPS_RANK_BATCH: '', CAREER_OPS_RANK_TIMEOUT_MS: '' });

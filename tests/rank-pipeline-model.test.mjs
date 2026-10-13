@@ -14,6 +14,9 @@ for (const [cli, command] of [['codex', 'exec'], ['opencode', 'run'], ['claude',
     try {
       mkdirSync(join(root, 'data'));
       mkdirSync(join(root, 'bin'));
+      mkdirSync(join(root, 'config'));
+      writeFileSync(join(root, 'config', 'profile.yml'),
+        'target_roles:\n  target_level: Director\ncompensation:\n  target_range: USD 8K/month\n');
       const raw = '- [ ] https://example.test/job | Example | Engineer';
       writeFileSync(join(root, 'data', 'pipeline.md'), raw);
       const binary = join(root, 'bin', cli);
@@ -33,7 +36,7 @@ for (const [cli, command] of [['codex', 'exec'], ['opencode', 'run'], ['claude',
       assert.equal(args[0], command);
       assert.match(args[1], /POSTINGS:/);
       assert.deepEqual(args.slice(2), ['--model', 'fixture/provider-model']);
-      assert.equal(readFileSync(join(root, 'data', 'pipeline.md'), 'utf8'), `${raw} | rank: 4.0/5 — Fixture match`);
+      assert.equal(readFileSync(join(root, 'data', 'pipeline.md'), 'utf8'), `${raw} | rank: cal-v3 4.0/5 — Fixture match`);
 
       writeFileSync(join(root, 'data', 'pipeline.md'), raw);
       rank([]);
