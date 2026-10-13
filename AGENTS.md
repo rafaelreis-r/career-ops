@@ -415,7 +415,7 @@ Headless worker command per CLI:
 ## Stack and Conventions
 
 - Node.js (`.mjs`), Playwright (PDF + scraping), YAML (config), HTML/CSS (template), Markdown (data), Canva MCP (optional visual CV)
-- Output in `output/` (gitignored) · Reports in `reports/` · JDs in `jds/` (referenced as `local:jds/{file}` in pipeline.md) · Batch in `batch/` (gitignored except scripts and prompt)
+- Output in `output/` (gitignored) · Reports in `reports/` · JDs in `jds/` (referenced as `local:jds/{file}` in pipeline.md) · Batch files: see `batch/README.md` for tracked and generated files
 - Report numbering: sequential, minimum 3-digit zero-padded, next number after the highest occupied slot inside the installation's configured `report_number_range`
 
 ### JD captures (`jds/`)
