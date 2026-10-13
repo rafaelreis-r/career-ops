@@ -188,6 +188,9 @@ try {
       'templates/cv-template.zh-minimal.html': false,
       'templates/resume-template.html': false,
       'templates/ats/cv-template.ats.html': true,
+      // Fork template (docs/FORK.md): cv-template.html with its own link
+      // colour and justified text.
+      'templates/cv-template.ops.html': true,
     };
     // [effective default, declared on :root]
     const withDefaults = (defaults) => Object.fromEntries(
