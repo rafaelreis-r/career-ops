@@ -1170,10 +1170,13 @@ individual contributors on target when paid in USD, Senior Manager, Head, or
 Director and above when paid in BRL); the ranker applies the one that matches
 the role's pay currency and market.
 
-With `TYPESAFE_API_KEY` set, Jev scores each entry and accepts results at or
-above `JEV_RANK_CONFIDENCE_THRESHOLD` (default `0.45`). Otherwise ranking uses
-whichever installed agent CLI is selected from the Headless / Batch Mode table
-in `AGENTS.md`: `claude`, `opencode`, `codex`, `copilot`, `qwen`, `agy`, or `grok`.
+With `TYPESAFE_API_KEY` set, Jev scores each entry unless you pass `--cli`.
+Jev accepts results at or above `JEV_RANK_CONFIDENCE_THRESHOLD` (default
+`0.45`). An explicit `--cli` selects that CLI even when the key is set. Without
+the key, ranking uses `--cli`, `CAREER_OPS_RANK_CLI`, or an automatically
+detected agent CLI, in that order. The supported CLIs are listed in the
+Headless / Batch Mode table in `AGENTS.md`.
+
 Each scorer receives the first 2,000 characters of `cv.md`, the URL, company,
 title, and public location and compensation fields when present. It also
 receives the home country, `target_roles.target_level`,
@@ -1213,7 +1216,7 @@ current ranks stay unchanged and are not sent to the scorer.
 ```bash
 node rank-pipeline.mjs                  # screen pending rows; check and score up to 20 others
 node rank-pipeline.mjs --limit 10
-node rank-pipeline.mjs --cli codex      # override auto-detection
+node rank-pipeline.mjs --cli codex      # select Codex, even when TYPESAFE_API_KEY is set
 node rank-pipeline.mjs --dry-run        # print annotations and expired marks, write nothing
 ```
 

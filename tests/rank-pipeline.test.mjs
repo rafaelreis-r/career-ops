@@ -275,6 +275,59 @@ try {
       rmSync(rankerRoot, { recursive: true, force: true });
     }
 
+    // Backend precedence with TYPESAFE_API_KEY set: an explicit --cli runs the
+    // CLI path and never reaches Jev; without --cli the same key selects Jev.
+    // The preload replaces fetch with a recorder so no request leaves the
+    // machine, and doubles as the fake CLI scorer (see above).
+    const precRoot = mkdtempSync(join(tmpdir(), 'career-ops-ranker-precedence-'));
+    try {
+      mkdirSync(join(precRoot, 'data'));
+      mkdirSync(join(precRoot, 'config'));
+      writeFileSync(join(precRoot, 'config', 'profile.yml'),
+        'target_roles:\n  target_level: Director\ncompensation:\n  target_range: USD 8K/month\n');
+      const precPipeline = join(precRoot, 'data', 'pipeline.md');
+      const fetchLog = join(precRoot, 'fetch.log');
+      writeFileSync(join(precRoot, 'precedence.cjs'), [
+        'if (process.argv.length === 1) {',
+        '  process.on("uncaughtException", () => {',
+        '    process.stdout.write(JSON.stringify([{ id: 0, score: 4, reason: "cli fake" }]));',
+        '    process.exitCode = 0;',
+        '  });',
+        '} else {',
+        '  globalThis.fetch = async () => {',
+        '    require("fs").appendFileSync(process.env.FETCH_LOG, "x");',
+        '    throw new Error("offline");',
+        '  };',
+        '}',
+        '',
+      ].join('\n'));
+      const precedence = extraArgs => {
+        writeFileSync(precPipeline, '## Pending\n- [ ] https://x.test/1 | Acme | Engineer\n');
+        rmSync(fetchLog, { force: true });
+        const env = { ...process.env, CAREER_OPS_ROOT: precRoot, TYPESAFE_API_KEY: 'test-key',
+          FETCH_LOG: fetchLog, NODE_OPTIONS: '--require=./precedence.cjs' };
+        delete env.CAREER_OPS_RANK_CLI;
+        const r = spawnSync(process.execPath, [join(ROOT, 'rank-pipeline.mjs'), '--no-liveness', ...extraArgs],
+          { encoding: 'utf8', cwd: precRoot, env });
+        let fetched = false;
+        try { fetched = readFileSync(fetchLog, 'utf8').length > 0; } catch { /* never written */ }
+        return { ...r, fetched, pipeline: readFileSync(precPipeline, 'utf8') };
+      };
+
+      const withCli = precedence(['--cli', process.execPath]);
+      check('--cli beats Jev: TYPESAFE_API_KEY set, CLI scores the row and Jev is never called',
+        withCli.status === 0 && !withCli.fetched
+          && /CLI call\(s\) via/.test(withCli.stdout) && withCli.pipeline.includes('| rank: cal-v3')
+          && withCli.pipeline.includes('cli fake'));
+
+      const withoutCli = precedence([]);
+      check('without --cli, TYPESAFE_API_KEY still selects Jev',
+        withoutCli.fetched && !/CLI call\(s\) via/.test(withoutCli.stdout)
+          && !withoutCli.pipeline.includes('cli fake'));
+    } finally {
+      rmSync(precRoot, { recursive: true, force: true });
+    }
+
     // Batch size and per-call timeout of the CLI path. The fake CLI is this
     // node binary: `node -p <prompt>` throws on the prompt text, the preload's
     // uncaughtException handler answers (after FAKE_DELAY_MS) for ids 0-2 and
