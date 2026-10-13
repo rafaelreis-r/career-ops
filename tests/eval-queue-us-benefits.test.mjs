@@ -4,7 +4,7 @@
 // even when it says remote. When the JD text is on disk (`local:jds/...`),
 // eval-queue.mjs holds the row with the benefits it found; a URL row has no
 // local text and goes on to the evaluation, which applies the same rule.
-import { pass, fail, ROOT, NODE, rmSync } from './helpers.mjs';
+import { pass, fail, ROOT, NODE, rmSync, linkNodeModules } from './helpers.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { execFileSync } from 'child_process';
@@ -46,7 +46,10 @@ try {
       symlinkSync(join(ROOT, file), join(root, file));
     }
     symlinkSync(join(ROOT, 'lib'), join(root, 'lib'), 'dir');
-    symlinkSync(join(ROOT, 'node_modules'), join(root, 'node_modules'), 'dir');
+    // linkNodeModules(), not a raw symlink: a junction on Windows, and a reason
+    // instead of a dangling link when the tree is absent.
+    const depsReason = linkNodeModules(root, ROOT);
+    if (depsReason) throw new Error(depsReason);
     for (const dir of ['data', 'config', 'reports', 'batch', 'jds']) mkdirSync(join(root, dir));
     writeFileSync(join(root, 'jds', 'monami-spm.md'),
       'Senior Product Manager (Remote)\n\nBenefits: medical, dental, 401(k) with match, disability insurance, FSA and HSA.\n');

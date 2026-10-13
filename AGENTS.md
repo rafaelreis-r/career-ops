@@ -418,7 +418,7 @@ A single-string `modes_dir` (today's default, ~90% of users) behaves exactly as 
 | Wants to build or enrich the profile from documents they already have (master CV, LinkedIn export, diplomas, references) | `intake` — scans `documents/`, extracts text locally (`intake.mjs`), proposes source-annotated additions to `config/profile.yml`/`cv.md`/`modes/_profile.md`; writes nothing without explicit confirm |
 | Asks about follow-ups or application cadence | `followup` |
 | Wants to classify application replies and review updates | `reply-watch` — classifies replies, matches to applications, suggests tracker updates |
-| Asks to reconcile the tracker with e-mail ("reconciliar com email") | `node reconcile-email.mjs` (dry-run), show its lists, then `--apply` only after the user approves the proposed changes |
+| Asks to reconcile the tracker with e-mail ("reconciliar com email") | Run `node reconcile-email.mjs` (dry-run), show its lists, then `--apply` only after the user approves the proposed changes |
 | Wants to record application outcome & archive artifacts | `outcome` |
 | Wants to update the system | `update` |
 | Wants to queue a request for later / check the inbox between sessions | `agent-inbox` — append-only checklist drained next session; nothing auto-submits |

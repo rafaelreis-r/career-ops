@@ -10,7 +10,7 @@
 //   4. --force overrides the cutoff for ranked rows, nothing else.
 //   5. The queue file grows with ids that cannot collide with batch state, and
 //      pipeline.md is never written.
-import { pass, fail, ROOT, NODE, rmSync } from './helpers.mjs';
+import { pass, fail, ROOT, NODE, rmSync, linkNodeModules } from './helpers.mjs';
 import { join } from 'path';
 import { pathToFileURL } from 'url';
 import { execFile, execFileSync } from 'child_process';
@@ -123,7 +123,10 @@ try {
       symlinkSync(join(ROOT, file), join(root, file));
     }
     symlinkSync(join(ROOT, 'lib'), join(root, 'lib'), 'dir');
-    symlinkSync(join(ROOT, 'node_modules'), join(root, 'node_modules'), 'dir');
+    // linkNodeModules(), not a raw symlink: a junction on Windows, and a reason
+    // instead of a dangling link when the tree is absent.
+    const depsReason = linkNodeModules(root, ROOT);
+    if (depsReason) throw new Error(depsReason);
     mkdirSync(join(root, 'data'));
     mkdirSync(join(root, 'config'));
     mkdirSync(join(root, 'reports'));
