@@ -53,15 +53,13 @@ const ANCHOR_RE = /^\d+-faixa-inicial\.md$/;
 const RESERVED_RE = /^\d+-RESERVED\.md$/;
 const BARE_DATE_FILE_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
 
-/** Directories whose entry names carry the number, and how they carry it. */
+/** Directories included in a track snapshot. */
 const SCOPE_DIRS = [
-  { rel: 'reports', recursive: false },
-  { rel: 'jds', recursive: false },
-  { rel: 'covers', recursive: false },
+  { rel: 'reports', recursive: true },
+  { rel: 'jds', recursive: true },
+  { rel: 'covers', recursive: true },
   { rel: 'output', recursive: true },
-  { rel: 'data/outcomes', recursive: true },
-  { rel: 'data/followup-drafts', recursive: true },
-  { rel: 'data/application-packets', recursive: true },
+  { rel: 'data', recursive: true },
 ];
 // Path anchors inside text. Single-level kinds only rename the entry directly
 // below the anchor; token kinds rename every segment below it.
@@ -80,13 +78,13 @@ const PDF_INDEX_REL = 'data/pdf-index.tsv';
 
 const SHARED_FILES = [
   { name: 'contacts.tsv', numCol: 7, companyCol: 1, notesCol: 8, space: 'tracker' },
-  { name: 'salary-observations.tsv', numCol: 0, companyCol: null, notesCol: null, space: 'report' },
+  { name: 'salary-observations.tsv', numCol: 0, companyCol: null, notesCol: null, space: 'tracker' },
   { name: 'assessments.tsv', numCol: 2, companyCol: 1, notesCol: null, space: 'report' },
 ];
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const pad3 = (n) => String(n).padStart(3, '0');
-const isBackupName = (name) => /\.(?:bak|backup|orig)(?:[-._]|$)/i.test(name) || name.endsWith('~');
+const isBackupName = (name) => /\.bak[^/]*$|\.(?:backup|orig)(?:[-._]|$)/i.test(name) || name.endsWith('~');
 const isTextName = (name) => TEXT_EXTS.has(extname(name).toLowerCase());
 const startsWithDate = (name) => /^\d{4}-\d{2}-\d{2}(?!\d)/.test(name);
 
@@ -130,12 +128,13 @@ export function snapshotTrack(root) {
   };
   const walk = (dir, recursive) => {
     for (const name of readdirSync(dir).sort()) {
+      if (dir === join(root, 'data') && /^pipeline\.md\.lock(?:\.recover)?$/.test(name)) continue;
       const full = join(dir, name);
       const entry = add(relative(root, full).split(sep).join('/'));
       if (recursive && entry?.type === 'dir' && !isNestedCheckout(full)) walk(full, true);
     }
   };
-  for (const rel of [trackerRelFor(root), PIPELINE_REL, FOLLOWUPS_REL, LEDGER_REL, PDF_INDEX_REL]) add(rel);
+  if (trackerRelFor(root) === 'applications.md') add('applications.md');
   for (const { rel, recursive } of SCOPE_DIRS) {
     const entry = add(rel);
     if (entry?.type === 'dir') walk(join(root, rel), recursive);
@@ -383,7 +382,7 @@ function processTracker(text, env, ctx) {
   const colmap = resolveColumns(lines);
   return lines.map((line, idx) => {
     const row = parseTrackerRow(line, colmap);
-    if (!row) return rewriteSegment(line, env, ctx, { hash: false });
+    if (!row) return rewriteSegment(line, env, ctx, { hash: true });
     const parts = line.split('|');
     parts[colmap.num] = parts[colmap.num].replace(/\d+/, (digits) => {
       const override = env.mapper.direction === 'forward' ? env.rowExceptions.get(idx)?.novo ?? null : null;
@@ -391,8 +390,7 @@ function processTracker(text, env, ctx) {
     });
     for (let i = 1; i < parts.length; i++) {
       if (i === colmap.num) continue;
-      const hash = i === colmap.notes || i === colmap.report;
-      parts[i] = rewriteSegment(parts[i], env, ctx, { hash });
+      parts[i] = rewriteSegment(parts[i], env, ctx, { hash: true });
     }
     return parts.join('|');
   }).join('\n');
@@ -409,6 +407,7 @@ function processLedger(text, env, ctx) {
       if (env.dupNums.has(n)) override = env.ledgerAssign.get(`${n}@${cols[1]}`)?.novo ?? null;
     }
     cols[0] = mapField(cols[0], 'tracker', 'plain', env, ctx, 'ledger.num', override);
+    for (let i = 1; i < cols.length; i++) cols[i] = rewriteSegment(cols[i], env, ctx, { hash: true });
     return cols.join('\t');
   });
 }
@@ -418,7 +417,7 @@ function processPdfIndex(text, env, ctx) {
     if (/^\s*#/.test(line)) return line;
     const cols = line.split('\t');
     if (/^\d+$/.test(cols[0])) cols[0] = mapField(cols[0], 'report', 'pad3', env, ctx, 'pdf-index.num');
-    for (let i = 1; i < cols.length; i++) cols[i] = rewriteSegment(cols[i], env, ctx, { hash: false });
+    for (let i = 1; i < cols.length; i++) cols[i] = rewriteSegment(cols[i], env, ctx, { hash: true });
     return cols.join('\t');
   });
 }
@@ -471,10 +470,10 @@ function processorFor(rel, trackerRel) {
   const name = posix.basename(rel);
   // Backups and hidden scratch copies (`output/.x-applications-before-...md`)
   // are history: renamed with their directory, never rewritten.
-  if (isBackupName(name) || name.startsWith('.') || !isTextName(name)) return null;
+  if (rel.split('/').some((part) => isBackupName(part) || part.startsWith('.')) || !isTextName(name)) return null;
   if (posix.dirname(rel) === 'reports') {
-    if (ANCHOR_RE.test(name) || extname(name) !== '.md') return null;
-    return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: true })), label: 'report' };
+    if (ANCHOR_RE.test(name)) return null;
+    if (extname(name) === '.md') return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: true })), label: 'report' };
   }
   if (!SCOPE_DIRS.some(({ rel: dir }) => rel.startsWith(`${dir}/`))) return null;
   return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: true })), label: 'paths' };

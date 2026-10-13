@@ -20,12 +20,14 @@ const HEADER = [
 const row = (n, company) => `| ${n} | 2026-10-08 | ${company} | Engineer | 3.0/5 | Evaluated | ❌ | [${n}](../reports/${n}-x-2026-10-08.md) | |`;
 const addition = (n, company) => [n, '2026-10-13', company, 'Platform Engineer', 'Evaluated', '3.5/5', '❌', `[${n}](reports/${n}-y-2026-10-13.md)`, 'new'].join('\t');
 
-function merge({ range, rows, add }) {
+function merge({ range, rows, add, reportFiles = [] }) {
   const work = mkdtempSync(join(tmpdir(), 'merge-range-'));
   try {
     mkdirSync(join(work, 'data'));
     mkdirSync(join(work, 'config'));
     mkdirSync(join(work, 'adds'));
+    mkdirSync(join(work, 'reports'));
+    for (const name of reportFiles) writeFileSync(join(work, 'reports', name), '# Report\n');
     writeFileSync(join(work, 'config', 'profile.yml'), `report_number_range: "${range}"\n`);
     const tracker = join(work, 'data', 'applications.md');
     writeFileSync(tracker, [...HEADER, ...rows, ''].join('\n'));
@@ -67,5 +69,13 @@ test('a range with its highest number occupied still uses a lower gap', () => {
   const r = merge({ range: '3000-3002', rows: [row(3000, 'Acme'), row(3002, 'Beta')], add: addition(3000, 'Newco') });
   assert.equal(r.run.status, 0, r.run.stderr);
   assert.deepEqual(r.nums.sort(), ['3000', '3001', '3002']);
+  assert.equal(r.merged, true);
+});
+
+test('a report without a tracker row occupies its number in collision fallback', () => {
+  const r = merge({ range: '3000-3002', rows: [row(3001, 'Acme')],
+    add: addition(3001, 'Newco'), reportFiles: ['3000-other.md'] });
+  assert.equal(r.run.status, 0, r.run.stderr);
+  assert.deepEqual(r.nums.sort(), ['3001', '3002']);
   assert.equal(r.merged, true);
 });

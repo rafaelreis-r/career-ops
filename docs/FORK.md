@@ -79,17 +79,17 @@ What moves:
 - entry names in `reports/`, `jds/`, `covers/`, `data/outcomes/`,
   `data/followup-drafts/`, `data/application-packets/` and `output/`, including
   a number inside a name (`cv-candidate-gitlab-3244-2026-10-08.pdf`) when it is
-  one of the track's numbers, and every path or link to a renamed file in those
-  files, in report bodies and in text files under those directories;
-- a free-text `#NNN` (three digits or more) in tracker Notes, report bodies,
-  `data/pipeline.md`, `data/follow-ups.md` and text files under the numbered
-  directories above, when NNN is one of the track's numbers.
+  one of the track's numbers;
+- paths and links to renamed files, and free-text `#NNN` tokens (three digits
+  or more) that belong to this track, in eligible text files under `data/`,
+  `reports/`, `jds/`, `covers/` and `output/`. This includes
+  `data/active-interviews.md` and other historical records.
 
 What stays: other numbers in text (`req 1057`, `Story #1`, another track's
 `#1037`), symlinked files (the shared TSVs, which the `shared` mode migrates
 with the base of the track that owns each row), backups and hidden copies
-(renamed with their directory, never rewritten), `batch/` history, and text
-outside the files above, such as `modes/_custom.md`. `data/applications.db` is
+(renamed with their directory, never rewritten), binary files, `batch/`
+history, and text outside the files above, such as `modes/_custom.md`. `data/applications.db` is
 rebuilt from the tracker by the next `tracker.mjs` run. The
 `reports/*-faixa-inicial.md` anchors are deleted; their content is kept in the
 id-map.

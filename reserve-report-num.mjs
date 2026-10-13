@@ -163,7 +163,7 @@ function trackerPathFor(options = {}) {
 // that are *entirely* a date. See tests/reserve-report-num.test.mjs.
 const BARE_DATE_FILE_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
 
-function occupiedFromReports(reportsDir) {
+export function occupiedFromReports(reportsDir) {
   const occupied = new Set();
   if (!existsSync(reportsDir)) return occupied;
   for (const name of readdirSync(reportsDir)) {

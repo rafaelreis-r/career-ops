@@ -56,7 +56,7 @@ function trackA(dir) {
     '',
   ].join('\n'));
   write(root, 'data/status-log.tsv', [
-    '25\t2026-08-05\tEvaluated\tSKIP\tset-status\t',
+    '25\t2026-08-05\tEvaluated\tSKIP\tset-status\tsee #056',
     '3244\t2026-10-08\tEvaluated\tApplied\tset-status\t',
     '3244\t2026-10-11\tEvaluated\tApplied\tset-status\t',
     '3244\t2026-10-11\tApplied\tRejected\tset-status\t',
@@ -83,6 +83,10 @@ function trackA(dir) {
   write(root, 'data/followup-drafts/17-remote.md', 'Draft for #056 [remote](../../reports/017-remote-2026-08-07.md)\n');
   write(root, 'data/outcomes/56_articul8_infra/outcome.md', 'Outcome #056 of reports/056-articul8-2026-08-07.md\n');
   write(root, 'data/application-packets/2026-08-31/001-056-articul8.md', '- **Tracker:** #056\n- **Report:** `reports/056-articul8-2026-08-07.md`\n');
+  write(root, 'data/active-interviews.md', '| GitLab | #3244 in tracker | reports/3244-gitlab-2026-10-08.md |\n');
+  write(root, 'data/archive/history.yml', 'job: "#056"\nreport: reports/056-articul8-2026-08-07.md\n');
+  write(root, 'data/archive/history.bak.md', 'old #056\n');
+  write(root, 'data/.archive/history.md', 'old #056\n');
   write(root, 'jds/056-articul8.md', 'JD for #056\n');
   write(root, 'covers/056-articul8.md', 'Cover for #056\n');
   write(root, 'jds/scraped-no-number.md', 'JD text\n');
@@ -163,6 +167,7 @@ test('apply moves every format into the block and keeps unrelated numbers', asyn
     assert.match(tracker, /\| 101037 \| 2026-09-21 \| Kosli /);
 
     assert.equal(read('data/status-log.tsv').split('\n').map((l) => l.split('\t')[0]).join(','), '100025,103244,103255,103255,');
+    assert.match(read('data/status-log.tsv'), /^100025\t[^\n]*\tsee #100056$/m);
     const pipeline = read('data/pipeline.md');
     assert.match(pipeline, /^- \[x\] #100025 \| https:\/\/jobs\.example\.com\/a#123 \|.*\[100025\]\(\.\.\/reports\/100025-nortal-2026-08-04\.md\)$/m);
     assert.match(pipeline, /^- \[x\] \[103244\]\(\.\.\/reports\/103244-gitlab-2026-10-08\.md\)/m);
@@ -184,6 +189,10 @@ test('apply moves every format into the block and keeps unrelated numbers', asyn
     assert.equal(read('data/outcomes/100056_articul8_infra/outcome.md'), 'Outcome #100056 of reports/100056-articul8-2026-08-07.md\n');
     assert.equal(read('data/application-packets/2026-08-31/001-100056-articul8.md'),
       '- **Tracker:** #100056\n- **Report:** `reports/100056-articul8-2026-08-07.md`\n', 'packet ordinal kept, references rewritten');
+    assert.equal(read('data/active-interviews.md'), '| GitLab | #103244 in tracker | reports/103244-gitlab-2026-10-08.md |\n');
+    assert.equal(read('data/archive/history.yml'), 'job: "#100056"\nreport: reports/100056-articul8-2026-08-07.md\n');
+    assert.equal(read('data/archive/history.bak.md'), 'old #056\n');
+    assert.equal(read('data/.archive/history.md'), 'old #056\n');
     assert.ok(existsSync(join(f.a, 'jds/100056-articul8.md')));
     assert.equal(read('jds/100056-articul8.md'), 'JD for #100056\n');
     assert.equal(read('covers/100056-articul8.md'), 'Cover for #100056\n');
@@ -360,7 +369,7 @@ test('shared rows use their declared number space when tracker and report owners
     ], ledgerAssign: { A: LEDGER_A } });
     assert.deepEqual(plan.errors, []);
     assert.match(plan.texts.get('contacts.tsv'), /\t100077\t/);
-    assert.match(plan.texts.get('salary-observations.tsv'), /^200077\t/);
+    assert.match(plan.texts.get('salary-observations.tsv'), /^100077\t/);
     assert.match(plan.texts.get('assessments.tsv'), /\tBeta\t200077\t/);
   } finally {
     rmSync(f.dir, { recursive: true, force: true });
