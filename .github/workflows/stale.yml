@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   stale:
+    if: github.repository == 'career-ops-hq/career-ops'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/stale@v11
