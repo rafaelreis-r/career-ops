@@ -92,10 +92,11 @@ What moves:
   `data/active-interviews.md` and other historical records.
 
 What stays: other numbers in text (`req 1057`, `Story #1`, another track's
-`#1037`, and any `#NNN` followed by a single capital letter other than the
-track's own, as in `#1014 B`), colours and commented numbers in HTML (`#333`
-in `<style>`, `style=`, `fill=`, `<script>` and `<!-- ... -->`), symlinked files (the shared TSVs, which the `shared` mode migrates
-with the base of the track that owns each row), backups and hidden copies
+`#1037`, and `#NNN` followed by a space and a single capital letter other
+than the track's own, as in `#1014 B`); `#NNN` inside HTML comments,
+`<style>` or `<script>` content, or colour attributes such as `style=` and
+`fill=`; symlinked files (the shared TSVs, which the `shared` mode migrates
+with the base of the track that owns each row); backups and hidden copies
 (renamed with their directory, never rewritten), binary files, `batch/`
 history, and text outside the files above, such as `modes/_custom.md`. `data/applications.db` is
 rebuilt from the tracker by the next `tracker.mjs` run. The

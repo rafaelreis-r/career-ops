@@ -327,7 +327,7 @@ const HTML_ATTR_NAME_RE = /[^\s=/>]+/y;
 const HTML_UNQUOTED_RE = /[^\s>]+/y;
 
 /**
- * One byte per character of `text`, 1 where free-text `#NNN` must stay put:
+ * One byte per UTF-16 code unit of `text`, 1 where free-text `#NNN` must stay put:
  * HTML comments, `<style>` and `<script>` content, and colour attributes. A
  * forward scan over tags, so quotes and `>` inside attribute values and the
  * raw text of those two elements are read the way a browser reads them.
