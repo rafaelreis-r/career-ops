@@ -317,6 +317,7 @@ const SYSTEM_PATHS = [
   'lib/tracks.mjs',
   'lib/email-reconcile.mjs',
   'reconcile-email.mjs',
+  'renumber-ids.mjs',
   'web/',
   'user-agent.mjs',
   'doctor.mjs',

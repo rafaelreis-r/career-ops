@@ -77,7 +77,7 @@ Conflict rule: `modes/_profile.md` wins over default system guidance because it 
 |-------------|---------|
 | `{{URL}}` | Job URL |
 | `{{JD_FILE}}` | Local file containing the JD text |
-| `{{REPORT_NUM}}` | 3-digit report number, zero-padded |
+| `{{REPORT_NUM}}` | Report number, minimum 3 digits, zero-padded |
 | `{{DATE}}` | Current date, YYYY-MM-DD |
 | `{{ID}}` | Unique offer ID from `batch-input.tsv` |
 

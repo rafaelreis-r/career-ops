@@ -34,6 +34,7 @@ import { resolveTrackerPath, resolveWorkspaceRoot, resolvePdfIndexPath, trackerL
 // Canonical posting-URL key. Kept in its own module so scan.mjs / scan-history
 // can adopt the same key later without the definitions drifting.
 import { normalizeUrl } from './url-key.mjs';
+import { collectOccupied, readReportNumberRange } from './reserve-report-num.mjs';
 
 const MERGE_TRACKER_HELP_REQUESTED = process.argv.includes('--help') || process.argv.includes('-h');
 if (MERGE_TRACKER_HELP_REQUESTED) {
@@ -1335,6 +1336,31 @@ const newLines = [];
 // instead of reporting a success that did not happen.
 const failedAdditions = [];
 
+// The collision fallback below allocates a tracker # without the reservation
+// system, so it has to honour the same report_number_range the allocator
+// does, read from the installation that owns this tracker. Without a range
+// (single installs) it keeps the unbounded max+1 behaviour.
+let trackerRangeCache;
+const occupiedNumbers = collectOccupied(join(REPORTS_ROOT, 'reports'), APPS_FILE);
+function trackerNumberRange() {
+  if (trackerRangeCache === undefined) {
+    trackerRangeCache = readReportNumberRange({ rootDir: resolveWorkspaceRoot(APPS_FILE) });
+  }
+  return trackerRangeCache;
+}
+
+/** Next unused tracker # in `range`; null when the range is full. */
+function nextFreeTrackerNumber(range) {
+  if (!range) {
+    let n = maxNum + 1;
+    while (usedNumbers.has(n) || occupiedNumbers.has(n)) n++;
+    return n;
+  }
+  let n = range.min;
+  while (n <= range.max && (usedNumbers.has(n) || occupiedNumbers.has(n))) n++;
+  return n <= range.max ? n : null;
+}
+
 /**
  * Replace one tracker row line wherever it currently lives.
  *
@@ -1731,14 +1757,23 @@ for (const file of tsvFiles) {
     // New entry - preserve the TSV's reserved ID whenever it is actually
     // free. Parallel workers can finish out of order, so a valid reservation
     // may be lower than the current tracker maximum (#1733). Renumber only on
-    // a real collision, using the next free ID above the current maximum and
-    // warning loudly so report/tracker drift is visible (#1704).
+    // a real collision, using the next free ID inside the installation's
+    // report_number_range and warning loudly so report/tracker drift is
+    // visible (#1704).
     let entryNum;
     if (!usedNumbers.has(addition.num)) {
       entryNum = addition.num;
     } else {
-      entryNum = maxNum + 1;
-      while (usedNumbers.has(entryNum)) entryNum++;
+      const range = trackerNumberRange();
+      entryNum = nextFreeTrackerNumber(range);
+      if (entryNum === null) {
+        console.error(
+          `❌ ${file}: tracker #${addition.num} is already used and report_number_range ` +
+          `${range.min}-${range.max} has no free number left; this evaluation was NOT merged.`,
+        );
+        failedAdditions.push(file);
+        continue;
+      }
       console.warn(
         `⚠️  Tracker #${addition.num} already used; assigning #${entryNum} to ` +
         `${addition.company} — ${addition.role}. Report link remains ${addition.report}.`,

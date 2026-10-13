@@ -13414,6 +13414,9 @@ try {
   }
   writeFileSync(join(tmp, 'merge-tracker.mjs'), 'console.log("merge fixture");\n');
   writeFileSync(join(tmp, 'verify-pipeline.mjs'), 'console.log("verify fixture");\n');
+  // The runner stops an offer whose report-number reservation returns nothing,
+  // so the fixture has to hand out a number for the worker to be launched.
+  writeFileSync(join(tmp, 'reserve-report-num.mjs'), 'console.log("001");\n');
   writeFileSync(join(batchDir, 'batch-prompt.md'), 'URL={{URL}}\nJD={{JD_FILE}}\nREPORT={{REPORT_NUM}}\n');
   writeFileSync(join(batchDir, 'batch-input.tsv'), [
     'id\turl\tsource\tnotes',
@@ -13669,6 +13672,9 @@ function makeTierFixture(profileYml) {
   }
   writeFileSync(join(tmp, 'merge-tracker.mjs'), 'console.log("merge fixture");\n');
   writeFileSync(join(tmp, 'verify-pipeline.mjs'), 'console.log("verify fixture");\n');
+  // The runner stops an offer whose report-number reservation returns nothing,
+  // so the fixture has to hand out a number for the worker to be launched.
+  writeFileSync(join(tmp, 'reserve-report-num.mjs'), 'console.log("001");\n');
   writeFileSync(join(batchDir, 'batch-prompt.md'), 'URL={{URL}}\nJD={{JD_FILE}}\nREPORT={{REPORT_NUM}}\n');
   writeFileSync(join(batchDir, 'batch-input.tsv'), [
     'id\turl\tsource\tnotes',

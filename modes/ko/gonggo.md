@@ -113,7 +113,7 @@ WebSearch를 사용합니다.
 
 전체 평가를 `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`에 저장합니다.
 
-- `{###}` = 다음 순차 번호(3자리, zero-padded). 동시성 문제를 피하기 위해 반드시 `node reserve-report-num.mjs`를 실행해 번호를 예약합니다(stdout이 `{###}`를 반환). report를 작성한 뒤 `node reserve-report-num.mjs --release {###}`를 실행해 sentinel을 해제합니다.
+- `{###}` = 다음 순차 번호(최소 3자리, zero-padded). 동시성 문제를 피하기 위해 반드시 `node reserve-report-num.mjs`를 실행해 번호를 예약합니다(stdout이 `{###}`를 반환). report를 작성한 뒤 `node reserve-report-num.mjs --release {###}`를 실행해 sentinel을 해제합니다.
 - `{company-slug}` = 회사명을 소문자와 하이픈으로 만든 slug
 - `{YYYY-MM-DD}` = 오늘 날짜
 

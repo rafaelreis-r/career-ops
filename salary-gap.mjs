@@ -288,7 +288,7 @@ export function fold(observations, apps, profileDesired) {
       });
     }
   }
-  applications.sort((a, b) => a.num.localeCompare(b.num));
+  applications.sort((a, b) => a.num.localeCompare(b.num, 'en', { numeric: true }));
 
   const byCurrency = {};
   const byCompanyRole = {};
@@ -606,7 +606,9 @@ function selfTest() {
 }
 
 // --- Real sources ---
-const REPORT_FILE_RE = /^(\d{3})-.*-(\d{4}-\d{2}-\d{2})\.md$/;
+// Report numbers have a three-digit minimum width, not a fixed one: track
+// ranges reach four and six digits (`1037-…`, `103244-…`).
+const REPORT_FILE_RE = /^(\d+)-.*-(\d{4}-\d{2}-\d{2})\.md$/;
 
 function collectSources() {
   const apps = {};

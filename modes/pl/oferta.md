@@ -111,7 +111,7 @@ Dołącz także:
 
 Zapisz pełną ocenę w `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 
-- `{###}` = następny kolejny numer (3 cyfry, dopełnione zerami). Aby przydzielić go atomowo i uniknąć race conditions, musisz uruchomić `node reserve-report-num.mjs`, by zarezerwować numer (stdout zwraca `{###}`), zapisać report, a następnie uruchomić `node reserve-report-num.mjs --release {###}`, by zwolnić sentinel.
+- `{###}` = następny kolejny numer (co najmniej 3 cyfry, dopełnione zerami). Aby przydzielić go atomowo i uniknąć race conditions, musisz uruchomić `node reserve-report-num.mjs`, by zarezerwować numer (stdout zwraca `{###}`), zapisać report, a następnie uruchomić `node reserve-report-num.mjs --release {###}`, by zwolnić sentinel.
 - `{company-slug}` = nazwa firmy małymi literami, bez spacji (użyj myślników)
 - `{YYYY-MM-DD}` = dzisiejsza data
 
