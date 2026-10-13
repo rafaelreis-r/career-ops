@@ -6,7 +6,7 @@
 
 1. **讀取資料**：分析 `data/pipeline.md`，找出 "Pending" 區塊下所有標記為 `- [ ]` 的待處理項目。
 2. **逐一處理**：對每一個未處理的 URL：
-   a. **計算新報告編號**：掃描 `reports/` 目錄，找出目前最大的數字前綴並加 1，作為 `REPORT_NUM`。
+   a. **預留報告編號**：執行 `node reserve-report-num.mjs` 取得 `REPORT_NUM`；寫入報告後執行 `node reserve-report-num.mjs --release <num>` 釋放預留。
    b. **擷取職缺描述 (JD)**：首選 Playwright（透過 `browser_navigate` + `browser_snapshot`）渲染網頁擷取；次選 `WebFetch` 抓取靜態文字；最後以 `WebSearch` 搜尋同名職缺的快照。
    c. **例外處理**：若連結因權限、失效等原因完全打不開，將該項標記為 `- [!]`，附上錯誤描述，然後繼續處理下一個。
    d. **執行一鍵管線評估**：跑 A–F 各維度評估 → 存成報告 `.md` → 依設定產生履歷 PDF（若評分達門檻）→ 自動登錄至 tracker。

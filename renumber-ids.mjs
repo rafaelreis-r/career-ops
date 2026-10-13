@@ -47,7 +47,7 @@ export const BLOCK = 100_000;
 const PLAN_VERSION = 1;
 const ID_MAP_HEADER = ['trilha', 'antigo', 'novo', 'tipo', 'detalhe'].join('\t');
 
-const TEXT_EXTS = new Set(['.md', '.markdown', '.tsv', '.csv', '.txt', '.json', '.yml', '.yaml']);
+const TEXT_EXTS = new Set(['.md', '.markdown', '.tsv', '.csv', '.txt', '.json', '.yml', '.yaml', '.html', '.htm']);
 const DATE_RE = /(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)/g;
 const ANCHOR_RE = /^\d+-faixa-inicial\.md$/;
 const RESERVED_RE = /^\d+-RESERVED\.md$/;
@@ -477,7 +477,7 @@ function processorFor(rel, trackerRel) {
     return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: true })), label: 'report' };
   }
   if (!SCOPE_DIRS.some(({ rel: dir }) => rel.startsWith(`${dir}/`))) return null;
-  return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: false })), label: 'paths' };
+  return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: true })), label: 'paths' };
 }
 
 /** How the entry name at `rel` carries a number, or null when it does not. */
@@ -877,12 +877,12 @@ function sharedRowOwner(file, cols, n, tracks, overrides, where) {
     if (!t) throw new PlanError(`--owner ${where}=${forced}: unknown track`);
     return t;
   }
-  let cands = tracks.filter((t) => t.rowsByNum.has(n));
+  let cands = tracks.filter((t) => file.space === 'tracker' ? t.rowsByNum.has(n) : t.reportNumbers.has(n));
   if (cands.length > 1 && file.companyCol != null) {
     const company = normalizeCompany(cols[file.companyCol] ?? '');
-    cands = cands.filter((t) => t.rowsByNum.get(n).some((r) => normalizeCompany(r.company) === company));
+    cands = cands.filter((t) => [...t.rowsByNum.values()].flat().some((r) =>
+      (file.space === 'tracker' ? r.num === n : r.reports.includes(n)) && normalizeCompany(r.company) === company));
   }
-  if (cands.length === 0) cands = tracks.filter((t) => t.numbers.has(n));
   return cands.length === 1 ? cands[0] : null;
 }
 
@@ -988,7 +988,8 @@ export function planShared(options) {
       }
       trackIdRows.push(...plan.idMapRows);
       const numbers = new Set(plan.idMapRows.filter((r) => ['tracker', 'report', 'tracker+report', 'reference'].includes(r.tipo)).map((r) => Number(r.antigo)));
-      return { track, base, numbers, rowsByNum, rowExceptions: exc.rowExceptions, dupNums: exc.dupNums, trackerRev: new Map() };
+      const reportNumbers = new Set(plan.idMapRows.filter((r) => ['report', 'tracker+report'].includes(r.tipo)).map((r) => Number(r.antigo)));
+      return { track, base, numbers, reportNumbers, rowsByNum, rowExceptions: exc.rowExceptions, dupNums: exc.dupNums, trackerRev: new Map() };
     });
   } else {
     const rows = options.idMapRows;

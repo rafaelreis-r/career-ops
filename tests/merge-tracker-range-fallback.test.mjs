@@ -62,3 +62,10 @@ test('a full range refuses the addition instead of leaving it', () => {
   assert.deepEqual(r.nums, ['3000', '3001']);
   assert.equal(r.merged, false, 'the addition stays pending');
 });
+
+test('a range with its highest number occupied still uses a lower gap', () => {
+  const r = merge({ range: '3000-3002', rows: [row(3000, 'Acme'), row(3002, 'Beta')], add: addition(3000, 'Newco') });
+  assert.equal(r.run.status, 0, r.run.stderr);
+  assert.deepEqual(r.nums.sort(), ['3000', '3001', '3002']);
+  assert.equal(r.merged, true);
+});

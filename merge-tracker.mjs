@@ -1348,7 +1348,7 @@ function trackerNumberRange() {
   return trackerRangeCache;
 }
 
-/** Next unused tracker # above the highest one in `range`; null when the range is full. */
+/** Next unused tracker # in `range`; null when the range is full. */
 function nextFreeTrackerNumber(range) {
   if (!range) {
     let n = maxNum + 1;
@@ -1356,9 +1356,6 @@ function nextFreeTrackerNumber(range) {
     return n;
   }
   let n = range.min;
-  for (const used of usedNumbers) {
-    if (used >= n && used <= range.max) n = used + 1;
-  }
   while (n <= range.max && usedNumbers.has(n)) n++;
   return n <= range.max ? n : null;
 }

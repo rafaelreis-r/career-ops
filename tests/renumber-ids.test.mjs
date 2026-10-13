@@ -80,17 +80,18 @@ function trackA(dir) {
     '3244\toutput/cv-candidate-gitlab-3244-2026-10-08.pdf\toutput/cv-candidate-gitlab-3244.html\tletter\t2026-10-08',
     '',
   ].join('\n'));
-  write(root, 'data/followup-drafts/17-remote.md', 'Draft for [remote](../../reports/017-remote-2026-08-07.md)\n');
-  write(root, 'data/outcomes/56_articul8_infra/outcome.md', 'Outcome of reports/056-articul8-2026-08-07.md\n');
+  write(root, 'data/followup-drafts/17-remote.md', 'Draft for #056 [remote](../../reports/017-remote-2026-08-07.md)\n');
+  write(root, 'data/outcomes/56_articul8_infra/outcome.md', 'Outcome #056 of reports/056-articul8-2026-08-07.md\n');
   write(root, 'data/application-packets/2026-08-31/001-056-articul8.md', '- **Tracker:** #056\n- **Report:** `reports/056-articul8-2026-08-07.md`\n');
-  write(root, 'jds/056-articul8.md', 'JD text\n');
+  write(root, 'jds/056-articul8.md', 'JD for #056\n');
+  write(root, 'covers/056-articul8.md', 'Cover for #056\n');
   write(root, 'jds/scraped-no-number.md', 'JD text\n');
   write(root, 'output/cv-candidate-articul8-056-2026-08-07.pdf', Buffer.from([0x25, 0x50, 0x44, 0x46, 0xff, 0x00]));
-  write(root, 'output/cv-candidate-articul8-056.html', '<html>cv</html>\n');
+  write(root, 'output/cv-candidate-articul8-056.html', '<html>CV for #056</html>\n');
   write(root, 'output/cv-candidate-gitlab-3244-2026-10-08.pdf', Buffer.from([0x25, 0x50, 0x44, 0x46]));
   write(root, 'output/cv-candidate-gitlab-3244.html', '<html>cv</html>\n');
   write(root, 'output/cv-rafael-reis-amazon-top-10-2026-08-07.pdf', 'x');
-  write(root, 'output/contacto/3244-gitlab.md', 'Report: [3244](../../reports/3244-gitlab-2026-10-08.md)\n');
+  write(root, 'output/contacto/3244-gitlab.md', 'Report #3244: [3244](../../reports/3244-gitlab-2026-10-08.md)\n');
   write(root, 'output/2026-09-07-notes.md', 'dated note citing output/cv-candidate-gitlab-3244.html\n');
   write(root, 'output/.tracker-before-2026-10-08.md', '| 3244 | x | [3244](../reports/3244-gitlab-2026-10-08.md) |\n');
   write(dir, 'shared/contacts.tsv', 'x\n');
@@ -179,17 +180,20 @@ test('apply moves every format into the block and keeps unrelated numbers', asyn
     assert.ok(existsSync(join(f.a, 'reports/999REAL-ciandt-2026-09-18.md')), 'E5 stays');
     assert.ok(existsSync(join(f.a, 'reports/2026-08-12.md')), 'a bare date file is not a report');
 
-    assert.equal(read('data/followup-drafts/100017-remote.md'), 'Draft for [remote](../../reports/100017-remote-2026-08-07.md)\n');
-    assert.equal(read('data/outcomes/100056_articul8_infra/outcome.md'), 'Outcome of reports/100056-articul8-2026-08-07.md\n');
+    assert.equal(read('data/followup-drafts/100017-remote.md'), 'Draft for #100056 [remote](../../reports/100017-remote-2026-08-07.md)\n');
+    assert.equal(read('data/outcomes/100056_articul8_infra/outcome.md'), 'Outcome #100056 of reports/100056-articul8-2026-08-07.md\n');
     assert.equal(read('data/application-packets/2026-08-31/001-100056-articul8.md'),
-      '- **Tracker:** #056\n- **Report:** `reports/100056-articul8-2026-08-07.md`\n', 'packet ordinal kept, path rewritten');
+      '- **Tracker:** #100056\n- **Report:** `reports/100056-articul8-2026-08-07.md`\n', 'packet ordinal kept, references rewritten');
     assert.ok(existsSync(join(f.a, 'jds/100056-articul8.md')));
+    assert.equal(read('jds/100056-articul8.md'), 'JD for #100056\n');
+    assert.equal(read('covers/100056-articul8.md'), 'Cover for #100056\n');
     assert.ok(existsSync(join(f.a, 'jds/scraped-no-number.md')));
     for (const name of ['cv-candidate-articul8-100056-2026-08-07.pdf', 'cv-candidate-articul8-100056.html',
       'cv-candidate-gitlab-103244-2026-10-08.pdf', 'cv-rafael-reis-amazon-top-10-2026-08-07.pdf', '2026-09-07-notes.md']) {
       assert.ok(existsSync(join(f.a, 'output', name)), `output/${name}`);
     }
-    assert.equal(read('output/contacto/103244-gitlab.md'), 'Report: [103244](../../reports/103244-gitlab-2026-10-08.md)\n');
+    assert.equal(read('output/contacto/103244-gitlab.md'), 'Report #103244: [103244](../../reports/103244-gitlab-2026-10-08.md)\n');
+    assert.equal(read('output/cv-candidate-articul8-100056.html'), '<html>CV for #100056</html>\n');
     assert.equal(read('output/2026-09-07-notes.md'), 'dated note citing output/cv-candidate-gitlab-103244.html\n');
     assert.equal(read('output/.tracker-before-2026-10-08.md'), '| 3244 | x | [3244](../reports/3244-gitlab-2026-10-08.md) |\n');
     assert.ok(lstatSync(join(f.a, 'data/contacts.tsv')).isSymbolicLink());
@@ -332,6 +336,32 @@ test('shared mode refuses a row whose owner it cannot tell', () => {
     const forced = planShared({ sharedDir: shared, tracks, ledgerAssign: { A: LEDGER_A }, owners: ['salary-observations.tsv:1=B'] });
     assert.deepEqual(forced.errors, []);
     assert.equal(forced.texts.get('salary-observations.tsv').split('\t')[0], '201037');
+  } finally {
+    rmSync(f.dir, { recursive: true, force: true });
+  }
+});
+
+test('shared rows use their declared number space when tracker and report owners cross', () => {
+  const f = fixture();
+  try {
+    const aTracker = join(f.a, 'data/applications.md');
+    const bTracker = join(f.b, 'data/applications.md');
+    writeFileSync(aTracker, readFileSync(aTracker, 'utf8') + '| 77 | 2026-10-13 | Acme | — | Engineer | 3/5 | Applied | ❌ | [88](../reports/88-acme.md) | |\n');
+    writeFileSync(bTracker, readFileSync(bTracker, 'utf8') + '| 99 | 2026-10-13 | Beta | — | Engineer | 3/5 | Applied | ❌ | [77](../reports/77-beta.md) | |\n');
+    write(f.a, 'reports/88-acme.md', '# Acme\n');
+    write(f.b, 'reports/77-beta.md', '# Beta\n');
+    const shared = join(f.dir, 'shared-data');
+    write(shared, 'contacts.tsv', 'Ana\tAcme\trecruiter\tTA\t\t\thttps://example.com\t77\t\n');
+    write(shared, 'salary-observations.tsv', '77\t2026-10-13\tdesired\t8000\tUSD\tuser\tnote\n');
+    write(shared, 'assessments.tsv', '2026-10-13\tBeta\t77\tCodility\tGo\t-\t-\t\n');
+    const plan = planShared({ sharedDir: shared, tracks: [
+      { track: 'A', root: f.a, base: 100000 },
+      { track: 'B', root: f.b, base: 200000 },
+    ], ledgerAssign: { A: LEDGER_A } });
+    assert.deepEqual(plan.errors, []);
+    assert.match(plan.texts.get('contacts.tsv'), /\t100077\t/);
+    assert.match(plan.texts.get('salary-observations.tsv'), /^200077\t/);
+    assert.match(plan.texts.get('assessments.tsv'), /\tBeta\t200077\t/);
   } finally {
     rmSync(f.dir, { recursive: true, force: true });
   }

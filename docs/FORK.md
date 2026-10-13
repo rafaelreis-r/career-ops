@@ -82,8 +82,8 @@ What moves:
   one of the track's numbers, and every path or link to a renamed file in those
   files, in report bodies and in text files under those directories;
 - a free-text `#NNN` (three digits or more) in tracker Notes, report bodies,
-  `data/pipeline.md` and `data/follow-ups.md`, when NNN is one of the track's
-  numbers.
+  `data/pipeline.md`, `data/follow-ups.md` and text files under the numbered
+  directories above, when NNN is one of the track's numbers.
 
 What stays: other numbers in text (`req 1057`, `Story #1`, another track's
 `#1037`), symlinked files (the shared TSVs, which the `shared` mode migrates
