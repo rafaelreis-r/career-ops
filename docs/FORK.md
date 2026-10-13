@@ -136,11 +136,25 @@ are the track's own and are never touched by an update; they are listed in
 Upstream hardcodes career-ops-hq there; that constant is the one line that makes
 the tracks follow this fork instead.
 
+**Channel.** Upstream's updater installs the newest published release by
+default (`release` channel, #3845). This fork publishes no GitHub releases, so
+`DEFAULT_CHANNEL` in `update-system.mjs` is `main`: `check` compares the track
+with the fork's `main`, and `apply` installs `main`'s tip. `--channel release`
+(or `CAREER_OPS_UPDATE_CHANNEL=release`) still selects upstream's behaviour and
+fails here with "Could not reach …/releases/latest". `test-all.mjs` exports
+`CAREER_OPS_UPDATE_DEFAULT_CHANNEL=release` so upstream's release-channel tests
+run unchanged; `tests/updater-fork-default-channel.test.mjs` pins the fork
+default.
+
 Update one track:
 
 ```sh
 cd ~/dev/career-ops            # or -product / -ops
+git add data && git commit -m "data: before the update"   # if data/ has changes
 node update-system.mjs apply --confirm --force
+npm install && npx playwright install chromium
+(cd web && npm install)
+node update-system.mjs check   # "status":"up-to-date"
 ```
 
 `--force` is required. Without it the updater keeps every system file the track
@@ -148,16 +162,32 @@ has ever changed locally (the Jev files included) and writes a `.bak` beside it,
 so the track would silently stop receiving fixes for those files. Each run
 creates `backup-pre-update-<version>-<timestamp>` and
 `refs/backup-pre-update-wip/<version>`; `node update-system.mjs rollback` undoes
-the last apply.
+the last apply (then `npm install` and `(cd web && npm install)` to bring the
+dependencies back with it).
+
+Dependencies are a manual step. The updater runs `npm install --silent` with a
+60-second limit and prints "npm install skipped" when it runs out, which a
+Playwright or `dotenv` bump easily does; it never installs in `web/`, and it
+does not download the Chromium a new Playwright needs. Run the three commands
+above after every apply.
+
+The updater refuses to run from a linked git worktree and re-runs itself in the
+main checkout (#4738). To exercise it from a worktree on purpose (a rehearsal on
+a copy of a track), set `CAREER_OPS_UPDATE_IN_WORKTREE=1`. To rehearse against
+another repository, set `CAREER_OPS_CANONICAL_SLUG=<owner>/<repo>`; the private
+`rafaelreis-r/career-ops-staging` exists for that.
 
 The updater commits its own change. The three tracks have `.git/lrc/disabled`
 so the LiveReview `prepare-commit-msg` hook does not abort that commit.
 
 ## How to change code
 
-1. Edit in `~/dev/career-ops-fork`, run the relevant tests
-   (`node --test tests/jev-*.test.mjs`, `cd web && npm test`,
-   `node validate-system-paths-coverage.mjs` after adding a file).
+1. Edit in `~/dev/career-ops-fork` and run the relevant tests
+   (`env -u TYPESAFE_API_KEY node test-all.mjs --quick` for everything,
+   `node --test tests/jev-*.test.mjs`, `cd web && npm test`,
+   `node validate-system-paths-coverage.mjs` after adding a file). Unset
+   `TYPESAFE_API_KEY` for the suite: with the key set, Jev scores every rank test
+   that does not pass `--cli`, and those are paid calls.
 2. Commit and push to `origin main`. The pre-push guard flags two upstream test
    fixtures (`alice:hunter2@…example.org`, `user:pass@…`) as credentials; they are
    not. `GSTACK_REDACT_PREPUSH=skip git push` is the documented bypass.
@@ -169,21 +199,53 @@ Track-specific behavior belongs in that track's `modes/_custom.md` or
 
 ## How to take a new upstream release
 
+Sync at every upstream release; 1.34, 1.35 and 1.36 shipped within 16 days,
+and the 676-commit gap of 2026-10 took a full rehearsal to close. Rehearse on a
+branch first, then publish:
+
 ```sh
 cd ~/dev/career-ops-fork
-git fetch upstream
-git rebase upstream/main
+git fetch origin upstream
+git branch backup/main-pre-<version> origin/main && git push origin backup/main-pre-<version>
+git switch -c fm/rebase-<version> origin/main
+git rebase <pinned upstream commit>        # pin the commit you tested, not a moving main
+npm install --ignore-scripts && (cd web && npm install --ignore-scripts)
+env -u TYPESAFE_API_KEY node test-all.mjs --quick
+(cd web && npm test)
+git diff <pinned upstream commit> HEAD -- modes/_shared.md CLAUDE.md   # must be empty
+GSTACK_REDACT_PREPUSH=skip git push --force-with-lease=main:<old main sha> origin HEAD:main
 ```
 
-Three files conflict on almost every rebase; resolve them as follows.
+Rollback of a bad publish: `git push --force-with-lease origin
+backup/main-pre-<version>:main`, then `node update-system.mjs rollback` in any
+track that already applied it.
 
-| File | Fork side to keep |
+Files that conflicted in the 2026-10 rebase (63 file conflicts across 17
+commits) and the side to keep:
+
+| File | Resolution |
 |---|---|
-| `update-system.mjs` | `CANONICAL_SLUG` block (replaces the three hardcoded URLs and the ref URL); the `Fork-owned` entries in `SYSTEM_PATHS` (`jev-ag-eval.mjs`, `jev-pregate.mjs`, `lib/jev-client.mjs`, `lib/apply-route.mjs`, `lib/jev-apply-helpers.mjs`, `lib/tracks.mjs`, `lib/email-reconcile.mjs`, `reconcile-email.mjs`, `renumber-ids.mjs`, `web/`); and `modes/apply-llm-owned.md`. |
-| `jd-skill-gap.mjs` | The `jev-client` import beside upstream's imports; the `jevChoice` call and `isJevEnabled` gate in the skill-gap scorer. |
-| `web/src/lib/apply/drive.ts` | The `jev-drive` import and `DriveResult` re-export; the `isJevDriveEnabled()` branch that delegates to `driveSessionJev`. Keep upstream's spawn helper. |
+| `update-system.mjs` | The `CANONICAL_SLUG` block, with `RELEASES_API` and `UPSTREAM_REF_API` derived from it; `DEFAULT_CHANNEL`; both sides of the `SYSTEM_PATHS` manifest: upstream's entries plus every path the fork adds (the `Fork-owned` block with the Jev files, `lib/tracks.mjs`, `lib/email-reconcile.mjs`, `reconcile-email.mjs`, `renumber-ids.mjs` and `web/`, and the fork scripts listed in place, such as `eval-queue.mjs`, `lib/rank-calibration.mjs`, `lib/us-only.mjs` and `modes/apply-llm-owned.md`). `node validate-system-paths-coverage.mjs` fails on a tracked file neither manifest covers. |
+| `rank-pipeline.mjs` | Conflicted in six commits. Upstream's guards (`--cli hermes` refused, no `pipeline.md` exits 0) run first, then the fork's Jev block with `--cli` precedence; upstream's index-based annotation with the fork's calibration and US-only screen after it; the fork's flags in `KNOWN_FLAGS`/`VALUE_FLAGS`. |
+| `merge-tracker.mjs` | Upstream wraps the script in `mergeTracker(options)`; take upstream's file and re-insert the fork's guards by hand (blank Company/Role, ambiguous tier-3 match, glued rows, range-bound collision fallback). |
+| `batch/batch-prompt.md`, `modes/oferta.md` | Upstream's sections ("Score Evidence", `posting_location`, PcD check) plus the fork's paragraphs beside them. |
+| `README*.md` | The fork's Human-in-the-Loop row and FAQ answer (see deviations). |
+| `web/src/lib/apply/drive.ts`, `issue.ts` | Upstream's split helpers and `DriveStep`; the fork's `jev-drive` import and `DriveResult`. |
+| `scan.mjs`, `tracker-utils.mjs`, `tracker-parse.mjs`, `reserve-report-num.mjs`, `test-all.mjs` | Upstream's version plus the fork's additions; `export { x } from` creates no local binding, so add a local import where a function in the same file calls it. |
+| `.gitignore` | Upstream's rules plus `.browser-profiles/` and `!batch/*.mjs`. |
 
-Then re-run the tests in step 1 above, push, and apply to the tracks.
+Upstream test gates catch fork code that merges without a marker. Each of these
+broke the 2026-10 rebase at run time, not at merge time:
+
+- new CLI flags must be listed in the script's `KNOWN_FLAGS` (`validateFlags`);
+- a CLI with an `isMainModule` guard must answer `--help` through `lib/cli-flags.mjs`;
+- recursive directory walks go through `lib/walk-tree.mjs`;
+- tests link `node_modules` with `linkNodeModules()` and import `web/` dynamically behind `existsSync`;
+- every CV template must satisfy the template contract (title slot, generated contact separators, break tokens) and be declared in `tests/theme-style.test.mjs`;
+- a duplicated import from two auto-merged hunks is a `SyntaxError` that takes a whole plugin scan down.
+
+After publishing, update the tracks one at a time (C, B, A), outside the scan
+(05:00 BRT) and rank (08:00) windows.
 
 ## Deliberate deviations from upstream
 
@@ -242,8 +304,10 @@ Keep these across rebases; each exists for a reason.
   button without a type, Enter) and clicks on submit-like controls; it lives
   on a heartbeat, so it lifts by itself when the driver stops.
 
-  Never opened: a posting whose tracker row is Applied or later, a company on
-  `data/blacklist.md`, and a company whose submission limit is used up across
+  Never opened: a posting whose tracker row is Applied or later, a company or a
+  posting host listed in `data/blacklist.md` (read with the scanner's own
+  `parseBlacklist`/`findBlacklistEntry`, so a `domain` row matches the host and
+  its subdomains), and a company whose submission limit is used up across
   every track listed in the shared `trilhas.yml`. Limits live in
   `data/submission-limits.tsv` of the shared directory (`$CAREER_OPS_SHARED_DIR`,
   default `~/dev/career-ops-shared`): `company`, `max_submissions`,
@@ -267,11 +331,18 @@ Keep these across rebases; each exists for a reason.
   `npm install` pruned them.
 - **`import * as yaml from "js-yaml"`** in the Jev scripts. js-yaml 5 is ESM with
   no default export; upstream already uses the namespace form everywhere.
-- **Templates:** `templates/cv-template.ops.{html,tex}`,
-  `templates/cv-template.perfiltech.html`, `templates/cover-letter-template.ops.html`.
-  All three tracks select `template: ops`. `templates/` is a system directory,
-  and the updater prunes any file there that upstream does not ship, so the only
-  place these survive is this fork.
+- **Templates:** `templates/cv-template.ops.{html,tex}` and
+  `templates/cover-letter-template.ops.html`. All three tracks select
+  `template: ops`. `templates/` is a system directory, and the updater prunes
+  any file there that upstream does not ship, so the only place these survive
+  is this fork. `cv-template.ops.html` is upstream's `cv-template.html` plus four
+  deltas: the manifest comment, accent-coloured underlined contact links (with
+  the generated separator kept out of the underline), and justified summary,
+  bullets and project text. When upstream changes `cv-template.html`, copy it
+  over and re-apply those deltas; `git diff --no-index templates/cv-template.html
+  templates/cv-template.ops.html` shows them. It is declared in
+  `tests/theme-style.test.mjs` and `tests/cv-optional-sections.test.mjs`, which
+  require every CV template to state its break defaults and section markers.
 - **`plugins/gmail`:** optional `senders` setting (match job-alert mail by `From:`
   address, OR'd with the label; used by the tracks' `config/plugins.yml`) and
   `isCleanUrl` filtering of LinkedIn CDN hosts and notification routes.
@@ -283,7 +354,9 @@ Keep these across rebases; each exists for a reason.
   refuses a tier-3 fuzzy match when more than one existing row qualifies instead
   of taking the first (2026-09-02: nine same-day CI&T postings merged into the
   wrong row), and keeps the tracker-`#` collision fallback inside
-  `report_number_range`, refusing the addition when the range is full.
+  `report_number_range`: it continues after the highest number taken inside the
+  range, uses a lower free number only when the top is full, and refuses the
+  addition when the range is full.
   `tests/merge-tracker.test.mjs` and `tests/merge-tracker-range-fallback.test.mjs`
   carry these contracts beside upstream's own.
 - **E-mail reconciliation across tracks.** `reconcile-email.mjs` with
@@ -293,6 +366,30 @@ Keep these across rebases; each exists for a reason.
   only with `--apply`. See [SCRIPTS.md](SCRIPTS.md#reconcile-email).
   `lib/tracks.mjs` is the one reader of the registry and of every track's
   tracker, shared with the hybrid driver's submission-limit check.
+- **Update channel `main`.** `DEFAULT_CHANNEL` in `update-system.mjs`; see
+  [How code reaches a track](#how-code-reaches-a-track).
+- **README submission contract.** Every `README*.md` keeps the fork's
+  Human-in-the-Loop row and FAQ answer: interactive `apply` leaves submission to
+  the user, and the separately invoked hybrid driver may submit once after its
+  final gate. Translations point to [APPLY_AUTOFILL.md](APPLY_AUTOFILL.md).
+  Upstream's `tests/readme-hitl-markers.test.mjs` pins the absolute
+  "never submits" wording, so the fork does not carry it.
+- **Aside and Ashby.** Upstream's `modes/apply.md` (#4443) sends an Ashby form
+  to the candidate's ordinary browser. Here that browser is Aside, where `apply`
+  already runs, so an Ashby posting is filled and submitted in Aside. The rule is
+  in `modes/_custom.template.md`; each track's own `modes/_custom.md` is the
+  copy the agent reads.
+- **`.gitignore`:** `.browser-profiles/` (logged-in sessions) is ignored, and
+  `!batch/*.mjs` keeps per-round helper scripts visible under upstream's
+  `batch/*` rule.
+- **`test-all.mjs` defaults:** `CAREER_OPS_REPORT_NUMBER_RANGE=1-9007199254740991`
+  (the fork's `reserve-report-num.mjs` refuses to run without a range) and
+  `CAREER_OPS_UPDATE_DEFAULT_CHANNEL=release`, both with `??=`, so upstream's
+  suites run unchanged.
+- **Scheduled community workflows** (`ci-approve`, `gfi-claims`, `gfi-handoff`,
+  `plugin-registry-freshness`, `pr-adoption`, `pr-triage`, `stale`, plus
+  `gh-events-feed` and `release`) run only when `github.repository` is
+  career-ops-hq/career-ops.
 
 ## Dropped on purpose
 
@@ -300,6 +397,8 @@ The tracks descended from a different fork (santifer) and carried code no
 configuration used. It was not carried forward: the `block_scripts` location
 filter in `scan.mjs` (no `profile.yml` sets it), `title_filter_overrides`
 (upstream 1.33 ships its own), and unrelated local deltas in `test-all.mjs`.
+The 2026-09 migration of `CLAUDE.md` into `AGENTS.md` and its revert (net zero)
+were dropped in the 2026-10 rebase.
 
 ## Fork changes
 
@@ -313,7 +412,8 @@ newest first. Upstream's changes are in `CHANGELOG.md` as shipped.
   no releases and upstream's `release` default (#3845) made `check` report
   `offline` and `apply` throw. See [How code reaches a track](#how-code-reaches-a-track).
 - **templates:** `ops` is rebuilt on upstream's `cv-template.html` with its own
-  deltas; `perfiltech` follows the 1.36 template contract.
+  deltas. The `perfiltech` template is removed (candidate, 2026-10-14: hard to
+  read; no track selected it).
 - **web:** the hybrid driver refuses a posting on a domain-scoped blacklist row
   (upstream #4139), using the scanner's own blacklist reader.
 - **readme:** every README describes the fork's submission contract instead of
