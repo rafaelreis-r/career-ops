@@ -44,6 +44,7 @@ import { fileURLToPath } from 'url';
 import { parseArgs } from 'util';
 import { getCareerOpsRoot, resolveTrackerPath } from './path-resolver.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
+import { validateFlags } from './lib/cli-flags.mjs';
 import { parseForwardThreshold, loadForwardThreshold } from './lib/forward-threshold.mjs';
 import { usOnlyBenefits, authorizedInUnitedStates, loadUsAuthorized, readLocalJdText } from './lib/us-only.mjs';
 import { DEFAULT_FORWARD_THRESHOLD } from './lib/rank-calibration.mjs';
@@ -242,7 +243,9 @@ async function main(argv) {
     console.error(`${err.message}\n${USAGE}`);
     return 2;
   }
-  if (values.help) { console.log(USAGE); return 0; }
+  // parseArgs (strict) has already refused unknown flags with exit 2; the
+  // shared handler answers --help/-h the way every other CLI here does.
+  validateFlags(argv, ['--force', '--dry-run', '--help', '-h'], USAGE, { valueFlags: ['--force'], requireOperand: true });
 
   const profilePath = join(DATA_ROOT, 'config', 'profile.yml');
   let threshold;

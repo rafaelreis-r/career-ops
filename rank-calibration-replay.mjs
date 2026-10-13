@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
-import { flagValue } from './lib/cli-flags.mjs';
+import { flagValue, validateFlags } from './lib/cli-flags.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
 import { APPLY_WORTHY_FLOOR, DEFAULT_FORWARD_THRESHOLD, calibrateRankScore } from './lib/rank-calibration.mjs';
@@ -9,6 +9,15 @@ import { APPLY_WORTHY_FLOOR, DEFAULT_FORWARD_THRESHOLD, calibrateRankScore } fro
 export const DEFAULT_REPLAY_DIR = join(getCareerOpsRoot(), 'data', 'rank-calibration');
 export const DEFAULT_FIXTURE_PATH = join(DEFAULT_REPLAY_DIR, 'rank-final-2026-09-21.json');
 export const DEFAULT_OUTPUT_PATH = join(DEFAULT_REPLAY_DIR, 'rank-final-2026-09-21.replay.json');
+
+const USAGE = `Usage: node rank-calibration-replay.mjs [--write-canonical] [--fixture FILE] [--output FILE]
+
+  Replays the rank calibration over measured rank/final pairs and writes the result.
+
+    --write-canonical  rewrite the fixture from the canonical 2026-09-21 pairs first
+    --fixture FILE     pairs to replay (default ${DEFAULT_FIXTURE_PATH})
+    --output FILE      replay output (default ${DEFAULT_OUTPUT_PATH})`;
+
 // The apply-worthy floor in force when the 84 pairs were measured on
 // 2026-09-21. The threshold table below is that measurement and stays pinned to
 // it; the current floor (APPLY_WORTHY_FLOOR) is reported alongside it.
@@ -151,6 +160,7 @@ export function writeCanonicalReplay(fixturePath = DEFAULT_FIXTURE_PATH, outputP
 }
 
 function main(args) {
+  validateFlags(args, ['--write-canonical', '--fixture', '--output', '--help', '-h'], USAGE, { valueFlags: ['--fixture', '--output'], requireOperand: true });
   const fixturePath = resolve(flagValue(args, '--fixture') || DEFAULT_FIXTURE_PATH);
   const outputPath = resolve(flagValue(args, '--output') || DEFAULT_OUTPUT_PATH);
   let replay;

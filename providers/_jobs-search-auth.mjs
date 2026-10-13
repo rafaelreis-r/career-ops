@@ -49,6 +49,7 @@ import { homedir } from 'os';
 import path from 'path';
 import { discoverAuthorizationServerMetadata, refreshAuthorization } from '@modelcontextprotocol/sdk/client/auth.js';
 import { isMainModule } from '../lib/is-main-module.mjs';
+import { validateFlags } from '../lib/cli-flags.mjs';
 
 export const DEFAULT_ENDPOINT = 'https://mcp.jobs.bridglabs.com/mcp';
 export const AUTH_SERVER = 'https://conta.jobs.bridglabs.com';
@@ -286,7 +287,10 @@ const USAGE = `usage: node providers/_jobs-search-auth.mjs <seed-from-codex|stat
   refresh          renew the access token now; reports whether the refresh token rotated`;
 
 async function main() {
-  const { cmd, opts } = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  validateFlags(argv, ['--credentials', '--endpoint', '--codex-server', '--force', '--help', '-h'], USAGE,
+    { valueFlags: ['--credentials', '--endpoint', '--codex-server'], requireOperand: true });
+  const { cmd, opts } = parseArgs(argv);
   const file = opts.credentials ? resolveUserPath(opts.credentials) : defaultCredentialsPath();
   const endpoint = opts.endpoint || DEFAULT_ENDPOINT;
   if (cmd === 'seed-from-codex') {
