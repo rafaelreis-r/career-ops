@@ -225,6 +225,8 @@ batch/*.log
 batch/*.txt
 batch/*.exit
 batch/*.pid
+batch/batch-runner.paused
+batch/.batch-state.lock/
 batch/batch-prompt-*.md
 batch/batch-runner-*.sh
 batch/logs-*/

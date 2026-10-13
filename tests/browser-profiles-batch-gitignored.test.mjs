@@ -23,6 +23,8 @@ const mustBeIgnored = [
   'batch/batch-prompt-avalia-1012.md',
   'batch/batch-runner-avalia-1012.sh',
   'batch/batch-runner-avalia-1013.pid',
+  'batch/batch-runner.paused',
+  'batch/.batch-state.lock/pid',
   'batch/selected-avalia-1012-B.json',
   'batch/results-B-avalia-1012.json',
   'batch/monitor-counts-avalia-1012.jsonl',
