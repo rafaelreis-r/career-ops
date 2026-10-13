@@ -301,6 +301,83 @@ configuration used. It was not carried forward: the `block_scripts` location
 filter in `scan.mjs` (no `profile.yml` sets it), `title_filter_overrides`
 (upstream 1.33 ships its own), and unrelated local deltas in `test-all.mjs`.
 
+## Fork changes
+
+Upstream's `CHANGELOG.md` belongs to release-please, so a fork section there
+conflicted on every rebase. The fork records its own changes here instead,
+newest first. Upstream's changes are in `CHANGELOG.md` as shipped.
+
+### Rebase onto upstream `2f1a548b41` (1.36.0 + 155 commits), 2026-10-13
+
+- **update-system:** the default channel is `main`, because the fork publishes
+  no releases and upstream's `release` default (#3845) made `check` report
+  `offline` and `apply` throw. See [How code reaches a track](#how-code-reaches-a-track).
+- **templates:** `ops` is rebuilt on upstream's `cv-template.html` with its own
+  deltas; `perfiltech` follows the 1.36 template contract.
+- **web:** the hybrid driver refuses a posting on a domain-scoped blacklist row
+  (upstream #4139), using the scanner's own blacklist reader.
+- **readme:** every README describes the fork's submission contract instead of
+  upstream's absolute "never submits".
+- **modes:** the custom-instructions template says Aside is the candidate's
+  browser and Ashby postings are submitted there.
+- **merge-tracker:** the tracker-`#` collision fallback continues after the
+  highest number already taken inside `report_number_range`, like the report
+  allocator, and falls back to the lowest free number only when the top of the
+  range is used up.
+- **cli:** `eval-queue.mjs`, `rank-calibration-replay.mjs` and
+  `providers/_jobs-search-auth.mjs` answer `--help` through `lib/cli-flags.mjs`.
+- **renumber-ids:** walks track trees through `lib/walk-tree.mjs`.
+- **profile:** `config/profile.example.yml` declares `application_answers`,
+  `us_ats_answers` and `pipeline` (commented), so `validate-profile.mjs` stops
+  calling them unknown.
+- **ci:** scheduled community workflows run only in career-ops-hq/career-ops.
+- **gitignore:** `.browser-profiles/` is ignored; per-round `batch/*.mjs`
+  helpers stay visible under upstream's `batch/*` rule.
+
+### Before the rebase
+
+Features:
+
+- **scoring:** require level and compensation targets for ranking and full
+  evaluations; persist the final global score in the tracker.
+- **eligibility:** treat a JD that offers 401(k), disability insurance, FSA, or
+  HSA as US-only employment when `location.authorized_in` does not list the
+  United States: `eval-queue.mjs` holds the row when its JD is saved locally,
+  and the evaluation scores it below 3.5 with the reason in the report.
+- **rank-pipeline:** rank US-only postings below the forwarding cutoff without a
+  scorer call, including pending rows with an existing `cal-v3` rank: a US
+  benefit in the JD, a US-only location, remote work limited to the US, or US
+  work authorization without sponsorship. Mixed locations remain eligible for
+  scoring. The reason shows on the annotated row; `location.authorized_in`
+  listing the United States turns the screen off.
+- **rank-pipeline:** make the CLI path's batch size and per-call timeout
+  configurable (`--batch` / `CAREER_OPS_RANK_BATCH`, `--timeout-ms` /
+  `CAREER_OPS_RANK_TIMEOUT_MS`); defaults stay 10 and 120 s, invalid values are
+  refused.
+- **rank-pipeline:** check selected postings against public ATS APIs before
+  scoring, and mark confirmed closed ones as expired. See
+  [rank-pipeline](SCRIPTS.md#rank-pipeline) for the check's limits and options.
+- **rank-pipeline:** an explicit `--cli` wins over Jev when `TYPESAFE_API_KEY` is
+  set.
+- **renumber-ids:** move a track's tracker `#`s and report numbers into its
+  100,000-number block (`new = base + old`) with `renumber-ids.mjs plan`/`apply`,
+  migrate the shared TSVs with the base of each row's track, and undo it from
+  the written `id-map.tsv`. The plan proves the reverse in memory before
+  anything is written; see [Moving a track into its block](#moving-a-track-into-its-block).
+- **profile:** `config/profile.example.yml` assigns 100,000-number blocks
+  (`100000-199999`, `200000-299999`, …) instead of 1,000-number ranges, and the
+  report-number prompts say "minimum 3 digits".
+
+Bug fixes:
+
+- **merge-tracker:** a re-evaluation no longer replaces a physical tracker line
+  that holds two glued rows, which deleted the second row.
+- **merge-tracker:** the tracker-`#` collision fallback stays inside
+  `report_number_range` and refuses the addition when the range is full.
+- **salary-gap:** read reports numbered with four or more digits, which the
+  three-digit file match skipped.
+- **gitignore:** browser profiles and per-round batch output are ignored.
+
 ## Verifying the three tracks are in sync
 
 ```sh
