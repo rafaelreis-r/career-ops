@@ -33,6 +33,18 @@
 
 (none yet -- add yours above)
 
+## Browser and Ashby (this fork)
+
+- `apply` runs in Aside, the candidate's own browser: `open -a Aside "<ATS URL>"`
+  opens the tab in the real Aside window and `aside repl` drives it
+  (`listBrowserTabs()` + `attachBrowserTab(targetId)`). Aside is the candidate's
+  "ordinary system browser" that `modes/apply.md` refers to.
+- An Ashby posting (`jobs.ashbyhq.com`) is filled and submitted in Aside like
+  any other ATS. The Ashby handoff in `modes/apply.md` (send the candidate to
+  another browser for the final form) does not apply here. If Ashby rejects the
+  submission, report it as failed, keep the filled tab open for the candidate,
+  and do not mark the application Applied.
+
 ## Custom Workflows
 
 <!-- Multi-step routines you run often, given a short name. Examples:
