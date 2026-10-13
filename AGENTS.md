@@ -510,7 +510,7 @@ Headless worker command per CLI:
 ## Stack and Conventions
 
 - Node.js (`.mjs`), Playwright (PDF + scraping), YAML (config), HTML/CSS (template), Markdown (data), Canva MCP (optional visual CV)
-- Output in `output/` (gitignored) · Reports in `reports/` · JDs in `jds/` (referenced as `local:jds/{file}` in pipeline.md) · Batch in `batch/` (gitignored except scripts and prompt)
+- Output in `output/` (gitignored) · Reports in `reports/` · JDs in `jds/` (referenced as `local:jds/{file}` in pipeline.md) · Batch files: see `batch/README.md` for tracked and generated files
 - Report numbering: sequential, minimum 3-digit zero-padded, next number after the highest occupied slot inside the installation's configured `report_number_range`
 
 **JD archival is REQUIRED, not optional (#2789).** A report's `**URL:**` header is a live pointer, not an archive — it rots once a posting closes. Every report `oferta`/`pdf` writes MUST carry the JD's verbatim text in a `## Job Description (archived verbatim)` section (the primary mechanism — the report is the one artifact guaranteed to get written and tracked); a `jds/` capture named with `--report=N` is an acceptable alternative for a very long JD or a standalone `jd-skill-gap.mjs` run outside a full evaluation. `check-jd-archive.mjs` validates every `reports/*.md` has one or the other and is wired into `test-all.mjs`.

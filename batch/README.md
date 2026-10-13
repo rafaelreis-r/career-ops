@@ -70,6 +70,8 @@ OMP is launched from a neutral directory and sent back to this checkout with `--
 
 ## Directory Layout
 
+Git ignores `batch-input.tsv`, `batch-state.tsv`, per-run prompts, results, logs, and the runner's pause and lock files. Keep the state files locally if you need to resume a run. The reusable scripts and `batch-prompt.md` remain tracked.
+
 ```
 batch/
   batch-runner.sh          # Orchestrator script

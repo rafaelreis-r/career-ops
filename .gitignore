@@ -266,3 +266,14 @@ data/jds/
 data/output/
 data/documents/
 data/interview-prep/
+
+# Browser session profiles (per-track Chromium/Playwright user-data dirs, e.g.
+# .browser-profiles/<name>/Default/Cookies). A logged-in session is a credential:
+# one `git add .` would stage thousands of files including live cookies.
+# Unanchored, like the .db rule above, so a relocated data root is covered too.
+.browser-profiles/
+
+# Per-round batch output (state, input, selection, prompts, results, logs) is
+# already ignored by the batch/* rule near the top. Per-round .mjs helpers are
+# code, not data, and stay visible to git beside the reusable scripts.
+!batch/*.mjs
