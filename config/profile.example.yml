@@ -375,3 +375,52 @@ cover_letter:
 #     cross_role_bucket: "all_EM_roles"
 #     applied_to: ["Senior Software Engineer"]
 #     last_apply_date: "2026-01-01"
+
+# ── Fork: application answers for the apply drivers ────────────────────────
+#
+# Read by the apply drivers in web/ (web/src/lib/apply/hybrid/answers.mjs,
+# web/scripts/jev-apply.mjs, web/scripts/ab-jev-apply.mjs) and nothing else.
+# Every value is copied into a form as written; nothing is looked up or
+# guessed. Self-declaration answers are offered, never auto-checked: each
+# disclosure stays a per-application decision. See docs/APPLY_AUTOFILL.md.
+#
+# application_answers:
+#   consent:
+#     required: accept                 # privacy consent the form requires
+#     sms: accept
+#     automated_ai_processing: accept
+#   salary: use_profile_compensation   # fill salary fields from compensation.target_range
+#   pep: "No"                          # politically exposed person
+#   relatives_or_close_friends_at_hiring_company: "No"
+#   self_declaration:
+#     disability: ""
+#     disability_category: ""
+#     disability_cid: ""
+#     accessibility_needs: none
+#
+# us_ats_answers:
+#   address:
+#     street: "Example Street, 100"
+#     district: ""
+#     state: ""
+#     postal_code: ""
+#   identity:
+#     nationality: ""
+#     passport_country: ""
+#   employment:
+#     work_authorization_country: ""
+#     visa_type: ""
+#     notice_period_days: 30
+#     earliest_start: ""
+#   education:
+#     undergraduate: ""
+#     graduate: ""
+
+# ── Triage threshold ───────────────────────────────────────────────────────
+#
+# `pipeline.triage_threshold` sets the score bands of the fast triage pass
+# (modes/_brief.md); the skill router resolves it and injects it into the
+# mode. Absent means the mode's own default.
+#
+# pipeline:
+#   triage_threshold: 3.0
