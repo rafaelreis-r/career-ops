@@ -204,3 +204,31 @@ documents/*
 # Intake fingerprints — the recorded source filenames may themselves carry
 # PII (e.g. cv/jane-doe-master-cv.pdf). #1723
 data/intake-state.json
+
+# Browser session profiles (per-track Chromium/Playwright user-data dirs, e.g.
+# .browser-profiles/<name>/Default/Cookies). A logged-in session is a credential:
+# one `git add .` would stage thousands of files including live cookies.
+# Unanchored, like the .db rule above, so a relocated data root is covered too.
+.browser-profiles/
+
+# Per-round batch output. A round (e.g. avalia-1012) writes its state, input,
+# selection, prompts, liveness/candidate/result files and logs beside the
+# reusable scripts, and they carry job-search data (companies, scores, JD text).
+# Matched by what a round generates, not by round name, so new rounds are
+# covered with no .gitignore update. Reusable files stay tracked:
+# batch-runner.sh, batch-prompt.md, aggregate-tokens.mjs, README.md. Per-round
+# .mjs helpers are code, not data, and are deliberately not matched.
+batch/*.tsv*
+batch/*.json
+batch/*.jsonl
+batch/*.log
+batch/*.txt
+batch/*.exit
+batch/*.pid
+batch/batch-prompt-*.md
+batch/batch-runner-*.sh
+batch/logs-*/
+batch/tracker-additions-*/
+batch/.rank-sandbox-*/
+batch/orphan-*/
+batch/scan-*/
