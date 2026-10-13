@@ -63,13 +63,14 @@ const SCOPE_DIRS = [
 ];
 // Path anchors inside text. Single-level kinds only rename the entry directly
 // below the anchor; token kinds rename every segment below it.
-const ROOT_ANCHORS = { reports: 'reports', jds: 'prefix-dash', covers: 'prefix-dash', output: 'tokens' };
+const JD_KIND = 'prefix-dash-report';
+const ROOT_ANCHORS = { reports: 'reports', jds: JD_KIND, covers: 'prefix-dash', output: 'tokens' };
 const DATA_ANCHORS = {
   outcomes: 'prefix-underscore',
   'followup-drafts': 'prefix-dash',
   'application-packets': 'tokens-skip-first',
 };
-const SINGLE_LEVEL = new Set(['reports', 'prefix-dash', 'prefix-underscore']);
+const SINGLE_LEVEL = new Set(['reports', 'prefix-dash', JD_KIND, 'prefix-underscore']);
 
 const LEDGER_REL = 'data/status-log.tsv';
 const PIPELINE_REL = 'data/pipeline.md';
@@ -252,25 +253,31 @@ const newCtx = (key, kind) => ({ key, kind, counts: new Map() });
 /** Rewrite the numbers in one directory-entry name. */
 function mapName(name, kind, mapper, ctx, category) {
   if (kind === 'reports' && (ANCHOR_RE.test(name) || BARE_DATE_FILE_RE.test(name))) return name;
-  if (kind === 'reports' || kind === 'prefix-dash' || kind === 'prefix-underscore') {
+  if (kind === 'reports' || kind === 'prefix-dash' || kind === JD_KIND || kind === 'prefix-underscore') {
     if (startsWithDate(name)) return name;
     const sep = kind === 'prefix-underscore' ? '_' : '-';
     const m = name.match(new RegExp(`^(\\d+)(?=${sep})`));
     if (!m) return name;
-    const mapped = mapper.structural(parseInt(m[1], 10), 'report');
+    const value = parseInt(m[1], 10);
+    let mapped;
+    if (kind === JD_KIND) mapped = jdBelongsToReport(name, value, mapper) ? mapper.member(value) : null;
+    else mapped = mapper.structural(value, 'report');
     if (mapped == null) return name;
     mapper.count(category);
-    return mapper.spell(ctx, m[1], parseInt(m[1], 10), mapped, 'pad3') + name.slice(m[1].length);
+    return mapper.spell(ctx, m[1], value, mapped, 'pad3') + name.slice(m[1].length);
   }
   // Token kinds: every all-digit token between -, _ or . that is not part of
   // a date. Tokens after the first need three digits, which keeps version
-  // suffixes and ordinals such as `top-10` out.
+  // suffixes and ordinals such as `top-10` out. In `output/` a later token is
+  // the vacancy number only where the generators put it, right before the
+  // date or the extension: `up-to-1-600-week-614-2026-09-22.pdf` is job 614.
   const dates = [...name.matchAll(DATE_RE)].map((d) => [d.index, d.index + d[0].length]);
   let changed = false;
   const out = name.replace(/(?<![^-_.])(\d+)(?![^-_.])/g, (tok, digits, offset) => {
     if (dates.some(([s, e]) => offset < e && offset + tok.length > s)) return tok;
     if (offset === 0 && kind === 'tokens-skip-first') return tok;
     if (offset !== 0 && digits.length < 3) return tok;
+    if (offset !== 0 && kind === 'tokens' && !VACANCY_SLOT_RE.test(name.slice(offset + tok.length))) return tok;
     const value = parseInt(digits, 10);
     const mapped = mapper.member(value);
     if (mapped == null) return tok;
@@ -279,6 +286,18 @@ function mapName(name, kind, mapper, ctx, category) {
   });
   if (changed) mapper.count(category);
   return out;
+}
+
+function jdBelongsToReport(name, number, mapper) {
+  if (mapper.member(number) == null) return false;
+  const companies = mapper.jdCompanies.get(number);
+  if (!companies?.size) return false;
+  const rest = name.replace(/^\d+-/, '').replace(/^\d{4}-\d{2}-\d{2}[_-]/, '');
+  const segments = rest.split(/[-_.]/);
+  for (let i = 1; i <= segments.length; i++) {
+    if (companies.has(normalizeCompany(segments.slice(0, i).join('-')))) return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +311,82 @@ const SEGMENT_RE = new RegExp([
   String.raw`(?<=^|[\s(\[{,;:|*_"'>~]|#\d+\/)#(\d{3,})(?!\w)`,
   String.raw`(?<![\w.~@%+\/-])[\w.~@%+-]*\/[\w.~@%+\/-]*`,
 ].join('|'), 'g');
+
+// `#614` after a plain space and a single capital letter of another track
+// ("see #1014 B") names that track's vacancy, not one of ours.
+const FOREIGN_TRACK_RE = /^ ([A-Z])(?![\w'’])/;
+
+// Where the generators put a vacancy number in an `output/` name: right before
+// the date or the extension, or at the very end.
+const VACANCY_SLOT_RE = /^(?:[-_.]\d{4}-\d{2}-\d{2}(?!\d)|\.[A-Za-z][\w.]*$|$)/;
+
+// Presentation attributes whose value is a colour (`#333`), never a vacancy.
+const COLOR_ATTRS = new Set(['style', 'color', 'bgcolor', 'fill', 'stroke', 'stop-color', 'flood-color', 'lighting-color']);
+const HTML_TAG_RE = /<([A-Za-z][^\s/>]*)/y;
+const HTML_ATTR_NAME_RE = /[^\s=/>]+/y;
+const HTML_UNQUOTED_RE = /[^\s>]+/y;
+
+/**
+ * One byte per UTF-16 code unit of `text`, 1 where free-text `#NNN` must stay put:
+ * HTML comments, `<style>` and `<script>` content, and colour attributes. A
+ * forward scan over tags, so quotes and `>` inside attribute values and the
+ * raw text of those two elements are read the way a browser reads them.
+ */
+function htmlStyleMask(text) {
+  const mask = new Uint8Array(text.length);
+  const protect = (from, to) => mask.fill(1, from, to);
+  let i = 0;
+  while (i < text.length) {
+    const lt = text.indexOf('<', i);
+    if (lt === -1) break;
+    if (text.startsWith('<!--', lt)) {
+      const close = text.indexOf('-->', lt + 4);
+      const end = close === -1 ? text.length : close + 3;
+      protect(lt, end);
+      i = end;
+      continue;
+    }
+    HTML_TAG_RE.lastIndex = lt;
+    const tag = HTML_TAG_RE.exec(text);
+    if (!tag) { i = lt + 1; continue; }
+    const name = tag[1].toLowerCase();
+    let pos = lt + tag[0].length;
+    while (pos < text.length && text[pos] !== '>') {
+      if (/[\s/]/.test(text[pos])) { pos++; continue; }
+      HTML_ATTR_NAME_RE.lastIndex = pos;
+      const attr = HTML_ATTR_NAME_RE.exec(text);
+      if (!attr) { pos++; continue; }
+      pos += attr[0].length;
+      while (pos < text.length && /\s/.test(text[pos])) pos++;
+      if (text[pos] !== '=') continue;
+      pos++;
+      while (pos < text.length && /\s/.test(text[pos])) pos++;
+      let from = pos;
+      let to;
+      if (text[pos] === '"' || text[pos] === "'") {
+        const close = text.indexOf(text[pos], pos + 1);
+        from = pos + 1;
+        to = close === -1 ? text.length : close;
+        pos = close === -1 ? text.length : close + 1;
+      } else {
+        HTML_UNQUOTED_RE.lastIndex = pos;
+        const value = HTML_UNQUOTED_RE.exec(text);
+        to = value ? pos + value[0].length : pos;
+        pos = to;
+      }
+      if (COLOR_ATTRS.has(attr[0].toLowerCase())) protect(from, to);
+    }
+    i = Math.min(pos + 1, text.length);
+    if (name === 'style' || name === 'script') {
+      const close = new RegExp(`</${name}(?=[\\s/>])`, 'gi');
+      close.lastIndex = i;
+      const end = close.exec(text)?.index ?? text.length;
+      protect(i, end);
+      i = end;
+    }
+  }
+  return mask;
+}
 
 function prefixIsRoot(prefix, env) {
   if (prefix.length === 0) return true;
@@ -328,30 +423,37 @@ function rewritePathToken(tok, env, ctx, { linkDest = false } = {}) {
   const start = at + width;
   if (start >= segs.length) return { text: tok, ours: kind };
   const last = SINGLE_LEVEL.has(kind) ? start : segs.length - 1;
+  const jdUnmatched = kind === JD_KIND && /^\d+-/.test(segs[start])
+    && !jdBelongsToReport(segs[start], Number(segs[start].match(/^(\d+)-/)[1]), env.mapper);
   for (let i = start; i <= last; i++) {
     if (segs[i] === '') continue;
     segs[i] = mapName(segs[i], kind, env.mapper, ctx, `${env.label}.path`);
   }
-  return { text: segs.join('/'), ours: segs[at] === 'reports' || segs[at] === 'jds' ? 'reports' : kind };
+  return { text: segs.join('/'), ours: jdUnmatched ? 'jd-unmatched' : segs[at] === 'reports' || segs[at] === 'jds' ? 'reports' : kind };
 }
 
 /** Rewrite links, paths and (when `hash`) free-text `#NNN` tokens. */
-function rewriteSegment(text, env, ctx, { hash }) {
-  return text.replace(SEGMENT_RE, (match, label, dest, hashDigits) => {
+function rewriteSegment(text, env, ctx, { hash, at = 0 }) {
+  return text.replace(SEGMENT_RE, (match, label, dest, hashDigits, offset, whole) => {
     if (dest !== undefined) {
       const target = rewritePathToken(dest, env, ctx, { linkDest: true });
       let newLabel;
-      if (/^\d+$/.test(label) && target.ours === 'reports') {
+      if (target.ours === 'jd-unmatched') {
+        newLabel = label;
+      } else if (/^\d+$/.test(label) && target.ours === 'reports') {
         newLabel = mapField(label, 'report', 'plain', env, ctx, `${env.label}.link`);
       } else if (/^#\d{3,}$/.test(label) && target.ours === 'reports') {
         newLabel = `#${mapField(label.slice(1), 'report', 'plain', env, ctx, `${env.label}.link`)}`;
       } else {
-        newLabel = rewriteSegment(label, env, ctx, { hash });
+        newLabel = rewriteSegment(label, env, ctx, { hash, at: at + offset + 1 });
       }
       return `[${newLabel}](${target.text})`;
     }
     if (hashDigits !== undefined) {
       if (!hash) return match;
+      if (env.hashMask?.[env.lineOffset + at + offset]) return match;
+      const other = whole.slice(offset + match.length).match(FOREIGN_TRACK_RE);
+      if (other && other[1] !== env.mapper.track) return match;
       const value = parseInt(hashDigits, 10);
       if (env.mapper.direction === 'forward' && env.dupNums?.has(value)) {
         recordPending(env, match);
@@ -380,9 +482,12 @@ function mapField(digits, space, style, env, ctx, category, override = null) {
 }
 
 function rewriteLines(text, fn, env) {
+  let offset = 0;
   return text.split('\n').map((line, idx) => {
     env.lineNumber = idx + 1;
     env.lineText = line;
+    env.lineOffset = offset;
+    offset += line.length + 1;
     return fn(line);
   }).join('\n');
 }
@@ -485,6 +590,16 @@ function processFollowups(text, env, ctx) {
   }, env);
 }
 
+/** HTML keeps `#333` colours and commented issue numbers; paths and body text still move. */
+function processHtml(text, env, ctx) {
+  env.hashMask = htmlStyleMask(text);
+  try {
+    return rewriteLines(text, (l) => rewriteSegment(l, env, ctx, { hash: true }), env);
+  } finally {
+    env.hashMask = null;
+  }
+}
+
 function processorFor(rel, trackerRel) {
   if (rel === trackerRel) return { fn: processTracker, label: 'tracker' };
   if (rel === LEDGER_REL) return { fn: processLedger, label: 'ledger' };
@@ -500,6 +615,7 @@ function processorFor(rel, trackerRel) {
     if (extname(name) === '.md') return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: true }), env), label: 'report' };
   }
   if (!SCOPE_DIRS.some(({ rel: dir }) => rel.startsWith(`${dir}/`))) return null;
+  if (['.html', '.htm'].includes(extname(name).toLowerCase())) return { fn: processHtml, label: 'paths' };
   return { fn: (t, env, ctx) => rewriteLines(t, (l) => rewriteSegment(l, env, ctx, { hash: true }), env), label: 'paths' };
 }
 
@@ -508,7 +624,7 @@ function nameKindFor(rel) {
   const segs = rel.split('/');
   const top = segs[0];
   if (top === 'reports' || top === 'jds' || top === 'covers') {
-    return segs.length === 2 ? (top === 'reports' ? 'reports' : 'prefix-dash') : null;
+    return segs.length === 2 ? (top === 'reports' ? 'reports' : top === 'jds' ? JD_KIND : 'prefix-dash') : null;
   }
   if (top === 'output') return segs.length >= 2 ? 'tokens' : null;
   if (top === 'data' && segs.length >= 3) {
@@ -586,6 +702,26 @@ function collectNumbers(snapshot, rows) {
   }
   const all = new Set([...tracker, ...report, ...reference]);
   return { tracker, report, reference, all };
+}
+
+function jdCompaniesOf(snapshot, rows) {
+  const companies = new Map();
+  const add = (number, company) => {
+    const slug = normalizeCompany(company);
+    if (!slug) return;
+    if (!companies.has(number)) companies.set(number, new Set());
+    companies.get(number).add(slug);
+  };
+  for (const row of rows) {
+    add(row.num, row.company);
+    for (const number of row.reports) add(number, row.company);
+  }
+  for (const rel of snapshot.entries.keys()) {
+    if (nameKindFor(rel) !== 'reports') continue;
+    const match = posix.basename(rel).match(/^(\d+)-(.+)-\d{4}-\d{2}-\d{2}\.md$/);
+    if (match) add(Number(match[1]), match[2]);
+  }
+  return companies;
 }
 
 function trackerExceptions(rows, base) {
@@ -692,9 +828,9 @@ function planTrackCore(snapshot, root, opts) {
   let ledgerAssign = new Map();
   let mapper;
   let anchorsToCreate = [];
+  rows = trackerRowsOf(snapshot, trackerRel);
   if (direction === 'forward') {
     base = opts.base;
-    rows = trackerRowsOf(snapshot, trackerRel);
     numbersInfo = collectNumbers(snapshot, rows);
     exc = trackerExceptions(rows, base);
     errors.push(...exc.errors);
@@ -706,6 +842,7 @@ function planTrackCore(snapshot, root, opts) {
     anchorsToCreate = rc.anchors;
     mapper = createMapper({ direction, track, base, numbers: rc.numbers, trackerRev: rc.trackerRev, spellings: rc.spellings });
   }
+  mapper.jdCompanies = jdCompaniesOf(snapshot, rows);
 
   // Ledger events of a duplicated `#` cannot be attributed by number alone.
   if (direction === 'forward') {
@@ -747,6 +884,12 @@ function planTrackCore(snapshot, root, opts) {
     if (kind) {
       const ctx = newCtx(direction === 'forward' ? null : rel, 'name');
       newName = mapName(name, kind, mapper, ctx, `rename.${rel.split('/')[0] === 'data' ? rel.split('/')[1] : rel.split('/')[0]}`);
+      if (direction === 'forward' && kind === JD_KIND && newName === name) {
+        const prefix = name.match(/^(\d+)-/);
+        if (prefix && mapper.member(Number(prefix[1])) != null && !jdBelongsToReport(name, Number(prefix[1]), mapper)) {
+          manualPending.push({ file: rel, line: null, token: prefix[1], excerpt: name });
+        }
+      }
       if (direction === 'forward') ctx.key = newParent ? `${newParent}/${newName}` : newName;
     }
     const out = newParent ? `${newParent}/${newName}` : newName;
