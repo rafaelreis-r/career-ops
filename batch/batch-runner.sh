@@ -724,10 +724,17 @@ reserve_report_num_unlocked() {
   # 049, report 051) in one batch run for exactly this reason -- routing every
   # caller through the same node script means they all share one real lock.
   local report_num=""
-  report_num=$(node "$PROJECT_DIR/reserve-report-num.mjs" 2>/dev/null | tr -d '[:space:]')
-  if [[ -n "$report_num" ]]; then
-    update_state_unlocked "$id" "$url" "processing" "$started" "-" "$report_num" "-" "-" "$retries"
+  report_num=$(node "$PROJECT_DIR/reserve-report-num.mjs" 2>/dev/null | tr -d '[:space:]') || report_num=""
+  # No number means the allocator failed (lock timeout, unwritable reports/,
+  # exhausted retries). Returning success with an empty number let the caller
+  # launch a paid worker with a blank "Report number:" and write an empty
+  # report_num cell into batch-state.tsv; the retry wrapper below is what
+  # handles a failed reservation, so fail here and let it.
+  if [[ ! "$report_num" =~ ^[0-9]+$ ]]; then
+    echo "    ❌ reserve-report-num.mjs returned no report number for offer id=$id" >&2
+    return 1
   fi
+  update_state_unlocked "$id" "$url" "processing" "$started" "-" "$report_num" "-" "-" "$retries"
 
   printf '%s\n' "$report_num"
 }

@@ -109,7 +109,7 @@ Bloklar A-F tamamlandıktan sonra **HER ZAMAN** şunları yap:
 
 Değerlendirmenin tamamını `reports/{###}-{sirket-slug}-{YYYY-MM-DD}.md` olarak kaydet.
 
-- `{###}` = sıradaki numara (3 haneli, sıfır dolgulu). Bu numarayı atomik olarak atamak ve yarış durumlarını (race condition) önlemek için, numarayı rezerve etmek üzere `node reserve-report-num.mjs` komutunu çalıştırmalısınız (standart çıktı `{###}` değerini döndürür), raporu yazmalı ve ardından sentineli serbest bırakmak için `node reserve-report-num.mjs --release {###}` komutunu çalıştırmalısınız.
+- `{###}` = sıradaki numara (en az 3 haneli, sıfır dolgulu). Bu numarayı atomik olarak atamak ve yarış durumlarını (race condition) önlemek için, numarayı rezerve etmek üzere `node reserve-report-num.mjs` komutunu çalıştırmalısınız (standart çıktı `{###}` değerini döndürür), raporu yazmalı ve ardından sentineli serbest bırakmak için `node reserve-report-num.mjs --release {###}` komutunu çalıştırmalısınız.
 - `{sirket-slug}` = şirket adı küçük harfle, boşluksuz (tire kullan)
 - `{YYYY-MM-DD}` = bugünün tarihi
 

@@ -17,27 +17,95 @@ file local. No application data ever lives here.
 | Track C (Operations & Delivery) | `~/dev/career-ops-ops` |
 | Shared, non-git material (ADRs, track registry) | `~/dev/career-ops-shared` |
 
-Report numbers are installation-scoped but can be consumed by cross-track
-tools, so each track owns a non-overlapping range in its local
-`config/profile.yml`:
+Report numbers and tracker `#`s are installation-scoped, but cross-track tools
+read them, so each track owns one 100,000-number block and the first digit of a
+number names its track. The block is `report_number_range` in the track's local
+`config/profile.yml` and `faixa` in the shared `trilhas.yml`:
 
-| Track | `report_number_range` |
-|---|---|
-| A | `"1-999"` |
-| B | `"1000-1999"` |
-| C | `"2000-2999"` |
+| Track | `report_number_range` | Example |
+|---|---|---|
+| A | `"100000-199999"` | 3244 became 103244 |
+| B | `"200000-299999"` | 1037 became 201037 |
+| C | `"300000-399999"` | 2621 became 302621 |
+| a fourth track | `"400000-499999"` | |
 
-`reserve-report-num.mjs` fails closed when this setting is missing or exhausted.
-`CAREER_OPS_REPORT_NUMBER_RANGE` is only a one-run override. Before applying
-this change to the tracks, add the assigned value above to each profile. Existing
-out-of-range reports remain readable; new reservations stay within the assigned
-range. To audit historical reuse across the three installs without writing any
-files, run:
+`reserve-report-num.mjs` fails closed when this setting is missing or exhausted,
+and `merge-tracker.mjs` keeps its collision fallback inside the same range.
+`CAREER_OPS_REPORT_NUMBER_RANGE` is only a one-run override. To audit
+historical reuse across the three installs without writing any files, run:
 
 ```sh
 node reserve-report-num.mjs --collisions \
   ~/dev/career-ops ~/dev/career-ops-product ~/dev/career-ops-ops
 ```
+
+### Moving a track into its block
+
+Before the blocks, the tracks numbered in 1-999, 1000-1999 and 2000-2999, and
+track A overflowed into B's range. `renumber-ids.mjs` moves every number of one
+track to `base + old` and writes an `id-map.tsv` that undoes the move. The
+tracker `#` and the report number share one number space, so both get the same
+function and every row keeps its report. Run it from this checkout with the
+evaluation rounds and the scan/rank LaunchAgents stopped:
+
+```sh
+node renumber-ids.mjs plan --root ~/dev/career-ops --track A --base 100000 --out <dir>/A
+node renumber-ids.mjs plan --root ~/dev/career-ops-product --track B --base 200000 --out <dir>/B
+node renumber-ids.mjs plan --root ~/dev/career-ops-ops --track C --base 300000 --out <dir>/C
+node renumber-ids.mjs shared --shared-dir ~/dev/career-ops-shared/data \
+  --track A=~/dev/career-ops:100000 --track B=~/dev/career-ops-product:200000 \
+  --track C=~/dev/career-ops-ops:300000 --out <dir>/shared
+node renumber-ids.mjs apply --plan <dir>/A/plan.json    # then B, C and shared
+```
+
+Plan the shared files before applying any track, because their owners come
+from the unmigrated trackers. After the apply, set `report_number_range` in each
+profile and `faixa` in `trilhas.yml` to the track's block.
+
+`plan` only reads. It writes `plan.json`, `id-map.tsv` (columns `trilha`,
+`antigo`, `novo`, `tipo`, `detalhe`) and `changes.tsv` (one line per file
+operation), prints the number of changes of each kind, and checks in memory
+that the reverse of its own result gives back every byte. `apply` refuses to run
+while a `reports/*-RESERVED.md` reservation exists, while the tracker lock is
+held, while a `batch/batch-state*.tsv` row is `processing`, or when any file the
+plan read has changed since; it holds the tracker and pipeline locks while it
+writes.
+
+What moves:
+
+- the tracker `#` and its report links; `data/status-log.tsv`; the `appNum`
+  column and the `#N` pins of `data/follow-ups.md`; the `- [x] #N` items of
+  `data/pipeline.md`; the first column of `data/pdf-index.tsv`;
+- entry names in `reports/`, `jds/`, `covers/`, `data/outcomes/`,
+  `data/followup-drafts/`, `data/application-packets/` and `output/`, including
+  a number inside a name (`cv-candidate-gitlab-3244-2026-10-08.pdf`) when it is
+  one of the track's numbers, and every path or link to a renamed file in those
+  files, in report bodies and in text files under those directories;
+- a free-text `#NNN` (three digits or more) in tracker Notes, report bodies,
+  `data/pipeline.md` and `data/follow-ups.md`, when NNN is one of the track's
+  numbers.
+
+What stays: other numbers in text (`req 1057`, `Story #1`, another track's
+`#1037`), symlinked files (the shared TSVs, which the `shared` mode migrates
+with the base of the track that owns each row), backups and hidden copies
+(renamed with their directory, never rewritten), `batch/` history, and text
+outside the files above, such as `modes/_custom.md`. `data/applications.db` is
+rebuilt from the tracker by the next `tracker.mjs` run. The
+`reports/*-faixa-inicial.md` anchors are deleted; their content is kept in the
+id-map.
+
+When a tracker `#` repeats, the row whose report carries a different number
+takes that number, and the plan stops until each `data/status-log.tsv` event of
+the repeated `#` has an owner, given as `--ledger-assign <old>@<date>=<new>`
+(`--ledger-assign A:<old>@<date>=<new>` in `shared`). A shared row whose owner
+the trackers cannot decide needs `--owner <file>:<line>=<track>`.
+
+To undo, plan the reverse and apply it: `plan --root <track> --reverse --id-map
+<dir>/A/id-map.tsv --out <dir>/A-reverse`, and for the shared files `shared
+--reverse` with every track's id-map plus the shared one. Numbered fields and
+file names allocated after the migration go back to `new - base` as well; a
+number inside an `output/` name or in free text goes back only when the id-map
+lists it.
 
 Each track is a full checkout whose system files are byte-identical to `main`.
 User-layer files (`cv.md`, `config/profile.yml`, `modes/_profile.md`,
@@ -95,7 +163,7 @@ Three files conflict on almost every rebase; resolve them as follows.
 
 | File | Fork side to keep |
 |---|---|
-| `update-system.mjs` | `CANONICAL_SLUG` block (replaces the three hardcoded URLs and the ref URL); the `Fork-owned` entries in `SYSTEM_PATHS` (`jev-ag-eval.mjs`, `jev-pregate.mjs`, `lib/jev-client.mjs`, `lib/apply-route.mjs`, `lib/jev-apply-helpers.mjs`, `lib/tracks.mjs`, `lib/email-reconcile.mjs`, `reconcile-email.mjs`, `web/`); and `modes/apply-llm-owned.md`. |
+| `update-system.mjs` | `CANONICAL_SLUG` block (replaces the three hardcoded URLs and the ref URL); the `Fork-owned` entries in `SYSTEM_PATHS` (`jev-ag-eval.mjs`, `jev-pregate.mjs`, `lib/jev-client.mjs`, `lib/apply-route.mjs`, `lib/jev-apply-helpers.mjs`, `lib/tracks.mjs`, `lib/email-reconcile.mjs`, `reconcile-email.mjs`, `renumber-ids.mjs`, `web/`); and `modes/apply-llm-owned.md`. |
 | `jd-skill-gap.mjs` | The `jev-client` import beside upstream's imports; the `jevChoice` call and `isJevEnabled` gate in the skill-gap scorer. |
 | `web/src/lib/apply/drive.ts` | The `jev-drive` import and `DriveResult` re-export; the `isJevDriveEnabled()` branch that delegates to `driveSessionJev`. Keep upstream's spawn helper. |
 
@@ -195,11 +263,13 @@ Keep these across rebases; each exists for a reason.
   falling back to upstream's curl prefetch, so headless workers evaluate archived
   JDs without fetching LinkedIn.
 - **`merge-tracker.mjs`:** skips an addition whose Company or Role parsed blank
-  (column-shift symptom; warn, skip, archive like the other parse failures), and
+  (column-shift symptom; warn, skip, archive like the other parse failures),
   refuses a tier-3 fuzzy match when more than one existing row qualifies instead
   of taking the first (2026-09-02: nine same-day CI&T postings merged into the
-  wrong row). `tests/merge-tracker.test.mjs` carries both contracts beside
-  upstream's own.
+  wrong row), and keeps the tracker-`#` collision fallback inside
+  `report_number_range`, refusing the addition when the range is full.
+  `tests/merge-tracker.test.mjs` and `tests/merge-tracker-range-fallback.test.mjs`
+  carry these contracts beside upstream's own.
 - **E-mail reconciliation across tracks.** `reconcile-email.mjs` with
   `lib/email-reconcile.mjs` reads Gmail through `gog` (read-only) and has Jev
   classify each e-mail and pick its row among the trackers of every track in

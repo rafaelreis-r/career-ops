@@ -1271,6 +1271,24 @@ npm run serve:dashboard    # or run the TUI directly without building
 
 ---
 
+## renumber-ids
+
+One-time move of an installation's tracker `#`s and report numbers into its
+100,000-number block (`new = base + old`), with an exact reverse. `plan` and
+`shared` only read and write a plan directory (`plan.json`, `id-map.tsv`,
+`changes.tsv`); `apply` executes a plan and refuses while reservations, the
+tracker lock or a processing batch row exist, or when the files changed since
+the plan. The procedure, what moves and what stays are in
+[FORK.md](FORK.md#moving-a-track-into-its-block).
+
+```bash
+node renumber-ids.mjs plan --root <track> --track A --base 100000 --out <dir>
+node renumber-ids.mjs apply --plan <dir>/plan.json
+node renumber-ids.mjs plan --root <track> --reverse --id-map <dir>/id-map.tsv --out <dir>-reverse
+```
+
+---
+
 ## Agent-invoked utilities
 
 These have no `npm run` binding — modes and agents call them with
