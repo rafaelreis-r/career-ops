@@ -12,11 +12,11 @@ import { rmSync } from './helpers.mjs';
 // #1014, so every colour, issue number and slug number below is also a number
 // of the track. Each fixture file is the minimal copy of a case that the first
 // real migration got wrong.
-const ROWS = [25, 56, 222, 264, 333, 444, 555, 600, 614, 728, 1014];
+const ROWS = [25, 56, 64, 222, 264, 333, 444, 555, 600, 614, 728, 1014, 1872];
 const TRACKER = [
   '| # | Date | Company | Via | Role | Score | Status | PDF | Report | Notes |',
   '|---|------|---------|-----|------|-------|--------|-----|--------|-------|',
-  ...ROWS.map((n) => `| ${n} | 2026-08-04 | Co${n} | — | SRE | 3.0/5 | Applied | ✅ | [${String(n).padStart(3, '0')}](../reports/${String(n).padStart(3, '0')}-co${n}-2026-08-04.md) | |`),
+  ...ROWS.map((n) => `| ${n} | 2026-08-04 | ${n === 64 ? 'Acme' : `Co${n}`} | — | SRE | 3.0/5 | Applied | ✅ | [${String(n).padStart(3, '0')}](../reports/${String(n).padStart(3, '0')}-${n === 64 ? 'acme' : `co${n}`}-2026-08-04.md) | |`),
   '',
 ].join('\n');
 
@@ -47,7 +47,7 @@ const CV_HTML = [
 function trackA(dir) {
   const root = join(dir, 'A');
   write(root, 'data/applications.md', TRACKER);
-  for (const n of ROWS) write(root, `reports/${String(n).padStart(3, '0')}-co${n}-2026-08-04.md`, `# Co${n}\n`);
+  for (const n of ROWS) write(root, `reports/${String(n).padStart(3, '0')}-${n === 64 ? 'acme' : `co${n}`}-2026-08-04.md`, `# Co${n}\n`);
   write(root, 'output/cv-candidate-acme.html', CV_HTML);
   write(root, 'data/notes.md', 'Compare with #1014 B and #056 A, then #056, then #1014 C.\n- the one for #614 in B? ask #614 B\n');
   write(root, 'output/cv-rafael-reis-ethos-infra-80-hr-up-to-1-600-week-614-2026-09-22.html', '<p>x</p>\n');
@@ -61,11 +61,12 @@ function trackA(dir) {
     '',
   ].join('\n'));
   write(root, 'jds/056-co56.md', 'jd\n');
-  write(root, 'jds/728-ci-t-cloud-devops-brazil.md', 'jd\n');
+  write(root, 'jds/64-acme.md', 'jd\n');
+  write(root, 'jds/728-co728-devops-brazil.md', 'jd\n');
   write(root, 'jds/99-product-ops-manager-6f11c6f8c4.md', 'jd\n');
   write(root, 'jds/7-brew-coffee-ops.md', 'jd\n');
   write(root, 'jds/1872-consulting-ops.md', 'jd\n');
-  write(root, 'data/jd-refs.md', 'See jds/99-product-ops-manager-6f11c6f8c4.md and jds/728-ci-t-cloud-devops-brazil.md and jds/1872-consulting-ops.md\n');
+  write(root, 'data/jd-refs.md', 'See jds/99-product-ops-manager-6f11c6f8c4.md and jds/64-acme.md and jds/728-co728-devops-brazil.md and jds/1872-consulting-ops.md and [#1872](jds/1872-consulting-ops.md)\n');
   return root;
 }
 
@@ -128,24 +129,27 @@ test('F4: only the vacancy number of an output name moves, not a number inside t
   ].join('\n'));
 });
 
-test('F5: a JD is renumbered only when its name has a track report number', async (t) => {
-  const { root, read } = await migrate(t);
+test('F5: a JD moves only when its prefix and company match a track vacancy', async (t) => {
+  const { root, read, out } = await migrate(t);
   assert.deepEqual(readdirSync(join(root, 'jds')).sort(), [
     '100056-co56.md',
-    '100728-ci-t-cloud-devops-brazil.md',
+    '100064-acme.md',
+    '100728-co728-devops-brazil.md',
     '1872-consulting-ops.md',
     '7-brew-coffee-ops.md',
     '99-product-ops-manager-6f11c6f8c4.md',
   ]);
   assert.equal(read('data/jd-refs.md'),
-    'See jds/99-product-ops-manager-6f11c6f8c4.md and jds/100728-ci-t-cloud-devops-brazil.md and jds/1872-consulting-ops.md\n');
+    'See jds/99-product-ops-manager-6f11c6f8c4.md and jds/100064-acme.md and jds/100728-co728-devops-brazil.md and jds/1872-consulting-ops.md and [#1872](jds/1872-consulting-ops.md)\n');
+  const pending = JSON.parse(readFileSync(join(out, 'manual-pending.json'), 'utf8'));
+  assert.ok(pending.some((entry) => entry.file === 'jds/1872-consulting-ops.md' && entry.token === '1872'));
 });
 
 test('reverse of the migration restores every byte, false-positive cases included', async (t) => {
   const { dir, root, before, out } = await migrate(t);
   assert.notDeepEqual(treeOf(root), before);
   const idMapRows = parseIdMap(readFileSync(join(out, 'id-map.tsv'), 'utf8'));
-  assert.ok(!idMapRows.some((r) => r.antigo === '1872' || r.antigo === '99' || r.antigo === '7'), 'JD company numbers are not in the id-map');
+  assert.ok(!idMapRows.some((r) => r.antigo === '99' || r.antigo === '7'), 'unmatched JD company numbers are not in the id-map');
   const back = planTrack({ root, reverse: true, idMapRows });
   assert.deepEqual(back.errors, []);
   writePlan(back, join(dir, 'reverse'));

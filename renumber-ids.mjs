@@ -63,9 +63,6 @@ const SCOPE_DIRS = [
 ];
 // Path anchors inside text. Single-level kinds only rename the entry directly
 // below the anchor; token kinds rename every segment below it.
-// A JD named `NNN-company.md` carries a report number only when NNN has the
-// three digits of a report name and is one of the track's numbers: scraped JDs
-// are also named by company (`99-product-ops-...`, `1872-consulting-...`).
 const JD_KIND = 'prefix-dash-report';
 const ROOT_ANCHORS = { reports: 'reports', jds: JD_KIND, covers: 'prefix-dash', output: 'tokens' };
 const DATA_ANCHORS = {
@@ -263,7 +260,7 @@ function mapName(name, kind, mapper, ctx, category) {
     if (!m) return name;
     const value = parseInt(m[1], 10);
     let mapped;
-    if (kind === JD_KIND) mapped = m[1].length < 3 ? null : mapper.member(value);
+    if (kind === JD_KIND) mapped = jdBelongsToReport(name, value, mapper) ? mapper.member(value) : null;
     else mapped = mapper.structural(value, 'report');
     if (mapped == null) return name;
     mapper.count(category);
@@ -289,6 +286,18 @@ function mapName(name, kind, mapper, ctx, category) {
   });
   if (changed) mapper.count(category);
   return out;
+}
+
+function jdBelongsToReport(name, number, mapper) {
+  if (mapper.member(number) == null) return false;
+  const companies = mapper.jdCompanies.get(number);
+  if (!companies?.size) return false;
+  const rest = name.replace(/^\d+-/, '').replace(/^\d{4}-\d{2}-\d{2}[_-]/, '');
+  const segments = rest.split(/[-_.]/);
+  for (let i = 1; i <= segments.length; i++) {
+    if (companies.has(normalizeCompany(segments.slice(0, i).join('-')))) return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -414,11 +423,13 @@ function rewritePathToken(tok, env, ctx, { linkDest = false } = {}) {
   const start = at + width;
   if (start >= segs.length) return { text: tok, ours: kind };
   const last = SINGLE_LEVEL.has(kind) ? start : segs.length - 1;
+  const jdUnmatched = kind === JD_KIND && /^\d+-/.test(segs[start])
+    && !jdBelongsToReport(segs[start], Number(segs[start].match(/^(\d+)-/)[1]), env.mapper);
   for (let i = start; i <= last; i++) {
     if (segs[i] === '') continue;
     segs[i] = mapName(segs[i], kind, env.mapper, ctx, `${env.label}.path`);
   }
-  return { text: segs.join('/'), ours: segs[at] === 'reports' || segs[at] === 'jds' ? 'reports' : kind };
+  return { text: segs.join('/'), ours: jdUnmatched ? 'jd-unmatched' : segs[at] === 'reports' || segs[at] === 'jds' ? 'reports' : kind };
 }
 
 /** Rewrite links, paths and (when `hash`) free-text `#NNN` tokens. */
@@ -427,7 +438,9 @@ function rewriteSegment(text, env, ctx, { hash, at = 0 }) {
     if (dest !== undefined) {
       const target = rewritePathToken(dest, env, ctx, { linkDest: true });
       let newLabel;
-      if (/^\d+$/.test(label) && target.ours === 'reports') {
+      if (target.ours === 'jd-unmatched') {
+        newLabel = label;
+      } else if (/^\d+$/.test(label) && target.ours === 'reports') {
         newLabel = mapField(label, 'report', 'plain', env, ctx, `${env.label}.link`);
       } else if (/^#\d{3,}$/.test(label) && target.ours === 'reports') {
         newLabel = `#${mapField(label.slice(1), 'report', 'plain', env, ctx, `${env.label}.link`)}`;
@@ -691,6 +704,26 @@ function collectNumbers(snapshot, rows) {
   return { tracker, report, reference, all };
 }
 
+function jdCompaniesOf(snapshot, rows) {
+  const companies = new Map();
+  const add = (number, company) => {
+    const slug = normalizeCompany(company);
+    if (!slug) return;
+    if (!companies.has(number)) companies.set(number, new Set());
+    companies.get(number).add(slug);
+  };
+  for (const row of rows) {
+    add(row.num, row.company);
+    for (const number of row.reports) add(number, row.company);
+  }
+  for (const rel of snapshot.entries.keys()) {
+    if (nameKindFor(rel) !== 'reports') continue;
+    const match = posix.basename(rel).match(/^(\d+)-(.+)-\d{4}-\d{2}-\d{2}\.md$/);
+    if (match) add(Number(match[1]), match[2]);
+  }
+  return companies;
+}
+
 function trackerExceptions(rows, base) {
   const byNum = new Map();
   for (const r of rows) {
@@ -795,9 +828,9 @@ function planTrackCore(snapshot, root, opts) {
   let ledgerAssign = new Map();
   let mapper;
   let anchorsToCreate = [];
+  rows = trackerRowsOf(snapshot, trackerRel);
   if (direction === 'forward') {
     base = opts.base;
-    rows = trackerRowsOf(snapshot, trackerRel);
     numbersInfo = collectNumbers(snapshot, rows);
     exc = trackerExceptions(rows, base);
     errors.push(...exc.errors);
@@ -809,6 +842,7 @@ function planTrackCore(snapshot, root, opts) {
     anchorsToCreate = rc.anchors;
     mapper = createMapper({ direction, track, base, numbers: rc.numbers, trackerRev: rc.trackerRev, spellings: rc.spellings });
   }
+  mapper.jdCompanies = jdCompaniesOf(snapshot, rows);
 
   // Ledger events of a duplicated `#` cannot be attributed by number alone.
   if (direction === 'forward') {
@@ -850,6 +884,12 @@ function planTrackCore(snapshot, root, opts) {
     if (kind) {
       const ctx = newCtx(direction === 'forward' ? null : rel, 'name');
       newName = mapName(name, kind, mapper, ctx, `rename.${rel.split('/')[0] === 'data' ? rel.split('/')[1] : rel.split('/')[0]}`);
+      if (direction === 'forward' && kind === JD_KIND && newName === name) {
+        const prefix = name.match(/^(\d+)-/);
+        if (prefix && mapper.member(Number(prefix[1])) != null && !jdBelongsToReport(name, Number(prefix[1]), mapper)) {
+          manualPending.push({ file: rel, line: null, token: prefix[1], excerpt: name });
+        }
+      }
       if (direction === 'forward') ctx.key = newParent ? `${newParent}/${newName}` : newName;
     }
     const out = newParent ? `${newParent}/${newName}` : newName;

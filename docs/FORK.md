@@ -81,9 +81,11 @@ What moves:
   `output/` the number that moves is the one right before the date or the
   extension (`cv-candidate-gitlab-3244-2026-10-08.pdf`), when it is one of the
   track's numbers; a number inside the slug (`up-to-1-600-week`) stays. A JD
-  moves only when its name starts with a report number of three digits or more
-  that the track uses (`056-articul8.md`); `99-product-ops-...`,
-  `7-brew-coffee-...` and `1872-consulting-...` are company names;
+  moves only when its numeric prefix belongs to a vacancy in the track and
+  the following company slug matches that vacancy's tracker or report company.
+  Prefix width does not matter: `64-acme.md` moves for Acme's vacancy 64.
+  A mismatched file such as `1872-consulting-...` stays and appears in
+  `manual-pending.json`;
 - paths and links to renamed files, and free-text `#NNN` tokens (three digits
   or more) that belong to this track, in eligible text files under `data/`,
   `reports/`, `jds/`, `covers/` and `output/`. This includes
