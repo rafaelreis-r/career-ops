@@ -7,13 +7,16 @@ import { execFileSync } from 'node:child_process';
 import { ROOT } from './helpers.mjs';
 
 const raw = '- [ ] https://example.test/job | Example | Engineer';
-const rank = (score, reason) => `${raw} | rank: ${score}.0/5 — ${reason}`;
+const rank = (score, reason) => `${raw} | rank: cal-v3 ${score}.0/5 — ${reason}`;
 
 function runRanking(rows, results, current = null, limit = rows.length) {
   const root = mkdtempSync(join(tmpdir(), 'rank-identity-'));
   try {
     mkdirSync(join(root, 'data'));
     mkdirSync(join(root, 'bin'));
+    mkdirSync(join(root, 'config'));
+    writeFileSync(join(root, 'config', 'profile.yml'),
+      'target_roles:\n  target_level: Director\ncompensation:\n  target_range: USD 8K/month\n');
     writeFileSync(join(root, 'data', 'pipeline.md'), rows.join('\n'));
     const binary = join(root, 'bin', 'fixture-ranker');
     writeFileSync(binary, `#!${process.execPath}\n`

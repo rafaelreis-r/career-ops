@@ -532,6 +532,11 @@ const JOBS = (() => {
 // put N x N processes on N cores, and its output would stop being comparable
 // with the serial runs those suites were written against.
 process.env.CAREER_OPS_TEST_JOBS = '1';
+// Fork: reserve-report-num.mjs fails closed without an installation range
+// (report_number_range, docs/FORK.md). Upstream suites that reserve numbers
+// through a child process do not know that setting, so the whole run inherits
+// an unbounded range; suites that test the range itself override it.
+process.env.CAREER_OPS_REPORT_NUMBER_RANGE ??= '1-9007199254740991';
 
 const ONLY = hasFlag(process.argv, '--only') ? (flagValue(process.argv, '--only') ?? '') : null;
 if (ONLY !== null) {

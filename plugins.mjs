@@ -32,7 +32,6 @@ import { installFromRepo, scaffoldNew, parseRepoArg } from './plugin-install.mjs
 import { appendToPipeline, loadSeenUrls, normalizeUrlForDedup } from './scan.mjs';
 import { getCareerOpsRoot, resolveTrackerPath } from './path-resolver.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
-import { getCareerOpsRoot } from './path-resolver.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const DATA_ROOT = getCareerOpsRoot();
