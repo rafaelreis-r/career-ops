@@ -17,16 +17,17 @@
  *                                     # …even for a release the user dismissed
  *   node update-system.mjs apply --confirm
  *                                     # Apply update after explicit confirmation.
- *                                     # Default channel: the newest published
- *                                     # release tag, not main's current tip.
+ *                                     # Default channel in this fork: main
+ *                                     # (the fork publishes no releases);
+ *                                     # see DEFAULT_CHANNEL.
  *   node update-system.mjs apply --force --confirm
  *                                     # …and overwrite system files this
  *                                     # install edited locally (#2337). Without
  *                                     # it those files are kept and listed.
- *   node update-system.mjs apply --channel main --confirm
- *                                     # …track main instead: every merge,
- *                                     # including whatever's mid-flight
- *                                     # between a bad one and its fix.
+ *   node update-system.mjs apply --channel release --confirm
+ *                                     # …install the newest published release
+ *                                     # tag instead of main's current tip
+ *                                     # (upstream's default, #3845).
  *   node update-system.mjs rollback   # Rollback last update
  *   node update-system.mjs dismiss [--version X.Y.Z]
  *                                     # Don't ask again about this release;
@@ -3446,10 +3447,23 @@ export function refspecForTarget(targetRef) {
 // ── CHANNEL RESOLUTION ──────────────────────────────────────────
 
 /**
+ * The channel used when neither `--channel` nor CAREER_OPS_UPDATE_CHANNEL
+ * names one. Upstream defaults to 'release' (#3845). This fork publishes no
+ * GitHub releases, so `/releases/latest` answers 404: on 'release' every
+ * check would report `offline` and every apply would throw. The fork default
+ * is therefore 'main', which is what the tracks always followed.
+ * CAREER_OPS_UPDATE_DEFAULT_CHANNEL=release restores upstream's default;
+ * test-all.mjs sets it so upstream's own release-channel tests keep running
+ * unchanged, and tests/updater-fork-default-channel.test.mjs pins the fork
+ * default with the variable unset.
+ */
+const DEFAULT_CHANNEL = process.env.CAREER_OPS_UPDATE_DEFAULT_CHANNEL === 'release' ? 'release' : 'main';
+
+/**
  * Which channel apply() should fetch from: the `--channel` flag wins over
  * CAREER_OPS_UPDATE_CHANNEL (the re-exec'd child's copy of the parent's
- * resolved choice — see resolveTargetRef()'s callers). Unset means the
- * default, 'release'. Anything else is a typo, not a third channel, so it
+ * resolved choice — see resolveTargetRef()'s callers). Unset means
+ * DEFAULT_CHANNEL. Anything else is a typo, not a third channel, so it
  * throws before any lock or network call rather than silently doing
  * something the caller didn't ask for.
  *
@@ -3460,9 +3474,10 @@ export function refspecForTarget(targetRef) {
 function resolveChannel(argv, env) {
   const idx = argv.indexOf('--channel');
   const requested = idx !== -1 ? argv[idx + 1] : env.CAREER_OPS_UPDATE_CHANNEL;
-  if (requested === undefined || requested === 'release') return 'release';
+  if (requested === undefined) return DEFAULT_CHANNEL;
+  if (requested === 'release') return 'release';
   if (requested === 'main') return 'main';
-  throw new Error(`Unknown --channel '${requested}'. Supported channels: release (default), main.`);
+  throw new Error(`Unknown --channel '${requested}'. Supported channels: main (default in this fork), release.`);
 }
 
 // release-please-config.json also releases a sibling `web` component, tagged
@@ -5229,7 +5244,7 @@ if (isCli) {
       case 'rollback': rollback(); break;
       case 'dismiss': await dismiss(); break;
       default:
-        console.log('Usage: node update-system.mjs [check [--force] [--channel main]|status|apply --confirm [--force] [--channel main]|rollback|dismiss [--version X.Y.Z]]');
+        console.log('Usage: node update-system.mjs [check [--force] [--channel main|release]|status|apply --confirm [--force] [--channel main|release]|rollback|dismiss [--version X.Y.Z]]');
         process.exit(1);
     }
   } catch (err) {

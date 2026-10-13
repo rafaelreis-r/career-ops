@@ -537,6 +537,11 @@ process.env.CAREER_OPS_TEST_JOBS = '1';
 // through a child process do not know that setting, so the whole run inherits
 // an unbounded range; suites that test the range itself override it.
 process.env.CAREER_OPS_REPORT_NUMBER_RANGE ??= '1-9007199254740991';
+// Fork: update-system.mjs defaults to the main channel because the fork has no
+// releases (DEFAULT_CHANNEL). Upstream's updater suites assert the release
+// default, so they run with upstream's default restored; the fork default is
+// pinned by tests/updater-fork-default-channel.test.mjs, which unsets this.
+process.env.CAREER_OPS_UPDATE_DEFAULT_CHANNEL ??= 'release';
 
 const ONLY = hasFlag(process.argv, '--only') ? (flagValue(process.argv, '--only') ?? '') : null;
 if (ONLY !== null) {
