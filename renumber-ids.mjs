@@ -40,7 +40,7 @@ import {
 import { acquirePipelineLock } from './pipeline-lock.mjs';
 import { flagValue, hasFlag } from './lib/cli-flags.mjs';
 import { isMainModule } from './lib/is-main-module.mjs';
-import { isNestedCheckout } from './lib/mjs-files.mjs';
+import { walkTree } from './lib/walk-tree.mjs';
 
 /** Size of one track's number block. A=100000-199999, B=200000-299999, ... */
 export const BLOCK = 100_000;
@@ -85,7 +85,10 @@ const SHARED_FILES = [
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const pad3 = (n) => String(n).padStart(3, '0');
-const isBackupName = (name) => /\.bak[^/]*$|\.(?:backup|orig)(?:[-._]|$)/i.test(name) || name.endsWith('~');
+// `\/` inside the class is the same character as `/`; escaped so the
+// source-text gates that skip regex literals (tests/walk-tree.test.mjs) read
+// where this one ends.
+const isBackupName = (name) => /\.bak[^\/]*$|\.(?:backup|orig)(?:[-._]|$)/i.test(name) || name.endsWith('~');
 const isTextName = (name) => TEXT_EXTS.has(extname(name).toLowerCase());
 const startsWithDate = (name) => /^\d{4}-\d{2}-\d{2}(?!\d)/.test(name);
 
@@ -127,14 +130,18 @@ export function snapshotTrack(root) {
     entries.set(rel, entry);
     return entry;
   };
-  const walk = (dir, recursive) => {
-    for (const name of readdirSync(dir).sort()) {
-      if (dir === join(root, 'data') && /^pipeline\.md\.lock(?:\.recover)?$/.test(name)) continue;
-      const full = join(dir, name);
-      const entry = add(relative(root, full).split(sep).join('/'));
-      if (recursive && entry?.type === 'dir' && !isNestedCheckout(full)) walk(full, true);
-    }
-  };
+  // walkTree applies the nested-checkout guard on every descent. Its `skip`
+  // hook sees every entry (directory, symlink, file) before the walker drops
+  // symlinks, so the snapshot still records links and dangling links, which
+  // the shared TSVs are, without ever following one.
+  const walk = (dir, recursive) => walkTree(dir, {
+    onError: 'throw',
+    skip: (dirent, parent) => {
+      if (parent === join(root, 'data') && /^pipeline\.md\.lock(?:\.recover)?$/.test(dirent.name)) return true;
+      const entry = add(relative(root, join(parent, dirent.name)).split(sep).join('/'));
+      return !recursive && entry?.type === 'dir';
+    },
+  });
   if (trackerRelFor(root) === 'applications.md') add('applications.md');
   for (const { rel, recursive } of SCOPE_DIRS) {
     const entry = add(rel);

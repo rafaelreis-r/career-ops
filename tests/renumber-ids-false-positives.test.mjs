@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { applyPlan, parseIdMap, planTrack, writePlan } from '../renumber-ids.mjs';
 import { rmSync } from './helpers.mjs';
+import { walkTree } from '../lib/walk-tree.mjs';
 
 // Track A uses #25, #56, #222, #264, #333, #444, #555, #600, #614, #728 and
 // #1014, so every colour, issue number and slug number below is also a number
@@ -72,14 +73,15 @@ function trackA(dir) {
 
 function treeOf(root) {
   const out = {};
-  const walk = (dir) => {
-    for (const name of readdirSync(dir).sort()) {
-      const full = join(dir, name);
+  walkTree(root, {
+    onError: 'throw',
+    skip: (dirent, dir) => {
+      const full = join(dir, dirent.name);
       const rel = relative(root, full).split(sep).join('/');
-      if (lstatSync(full).isDirectory()) { out[`${rel}/`] = 'dir'; walk(full); } else out[rel] = readFileSync(full).toString('base64');
-    }
-  };
-  walk(root);
+      if (lstatSync(full).isDirectory()) out[`${rel}/`] = 'dir'; else out[rel] = readFileSync(full).toString('base64');
+      return false;
+    },
+  });
   return out;
 }
 

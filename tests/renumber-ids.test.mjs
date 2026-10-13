@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { applyPlan, parseIdMap, planShared, planTrack, writePlan } from '../renumber-ids.mjs';
 import { canonicalizeTrackerPath, trackerLockDirFor } from '../tracker-utils.mjs';
-import { isNestedCheckout } from '../lib/mjs-files.mjs';
+import { walkTree } from '../lib/walk-tree.mjs';
 import { NODE, ROOT, rmSync } from './helpers.mjs';
 
 // One fixture per data format the migration touches (tracker, reports and
@@ -121,20 +121,17 @@ function trackB(dir) {
 /** Every path under `root` with its bytes (or symlink target), for byte-exact comparison. */
 function treeOf(root) {
   const out = {};
-  const walk = (dir) => {
-    for (const name of readdirSync(dir).sort()) {
-      const full = join(dir, name);
+  walkTree(root, {
+    onError: 'throw',
+    skip: (dirent, dir) => {
+      const full = join(dir, dirent.name);
       const rel = relative(root, full).split(sep).join('/');
-      const st = lstatSync(full);
-      if (st.isSymbolicLink()) out[rel] = `-> ${readlinkSync(full)}`;
-      else if (!st.isDirectory()) out[rel] = readFileSync(full).toString('base64');
-      else {
-        out[`${rel}/`] = 'dir';
-        if (!isNestedCheckout(full)) walk(full);
-      }
-    }
-  };
-  walk(root);
+      if (dirent.isSymbolicLink()) out[rel] = `-> ${readlinkSync(full)}`;
+      else if (dirent.isDirectory()) out[`${rel}/`] = 'dir';
+      else out[rel] = readFileSync(full).toString('base64');
+      return false;
+    },
+  });
   return out;
 }
 
