@@ -111,7 +111,7 @@ Bevat ook:
 
 Sla de volledige evaluatie op in `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 
-- `{###}` = volgend volgnummer (3 cijfers, nullen opgevuld). Om het atomair toe te wijzen en racecondities te vermijden, zou je `node reserve-report-num.mjs` uitvoeren om het nummer te reserveren (stdout retourneert `{###}`), het rapport schrijven en vervolgens `node reserve-report-num.mjs --release {###}` uitvoeren om de sentinel vrij te geven.
+- `{###}` = volgend volgnummer (minimaal 3 cijfers, nullen opgevuld). Om het atomair toe te wijzen en racecondities te vermijden, zou je `node reserve-report-num.mjs` uitvoeren om het nummer te reserveren (stdout retourneert `{###}`), het rapport schrijven en vervolgens `node reserve-report-num.mjs --release {###}` uitvoeren om de sentinel vrij te geven.
 - `{company-slug}` = bedrijfsnaam in kleine letters, zonder spaties (gebruik koppeltekens)
 - `{JJJJ-MM-DD}` = huidige datum
 

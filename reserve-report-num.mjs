@@ -11,8 +11,8 @@
  * Usage:
  *   node reserve-report-num.mjs
  *   node reserve-report-num.mjs --count 8
- *   node reserve-report-num.mjs --release 035
- *   node reserve-report-num.mjs --release 042-049
+ *   node reserve-report-num.mjs --release 100035
+ *   node reserve-report-num.mjs --release 100042-100049
  *   node reserve-report-num.mjs --collisions <installation> <installation> [...]
  *   node reserve-report-num.mjs --gc
  *
@@ -91,7 +91,23 @@ export function parseReportNumberRange(value) {
   throw new RangeError('Report-number range must be an ascending safe range such as 1-999');
 }
 
-function reportNumberRangeFor(options = {}) {
+function profilePathFor(options = {}) {
+  return resolve(
+    options.profilePath
+      || process.env.CAREER_OPS_PROFILE
+      || join(options.rootDir || ROOT, 'config', 'profile.yml'),
+  );
+}
+
+/**
+ * Read this installation's report-number range: the one-run override, else
+ * `report_number_range` in config/profile.yml. Returns null when neither is
+ * set (or the profile does not exist); throws on an unreadable profile or an
+ * invalid range.
+ *
+ * @returns {{min:number,max:number}|null}
+ */
+export function readReportNumberRange(options = {}) {
   const override = process.env[REPORT_NUMBER_RANGE_ENV]?.trim();
   if (override) {
     try {
@@ -101,34 +117,29 @@ function reportNumberRangeFor(options = {}) {
     }
   }
 
-  const profilePath = resolve(
-    options.profilePath
-      || process.env.CAREER_OPS_PROFILE
-      || join(options.rootDir || ROOT, 'config', 'profile.yml'),
-  );
+  const profilePath = profilePathFor(options);
   let profile;
   try {
     profile = yaml.load(readFileSync(profilePath, 'utf-8')) || {};
   } catch (err) {
-    if (err?.code === 'ENOENT') {
-      throw new Error(
-        `Missing required report_number_range in config/profile.yml (${profilePath}). `
-        + 'Set report_number_range to this installation\'s assigned range, such as "1-999".',
-      );
-    }
+    if (err?.code === 'ENOENT') return null;
     throw new Error(`Cannot read config/profile.yml (${profilePath}): ${err.message}`);
   }
-  if (profile.report_number_range == null || String(profile.report_number_range).trim() === '') {
-    throw new Error(
-      `Missing required report_number_range in config/profile.yml (${profilePath}). `
-      + 'Set report_number_range to this installation\'s assigned range, such as "1-999".',
-    );
-  }
+  if (profile.report_number_range == null || String(profile.report_number_range).trim() === '') return null;
   try {
     return parseReportNumberRange(profile.report_number_range);
   } catch (err) {
     throw new RangeError(`Invalid report_number_range in config/profile.yml (${profilePath}): ${err.message}`);
   }
+}
+
+function reportNumberRangeFor(options = {}) {
+  const range = readReportNumberRange(options);
+  if (range) return range;
+  throw new Error(
+    `Missing required report_number_range in config/profile.yml (${profilePathFor(options)}). `
+    + 'Set report_number_range to this installation\'s assigned range, such as "1-999".',
+  );
 }
 
 function rangeDescription(range) {
@@ -226,7 +237,7 @@ function occupiedFromTracker(trackerPath) {
   return occupied;
 }
 
-function collectOccupied(reportsDir, trackerPath, batchStateFile) {
+export function collectOccupied(reportsDir, trackerPath, batchStateFile) {
   const occupied = occupiedFromReports(reportsDir);
   for (const num of occupiedFromTracker(trackerPath)) occupied.add(num);
   for (const num of occupiedFromFailedBatchState(batchStateFile)) occupied.add(num);

@@ -1408,7 +1408,9 @@ posting_location: "Halifax, NS"
 }
 
 // --- Real sources ---
-const REPORT_FILE_RE = /^(\d{3})-.*-(\d{4}-\d{2}-\d{2})\.md$/;
+// Report numbers have a three-digit minimum width, not a fixed one: track
+// ranges reach four and six digits (`1037-…`, `103244-…`).
+const REPORT_FILE_RE = /^(\d+)-.*-(\d{4}-\d{2}-\d{2})\.md$/;
 
 /**
  * Resolve applications from tracker rows, reaching each row's report through

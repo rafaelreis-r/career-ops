@@ -376,7 +376,7 @@ Formato a anexar: aviso de borrador generado; gaps flagged; `Opening`; `Profile 
 
 Guardar la evaluación completa en `reports/{###}-{company-slug}-{YYYY-MM-DD}.md`.
 
-- `{###}` = siguiente número secuencial (3 dígitos, zero-padded). Ejecutar `node reserve-report-num.mjs` para reservar, luego `node reserve-report-num.mjs --release {###}` para liberar.
+- `{###}` = siguiente número secuencial (mínimo 3 dígitos, zero-padded). Ejecutar `node reserve-report-num.mjs` para reservar, luego `node reserve-report-num.mjs --release {###}` para liberar.
 - `{company-slug}` = nombre de empresa en minúsculas, sin espacios (usar guiones)
 - `{YYYY-MM-DD}` = fecha de hoy
 - **Oferta mediada por agencia (#1596):** slug `confidential-{agency-slug}`. El archivo NUNCA se renombra después de revelar al empleador.

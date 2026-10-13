@@ -9,10 +9,15 @@
 * **rank-pipeline:** rank US-only postings below the forwarding cutoff without a scorer call, including pending rows with an existing `cal-v3` rank: a US benefit in the JD, a US-only location, remote work limited to the US, or US work authorization without sponsorship. Mixed locations remain eligible for scoring. The reason shows on the annotated row; `location.authorized_in` listing the United States turns the screen off.
 * **rank-pipeline:** make the CLI path's batch size and per-call timeout configurable (`--batch` / `CAREER_OPS_RANK_BATCH`, `--timeout-ms` / `CAREER_OPS_RANK_TIMEOUT_MS`); defaults stay 10 and 120 s, invalid values are refused.
 * **rank-pipeline:** check selected postings against public ATS APIs before scoring, and mark confirmed closed ones as expired. See [rank-pipeline](docs/SCRIPTS.md#rank-pipeline) for the check's limits and options.
+* **renumber-ids:** move a track's tracker `#`s and report numbers into its 100,000-number block (`new = base + old`) with `renumber-ids.mjs plan`/`apply`, migrate the shared TSVs with the base of each row's track, and undo it from the written `id-map.tsv`. The plan proves the reverse in memory before anything is written; see [FORK.md](docs/FORK.md#moving-a-track-into-its-block).
+* **profile:** `config/profile.example.yml` assigns 100,000-number blocks (`100000-199999`, `200000-299999`, …) instead of 1,000-number ranges, and the report-number prompts say "minimum 3 digits".
 
 ### Bug Fixes
 
 * **merge-tracker:** a re-evaluation no longer replaces a physical tracker line that holds two glued rows, which deleted the second row.
+* **batch:** a failed report-number reservation now fails the offer instead of launching a worker with an empty report number (port of career-ops-hq/career-ops#5054).
+* **merge-tracker:** the tracker-`#` collision fallback stays inside `report_number_range` and refuses the addition when the range is full, instead of taking the highest number plus one.
+* **salary-gap:** read reports numbered with four or more digits, which the three-digit file match skipped.
 
 ## [1.36.0](https://github.com/career-ops-hq/career-ops/compare/career-ops-v1.35.0...career-ops-v1.36.0) (2026-10-10)
 

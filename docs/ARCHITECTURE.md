@@ -89,7 +89,7 @@ templates/cv-template.html → PDF generation template
 
 ## File Naming Conventions
 
-- Reports: `{###}-{company-slug}-{YYYY-MM-DD}.md` (3-digit zero-padded)
+- Reports: `{report-number}-{company-slug}-{YYYY-MM-DD}.md` (minimum 3 digits, zero-padded; see [FORK.md](FORK.md#layout) for the track blocks)
 - PDFs: `cv-candidate-{company-slug}-{YYYY-MM-DD}.pdf`
 - Tracker TSVs: `batch/tracker-additions/{id}.tsv`
 
