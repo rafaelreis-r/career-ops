@@ -4463,8 +4463,21 @@ async function apply() {
     const configuredReferencePaths = configuredSnapshot.localFiles;
     const configuredAtRisk = configuredSnapshot.preservedPaths;
     if (configuredAtRisk.length > 0) {
-      preservedPaths.push(...configuredAtRisk.filter((file) => !preservedPaths.includes(file)));
-      console.log(`Keeping configured template variant(s) with local content: ${configuredAtRisk.join(', ')}`);
+      // Fork: the templates the tracks configure (`ops`) are shipped by this
+      // fork, not authored in the track, so a track's copy that differs from
+      // the target is simply an older fork version. Upstream preserves it even
+      // under --force, which would freeze every track on the template it had
+      // the day the fork first shipped it. Here --force takes the target's
+      // version, with a .bak of the local content, like any other system file.
+      if (updateForce) {
+        for (const result of backupSystemFiles(configuredAtRisk)) {
+          if (!result.error) generatedBackupPaths.add(result.backup);
+        }
+        console.log(`--force: overwriting configured template variant(s) with the shipped version (local copy saved as .bak): ${configuredAtRisk.join(', ')}`);
+      } else {
+        preservedPaths.push(...configuredAtRisk.filter((file) => !preservedPaths.includes(file)));
+        console.log(`Keeping configured template variant(s) with local content: ${configuredAtRisk.join(', ')}`);
+      }
     }
     // Excluding by pathspec keeps the index and the working tree in agreement:
     // checking out and restoring afterwards would leave the index holding the

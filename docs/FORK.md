@@ -368,6 +368,12 @@ Keep these across rebases; each exists for a reason.
   tracker, shared with the hybrid driver's submission-limit check.
 - **Update channel `main`.** `DEFAULT_CHANNEL` in `update-system.mjs`; see
   [How code reaches a track](#how-code-reaches-a-track).
+- **`--force` updates the configured template.** Upstream's updater keeps a
+  template variant named in `config/profile.yml` whenever its local content
+  differs from the target, even under `--force`. In the tracks that variant is
+  the fork's own `ops`, so upstream's rule would freeze each track on the `ops`
+  it first received. Under `--force` the fork overwrites it with the shipped
+  version and writes a `.bak` of the local copy; without `--force` it is kept.
 - **README submission contract.** Every `README*.md` keeps the fork's
   Human-in-the-Loop row and FAQ answer: interactive `apply` leaves submission to
   the user, and the separately invoked hybrid driver may submit once after its
@@ -411,6 +417,8 @@ newest first. Upstream's changes are in `CHANGELOG.md` as shipped.
 - **update-system:** the default channel is `main`, because the fork publishes
   no releases and upstream's `release` default (#3845) made `check` report
   `offline` and `apply` throw. See [How code reaches a track](#how-code-reaches-a-track).
+- **update-system:** `--force` overwrites a configured template variant the
+  fork ships (`ops`) instead of keeping the track's older copy.
 - **templates:** `ops` is rebuilt on upstream's `cv-template.html` with its own
   deltas. The `perfiltech` template is removed (candidate, 2026-10-14: hard to
   read; no track selected it).
