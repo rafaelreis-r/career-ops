@@ -388,7 +388,8 @@ Keep these across rebases; each exists for a reason.
 - **LinkedIn read through Aside.** `liveness-api.mjs` reads a LinkedIn posting
   through Aside's built-in `linkedin.getJob` (the candidate's logged-in
   session, via `aside repl`) before upstream's guest-endpoint rung, and the
-  same read gives `fetch-jd.mjs` and `browser-extract.mjs` the LinkedIn JD.
+  same read gives `fetch-jd.mjs` and `browser-extract.mjs` the LinkedIn JD only
+  when `jobState` is `LISTED`. Other states produce no JD text.
   Without Aside the upstream path runs unchanged. See
   [SCRIPTS.md](SCRIPTS.md#liveness).
 - **`.gitignore`:** `.browser-profiles/` (logged-in sessions) is ignored, and
@@ -421,7 +422,8 @@ newest first. Upstream's changes are in `CHANGELOG.md` as shipped.
 ### Since the rebase
 
 - **liveness / fetch-jd:** LinkedIn postings are read through the
-  candidate's Aside session (`linkedin.getJob`) for liveness and JD text. On
+  candidate's Aside session (`linkedin.getJob`) for liveness and, only when
+  listed, JD text. On
   2026-10-15, 14 of 17 LinkedIn postings in the daily evaluation ended "sem
   confirmação" because the worker read the page text in a tab, where LinkedIn
   leaves the description out.

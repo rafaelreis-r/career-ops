@@ -635,9 +635,7 @@ async function fetchSmartRecruitersJd(apiUrl, postingUrl, textCap, timeoutMs) {
  * Shape one LinkedIn posting, as `checkLinkedInViaAside` read it through the
  * user's Aside session, into a jd-mode result. Pure, same contract as the
  * other normalizers. Company, location and work model lead the text because a
- * LinkedIn description often omits them; a posting LinkedIn no longer lists
- * says so on its own line rather than being dropped, since the text is still
- * the real JD.
+ * LinkedIn description often omits them. Only listed postings supply a JD.
  *
  * @param {any} job - the `job` field of checkLinkedInViaAside's verdict
  * @param {string} postingUrl
@@ -645,6 +643,7 @@ async function fetchSmartRecruitersJd(apiUrl, postingUrl, textCap, timeoutMs) {
  */
 export function normalizeLinkedInAsideJob(job, postingUrl, textCap = JD_TEXT_CAP) {
   const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '');
+  if (str(job?.jobState).toUpperCase() !== 'LISTED') return null;
   const body = str(job?.description);
   if (!body) return null;
 
@@ -654,9 +653,6 @@ export function normalizeLinkedInAsideJob(job, postingUrl, textCap = JD_TEXT_CAP
   const workplace = Array.isArray(job.workplaceTypes) ? job.workplaceTypes.map(str).filter(Boolean) : [];
   if (workplace.length) meta.push(`Work model: ${workplace.join(', ')}`);
   if (typeof job.remoteAllowed === 'boolean') meta.push(`Remote allowed: ${job.remoteAllowed ? 'yes' : 'no'}`);
-  const state = str(job.jobState).toUpperCase();
-  if (state && state !== 'LISTED') meta.push(`LinkedIn status: ${state} (no longer accepting applications)`);
-
   return {
     url: postingUrl,
     title: compactText(str(job.title), 300),

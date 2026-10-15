@@ -8,7 +8,7 @@
 // session rung runs first for every LinkedIn URL, for liveness and for JD text:
 //
 //   jobState LISTED + description -> active, JD text
-//   any other jobState            -> expired (JD text still readable)
+//   any other jobState            -> expired (no JD output)
 //   Aside missing / logged out    -> uncertain with the reason; the guest
 //   / failing                        endpoint (liveness) or the caller's
 //                                    fallback (fetch-jd exit 1) runs as before
@@ -51,6 +51,7 @@ if (cmd !== 'repl' || mode === 'crash') {
   const payload = mode === 'logged-out' ? null : JSON.parse(fs.readFileSync(process.env.STUB_FIXTURE, 'utf8'));
   const linkedin = {
     async getJob(id) {
+      fs.appendFileSync(process.env.STUB_TRACE, JSON.stringify({ id }) + '\\n');
       if (!payload) {
         const e = new Error('LinkedIn Voyager request failed (401): jobs/jobPostings/' + id);
         e.name = 'LinkedInVoyagerError';
@@ -85,7 +86,7 @@ async function withGuestFetch(run) {
   try { return { verdict: await run(), calls }; } finally { globalThis.fetch = previous; }
 }
 
-const traceTimes = () => readFileSync(TRACE, 'utf-8').trim().split('\n').map((l) => JSON.parse(l).at);
+const traceTimes = () => readFileSync(TRACE, 'utf-8').trim().split('\n').map((l) => JSON.parse(l).at).filter(Number.isFinite);
 
 test('a listed posting is live through Aside and the guest endpoint is never asked', { skip: !POSIX }, async () => {
   withStub('listed', LISTED);
@@ -145,6 +146,7 @@ function fetchJd(url, env) {
 }
 
 test('fetch-jd prints the LinkedIn JD with company, location and work model', { skip: !POSIX }, () => {
+  writeFileSync(TRACE, '');
   const run = fetchJd('https://www.linkedin.com/jobs/view/4479715297', { ASIDE_BIN: STUB, STUB_MODE: 'listed', STUB_FIXTURE: LISTED });
   assert.equal(run.status, 0, run.stderr);
   assert.equal(run.stdout, [
@@ -162,13 +164,13 @@ test('fetch-jd prints the LinkedIn JD with company, location and work model', { 
     'Responsabilidades',
     'Liderar a operação de ponta a ponta e o time de 40 pessoas.',
   ].join('\n'));
+  assert.deepEqual(readFileSync(TRACE, 'utf-8').trim().split('\n').map((line) => JSON.parse(line).id).filter(Boolean), ['4479715297']);
 });
 
-test('fetch-jd keeps a closed LinkedIn JD and labels its status', { skip: !POSIX }, () => {
+test('fetch-jd misses a closed LinkedIn posting', { skip: !POSIX }, () => {
   const run = fetchJd('https://www.linkedin.com/jobs/view/4011223344', { ASIDE_BIN: STUB, STUB_MODE: 'closed', STUB_FIXTURE: CLOSED });
-  assert.equal(run.status, 0, run.stderr);
-  assert.match(run.stdout, /^LinkedIn status: CLOSED \(no longer accepting applications\)$/m);
-  assert.match(run.stdout, /Fully remote role supporting litigation teams\./);
+  assert.equal(run.status, 1, run.stderr);
+  assert.equal(run.stdout, '');
 });
 
 test('fetch-jd misses (exit 1, empty stdout) when Aside crashes or is absent', () => {
@@ -196,9 +198,8 @@ test('jobState decides: LISTED with text is live, anything else is closed, no st
   assert.equal(classifyLinkedInAsideJob({ description: 'x' }).result, 'uncertain');
 });
 
-test('the repl script only ever embeds a numeric id', () => {
+test('the repl script rejects a nonnumeric id', () => {
   assert.throws(() => asideLinkedInJobScript('1"); globalThis.injected = true; ("'));
-  assert.match(asideLinkedInJobScript('4479715297'), /linkedin\.getJob\("4479715297"\)/);
 });
 
 test('output without the marker line, or with a broken one, carries no job', () => {
@@ -206,4 +207,3 @@ test('output without the marker line, or with a broken one, carries no job', () 
   assert.equal(parseAsideLinkedInJob('CAREER_OPS_LINKEDIN_JOB {broken'), null);
   assert.deepEqual(parseAsideLinkedInJob('noise\nCAREER_OPS_LINKEDIN_JOB {"jobState":"LISTED"}\n[ok | 3ms]'), { jobState: 'LISTED' });
 });
-

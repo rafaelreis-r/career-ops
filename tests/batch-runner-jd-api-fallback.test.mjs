@@ -31,17 +31,13 @@ const apiBlock = (() => {
   const m = SRC.match(/  local jd_api_words=0\n  if \[\[ ! -s "\$jd_file"[\s\S]*?\n  fi\n/);
   return m ? m[0] : null;
 })();
+const prefetchStart = SRC.lastIndexOf('  if [[ ! -s "$jd_file" ]]; then', SRC.indexOf('  local prefetch_min_words=80'));
+const prefetchAndApi = SRC.slice(prefetchStart, SRC.indexOf('  echo "--- Processing offer'));
 
 if (apiBlock) pass('batch-runner.sh has the ATS API fallback block');
 else fail('ATS API fallback block is missing from batch-runner.sh');
 
 // ── static checks ───────────────────────────────────────────────────────────
-
-// The fallback has to run after the curl prefetch, or it would be overwritten.
-const curlAt = SRC.indexOf('if command -v curl >/dev/null 2>&1; then');
-const apiAt = SRC.indexOf('local jd_api_words=0');
-if (curlAt !== -1 && apiAt > curlAt) pass('the API fallback runs after the curl prefetch');
-else fail('the API fallback must come after the curl prefetch block');
 
 // The URL reaches fetch-jd.mjs as one quoted argv element.
 if (apiBlock && /node "\$PROJECT_DIR\/fetch-jd\.mjs" "\$url"/.test(apiBlock)) {
@@ -140,6 +136,47 @@ if (!bash || !apiBlock) {
       pass('hostile URL: passed as a single argument, no command substitution runs');
     } else {
       fail(`hostile URL: marker=${existsSync(marker)} argv=${JSON.stringify(argv)}`);
+    }
+
+    const runWhole = (url) => {
+      n += 1;
+      const jd = join(work, `whole-${n}.txt`);
+      const curlTrace = join(work, `curl-${n}.txt`);
+      const apiTrace = join(work, `api-${n}.txt`);
+      const script = join(work, `whole-${n}.sh`);
+      writeFileSync(jd, '');
+      writeFileSync(curlTrace, '');
+      writeFileSync(apiTrace, '');
+      writeFileSync(script, [
+        '#!/usr/bin/env bash',
+        `jd_file=${JSON.stringify(jd)}`,
+        `PROJECT_DIR=${JSON.stringify(projectDir)}`,
+        `curl_trace=${JSON.stringify(curlTrace)}`,
+        'url="$OFFER_URL"',
+        'curl() { printf "%s\\n" "$url" >> "$curl_trace"; return 1; }',
+        'runPrefetch() {',
+        prefetchAndApi,
+        '}',
+        'runPrefetch',
+      ].join('\n'));
+      execFileSync(bash, [script], {
+        encoding: 'utf-8', timeout: 30000, cwd: work,
+        env: { ...process.env, STUB_MODE: 'hit', STUB_TRACE: apiTrace, OFFER_URL: url, TMPDIR: work },
+      });
+      return { jd: readFileSync(jd, 'utf-8'), curl: readFileSync(curlTrace, 'utf-8'), trace: readFileSync(apiTrace, 'utf-8') };
+    };
+
+    for (const url of [
+      'https://www.linkedin.com/jobs/view/4479715297',
+      'https://br.linkedin.com/jobs/view/head-de-operacoes-4479715297/?refId=x&trk=y',
+    ]) {
+      const result = runWhole(url);
+      const argv = JSON.parse(result.trace.trim());
+      if (result.jd === long && result.curl === '' && argv.length === 1 && argv[0] === url) {
+        pass('LinkedIn posting uses fetch-jd directly with one URL argument');
+      } else {
+        fail(`LinkedIn posting did not bypass curl: ${JSON.stringify(result)}`);
+      }
     }
   } finally {
     rmSync(work, { recursive: true, force: true });

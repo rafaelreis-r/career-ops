@@ -30,7 +30,7 @@ const SRC = readFileSync(join(ROOT, 'batch/batch-runner.sh'), 'utf-8').replace(/
 // Extract the curl prefetch block once so flag assertions target only that region,
 // not unrelated SRC matches that happen to share flag names.
 const curlPrefetchBlock = (() => {
-  const m = SRC.match(/if command -v curl >\/dev\/null 2>&1; then[\s\S]*?\n  fi\n/);
+  const m = SRC.match(/if \[\[ "\$linkedin_posting" != "1" \]\] && command -v curl >\/dev\/null 2>&1; then[\s\S]*?\n  fi\n/);
   if (!m) throw new Error('Missing curl prefetch block');
   return m[0];
 })();
@@ -226,7 +226,7 @@ if (/rm -f "\$resolved_prompt" "\$jd_file"/.test(SRC) || /rm -f "\$jd_file"/.tes
 // The prefetch block must occur BEFORE the "--- Processing offer" log line so
 // the operator sees the prefetch outcome before the worker launch message.
 const mktemPos = SRC.indexOf('jd_file="$(mktemp');
-const prefetchPos = SRC.indexOf('if command -v curl');
+const prefetchPos = SRC.indexOf('if [[ "$linkedin_posting" != "1" ]] && command -v curl');
 const processingPos = SRC.indexOf('echo "--- Processing offer');
 if (mktemPos >= 0 && prefetchPos >= 0 && processingPos >= 0 &&
     mktemPos < prefetchPos && prefetchPos < processingPos) {
