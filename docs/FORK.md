@@ -385,6 +385,11 @@ Keep these across rebases; each exists for a reason.
   already runs, so an Ashby posting is filled and submitted in Aside. The rule is
   in `modes/_custom.template.md`; each track's own `modes/_custom.md` is the
   copy the agent reads.
+- **LinkedIn read through Aside.** `liveness-api.mjs` reads a LinkedIn posting
+  through Aside's built-in `linkedin.getJob` before upstream's guest-endpoint
+  rung. The same read supplies listed postings to `fetch-jd.mjs` and
+  `browser-extract.mjs`. See [SCRIPTS.md](SCRIPTS.md#liveness) for verdicts and
+  fallback behavior.
 - **`.gitignore`:** `.browser-profiles/` (logged-in sessions) is ignored, and
   `!batch/*.mjs` keeps per-round helper scripts visible under upstream's
   `batch/*` rule.

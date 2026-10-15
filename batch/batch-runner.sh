@@ -971,7 +971,14 @@ process_offer() {
   # requirements, which together exceed 80 stripped words.
   local prefetch_min_words=80
   local jd_prefetch_words=0
-  if command -v curl >/dev/null 2>&1; then
+  local linkedin_posting
+  linkedin_posting="$(node -e '
+    try {
+      const u = new URL(process.argv[1]);
+      process.stdout.write(/(^|\.)linkedin\.com$/i.test(u.hostname) && /^\/jobs\/view\/(?:[^/]*-)?\d+\/?$/i.test(u.pathname) ? "1" : "0");
+    } catch { process.stdout.write("0"); }
+  ' "$url")"
+  if [[ "$linkedin_posting" != "1" ]] && command -v curl >/dev/null 2>&1; then
     # Reject loopback, link-local, and private-network destinations before curl
     # connects. --proto/--proto-redir restrict schemes but not destination IPs,
     # so a malicious offer URL could reach cloud metadata (169.254.169.254) or
@@ -1076,14 +1083,13 @@ process_offer() {
   fi
 
 
-  # ATS API fallback (#4246). When the static fetch above left $jd_file empty
-  # (thin JS shell, curl failure, curl absent), ask the ATS's own public API
-  # through fetch-jd.mjs before the worker falls back to WebFetch, which hits
-  # the same unrendered shell on Ashby and embedded Greenhouse boards.
+  # Known-provider JD fallback (#4246). LinkedIn skips curl and reads the
+  # posting through Aside here; other providers reach this step when the static
+  # fetch left $jd_file empty (thin JS shell, curl failure, curl absent).
   # The call lives here and not in the worker prompt on purpose: the offer URL
   # is untrusted, and here it travels as one argv element ("$url"), never as
   # text inside a shell command the worker composes. fetch-jd.mjs only talks to
-  # the known ATS API hosts it resolves from the URL, so a private or unknown
+  # known provider endpoints it resolves from the URL, so a private or unknown
   # host is a miss (exit 1), not a request.
   local jd_api_words=0
   if [[ ! -s "$jd_file" && -f "$PROJECT_DIR/fetch-jd.mjs" ]]; then
@@ -1093,7 +1099,7 @@ process_offer() {
       jd_api_words=$(wc -w < "$jd_api_tmp" 2>/dev/null) || jd_api_words=0
       jd_api_words="${jd_api_words//[^0-9]/}"
       jd_api_words="${jd_api_words:-0}"
-      if [[ "$jd_api_words" -ge "$prefetch_min_words" ]]; then
+      if [[ "$jd_api_words" -gt 0 && ( "$linkedin_posting" == "1" || "$jd_api_words" -ge "$prefetch_min_words" ) ]]; then
         cat "$jd_api_tmp" > "$jd_file"
         echo "    ℹ️  JD prefetch: ${jd_api_words} words from the ATS API (fetch-jd.mjs)"
       fi

@@ -48,7 +48,7 @@ import { fileURLToPath } from 'url';
 import * as yaml from 'js-yaml';
 import { LIVENESS_CONTEXT_OPTIONS, rejectPrivateOrInvalid } from './liveness-browser.mjs';
 import { getCareerOpsRoot } from './path-resolver.mjs';
-import { resolveAtsApi, JD_TEXT_API_ATS } from './liveness-api.mjs';
+import { resolveAtsApi, JD_TEXT_API_ATS, checkLinkedInViaAside } from './liveness-api.mjs';
 import { decodeEntities } from './providers/_html-entities.mjs';
 import { isWorkModelOnly } from './providers/greenhouse.mjs';
 import { DEFAULT_USER_AGENT } from './user-agent.mjs';
@@ -632,6 +632,40 @@ async function fetchSmartRecruitersJd(apiUrl, postingUrl, textCap, timeoutMs) {
 }
 
 /**
+ * Shape one LinkedIn posting, as `checkLinkedInViaAside` read it through the
+ * user's Aside session, into a jd-mode result. Pure, same contract as the
+ * other normalizers. Company, location and work model lead the text because a
+ * LinkedIn description often omits them. Only listed postings supply a JD.
+ *
+ * @param {any} job - the `job` field of checkLinkedInViaAside's verdict
+ * @param {string} postingUrl
+ * @param {number} [textCap]
+ */
+export function normalizeLinkedInAsideJob(job, postingUrl, textCap = JD_TEXT_CAP) {
+  const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : '');
+  if (str(job?.jobState).toUpperCase() !== 'LISTED') return null;
+  const body = str(job?.description);
+  if (!body) return null;
+
+  const meta = [];
+  if (str(job.company)) meta.push(`Company: ${str(job.company)}`);
+  if (str(job.location)) meta.push(`Location: ${str(job.location)}`);
+  const workplace = Array.isArray(job.workplaceTypes) ? job.workplaceTypes.map(str).filter(Boolean) : [];
+  if (workplace.length) meta.push(`Work model: ${workplace.join(', ')}`);
+  if (typeof job.remoteAllowed === 'boolean') meta.push(`Remote allowed: ${job.remoteAllowed ? 'yes' : 'no'}`);
+  return {
+    url: postingUrl,
+    title: compactText(str(job.title), 300),
+    text: compactText([meta.join('\n'), body].filter(Boolean).join('\n\n'), textCap),
+  };
+}
+
+async function fetchLinkedInJd(id, postingUrl, textCap) {
+  const { job } = await checkLinkedInViaAside(id);
+  return job ? normalizeLinkedInAsideJob(job, postingUrl, textCap) : null;
+}
+
+/**
  * ats id → fetcher. THE routing table `fetchJdViaKnownApi` dispatches through,
  * exported so the owned test can assert its key set IS `JD_TEXT_API_ATS`.
  *
@@ -657,6 +691,9 @@ export const JD_FETCHERS = {
     fetchGreenhouseEmbeddedJd(resolved, url, textCap, timeoutMs),
   smartrecruiters: (resolved, url, textCap, timeoutMs) =>
     fetchSmartRecruitersJd(resolved.apiUrl, url, textCap, timeoutMs),
+  // Aside bounds its own call; the HTTP timeout does not apply.
+  linkedin: (resolved, url, textCap) =>
+    fetchLinkedInJd(resolved.parts.id, url, textCap),
 };
 
 /**

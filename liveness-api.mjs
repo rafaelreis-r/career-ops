@@ -28,11 +28,19 @@
  *     HTML and answers 200 for closed postings too, so `interpret` reads two
  *     independent signals out of the body and only concludes when they agree.
  *
+ * One provider (LinkedIn) also has a session rung, `sessionCheck`, tried before
+ * its public endpoint: the candidate's own logged-in LinkedIn session, read
+ * through the Aside browser CLI (`checkLinkedInViaAside`). Only a conclusive
+ * session verdict ends the check; an absent, logged-out or failing Aside leaves
+ * the public-endpoint path exactly as it was.
+ *
  * SSRF-safe by construction: the request URL is built from a FIXED, hard-coded API
  * host plus path segments extracted from the posting URL with a strict charset
  * (no slashes / traversal), and server-side redirects are refused.
  */
 
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { DEFAULT_USER_AGENT } from './user-agent.mjs';
 import { parseWwrFeed } from './providers/weworkremotely.mjs';
 import { atsVendorOf } from './ats-vendor.mjs';
@@ -78,6 +86,9 @@ function isSafeValue(v) {
 //   `api404Authoritative` — defaults to true (a 404/410 means gone). Set to
 //                  false when the provider's public API can 404 a posting that
 //                  is still genuinely live elsewhere (see the `lever` entry).
+//   `sessionCheck` — an authenticated rung run before the public API (see the
+//                  `linkedin` entry). Receives the parts, resolves to a verdict;
+//                  only `active`/`expired` ends the check.
 const ATS_PROVIDERS = [
   {
     id: 'greenhouse-embedded',
@@ -321,6 +332,11 @@ const ATS_PROVIDERS = [
       const id = linkedInJobId(u);
       return id ? { id } : null;
     },
+    // First rung: the candidate's logged-in session through Aside's
+    // `linkedin.getJob`, which answers with the posting's state and its full
+    // description. The guest endpoint below is what runs when Aside is absent,
+    // logged out or erroring.
+    sessionCheck: ({ id }) => checkLinkedInViaAside(id),
     api: ({ id }) => `https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${id}`,
     // The endpoint is unauthenticated and rate-limited. Space our calls; the
     // interval sits on the provider so it holds for every caller rather than only
@@ -487,11 +503,155 @@ export function classifyWorkday403(json) {
     : null;
 }
 
+// ── LinkedIn through Aside ────────────────────────────────────────────────────
+// Aside, the candidate's browser, ships a LinkedIn integration (`aside skills
+// show linkedin`): inside `aside repl`, `linkedin.getJob(id)` answers from the
+// user's own logged-in session with the posting's state and full description,
+// without opening a tab. `ASIDE_BIN` overrides the binary; tests point it at a
+// fixture.
+const execFileAsync = promisify(execFile);
+const ASIDE_TIMEOUT_MS = 30_000;
+// Aside's skill rates getJob low-risk and asks batch callers to space calls a
+// few seconds apart (Aside itself adds a ~1-1.75 s per-request floor).
+const ASIDE_THROTTLE_MS = 3_000;
+const ASIDE_JOB_MARKER = 'CAREER_OPS_LINKEDIN_JOB ';
+const LINKEDIN_LISTED_STATE = 'LISTED';
+// Binaries already found missing in this process: re-spawning them cannot
+// succeed, and each attempt would still wait out the throttle.
+const missingAsideBins = new Set();
+
+/**
+ * The one-shot `aside repl` script that reads one posting. It prints a single
+ * marker line with the fields career-ops needs, or `{ error }` when getJob
+ * throws (`aside repl` itself exits 0 either way).
+ *
+ * @param {string} id - numeric LinkedIn job id
+ * @returns {string}
+ */
+export function asideLinkedInJobScript(id) {
+  if (!/^\d+$/.test(String(id))) throw new Error(`not a LinkedIn job id: ${id}`);
+  return 'await (async () => {'
+    + ` const emit = (o) => console.log(${JSON.stringify(ASIDE_JOB_MARKER)} + JSON.stringify(o));`
+    + ` try { const j = await linkedin.getJob(${JSON.stringify(String(id))});`
+    + ' const c = Object.values(j?.companyDetails ?? {})[0];'
+    + ' emit({ title: j?.title ?? null,'
+    + ' company: c?.companyResolutionResult?.name ?? c?.companyName ?? null,'
+    + ' location: j?.formattedLocation ?? null,'
+    + ' remoteAllowed: j?.workRemoteAllowed ?? null,'
+    + ' workplaceTypes: Object.values(j?.workplaceTypesResolutionResults ?? {}).map((w) => w?.localizedName).filter(Boolean),'
+    + ' jobState: j?.jobState ?? null,'
+    + ' description: j?.description?.text ?? null });'
+    + ' } catch (e) { emit({ error: String(e?.message ?? e) }); }'
+    + ' })();';
+}
+
+/**
+ * Pull the job payload out of `aside repl` stdout. Pure.
+ *
+ * @param {any} stdout
+ * @returns {Record<string, any> | null} null = no marker line, or unparseable
+ */
+export function parseAsideLinkedInJob(stdout) {
+  const line = String(stdout ?? '').split(/\r?\n/).find((l) => l.startsWith(ASIDE_JOB_MARKER));
+  if (!line) return null;
+  try {
+    const payload = JSON.parse(line.slice(ASIDE_JOB_MARKER.length));
+    return payload && typeof payload === 'object' ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide liveness for one LinkedIn posting from its `linkedin.getJob` payload.
+ * Pure + deterministic. LinkedIn's `jobState` is `LISTED` while the posting
+ * accepts applications; any other state (`CLOSED`, `SUSPENDED`, ...) is what
+ * the posting page shows as "No longer accepting applications". A listed
+ * posting without a description, or a payload without a state, is a read we
+ * cannot vouch for and stays `uncertain`.
+ *
+ * @param {any} job - parsed payload from asideLinkedInJobScript
+ * @returns {{ result: 'active' | 'expired' | 'uncertain', code: string, reason: string }}
+ */
+export function classifyLinkedInAsideJob(job) {
+  const state = typeof job?.jobState === 'string' ? job.jobState.trim().toUpperCase() : '';
+  if (!state) {
+    return { result: 'uncertain', code: 'linkedin_aside_no_state', reason: 'LinkedIn (via Aside) returned the posting without a jobState' };
+  }
+  if (state !== LINKEDIN_LISTED_STATE) {
+    return { result: 'expired', code: 'linkedin_aside_closed', reason: `LinkedIn (via Aside) reports jobState ${state}: no longer accepting applications` };
+  }
+  if (typeof job.description !== 'string' || !job.description.trim()) {
+    return { result: 'uncertain', code: 'linkedin_aside_no_description', reason: 'LinkedIn (via Aside) lists the posting but returned no description' };
+  }
+  return { result: 'active', code: 'linkedin_aside_listed', reason: 'LinkedIn (via Aside) lists the posting with its description (live)' };
+}
+
+function firstLine(text) {
+  const line = String(text ?? '').split(/\r?\n/).map((l) => l.trim()).find(Boolean) || '';
+  return line.length > 200 ? `${line.slice(0, 200)}…` : line;
+}
+
+/**
+ * Read one LinkedIn posting through the candidate's Aside session.
+ * Never throws and never retries: a missing binary, a logged-out session or a
+ * getJob error is an `uncertain` verdict whose reason says which, and the
+ * caller carries on with its other rungs.
+ *
+ * @param {string} id - numeric LinkedIn job id
+ * @returns {Promise<{ result: 'active' | 'expired' | 'uncertain', code: string, reason: string, job?: Record<string, any> }>}
+ *   `job` (title, company, location, remoteAllowed, workplaceTypes, jobState,
+ *   description) is present whenever LinkedIn answered.
+ */
+export async function checkLinkedInViaAside(id) {
+  const bin = process.env.ASIDE_BIN || 'aside';
+  const unavailable = {
+    result: 'uncertain',
+    code: 'linkedin_aside_unavailable',
+    reason: `Aside CLI not found (${bin}), so LinkedIn could not be read through the user's session`,
+  };
+  if (missingAsideBins.has(bin)) return unavailable;
+  let script;
+  try {
+    script = asideLinkedInJobScript(id);
+  } catch (err) {
+    return { result: 'uncertain', code: 'linkedin_aside_bad_id', reason: err.message };
+  }
+  await throttleProviderRequest('linkedin-aside', ASIDE_THROTTLE_MS);
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(bin, ['repl', script], {
+      encoding: 'utf8',
+      timeout: ASIDE_TIMEOUT_MS,
+      maxBuffer: 16 * 1024 * 1024,
+      windowsHide: true,
+    }));
+  } catch (err) {
+    if (err?.code === 'ENOENT') {
+      missingAsideBins.add(bin);
+      return unavailable;
+    }
+    const detail = err?.killed
+      ? `timed out after ${ASIDE_TIMEOUT_MS / 1000}s`
+      : firstLine(err?.stderr) || firstLine(err?.stdout) || err?.message;
+    return { result: 'uncertain', code: 'linkedin_aside_failed', reason: `aside repl failed: ${detail}` };
+  }
+  const job = parseAsideLinkedInJob(stdout);
+  if (!job) {
+    return { result: 'uncertain', code: 'linkedin_aside_no_answer', reason: `aside repl printed no job payload: ${firstLine(stdout) || 'empty output'}` };
+  }
+  if (job.error) {
+    const loggedOut = /\((401|403)\)/.test(String(job.error)) ? ' (LinkedIn session in Aside is logged out or expired)' : '';
+    return { result: 'uncertain', code: 'linkedin_aside_error', reason: `Aside linkedin.getJob failed${loggedOut}: ${firstLine(job.error)}` };
+  }
+  return { ...classifyLinkedInAsideJob(job), job };
+}
+
 /**
  * Map a posting URL to its ATS API URL, or null if it isn't a known ATS posting
  * (or any extracted segment fails the strict charset). Pure + deterministic.
  * @param {string} rawUrl
- * @returns {{ ats: string, apiUrl: string, parts: Record<string, string>, timeoutMs?: number, throttleMs?: number, accept?: string, interpret?: (res: Response, parts: Record<string, string>) => Promise<{ result: 'active' | 'expired' | 'uncertain', code: string, reason: string } | null>, interpretStatuses?: number[], api404Authoritative: boolean } | null}
+ * @returns {{ ats: string, apiUrl: string, parts: Record<string, string>, timeoutMs?: number, throttleMs?: number, accept?: string, interpret?: (res: Response, parts: Record<string, string>) => Promise<{ result: 'active' | 'expired' | 'uncertain', code: string, reason: string } | null>, interpretStatuses?: number[], api404Authoritative: boolean, sessionCheck?: (parts: Record<string, string>) => Promise<{ result: 'active' | 'expired' | 'uncertain', code: string, reason: string }> } | null}
  */
 export function resolveAtsApi(rawUrl) {
   let u;
@@ -520,6 +680,7 @@ export function resolveAtsApi(rawUrl) {
       interpret: provider.interpret,
       interpretStatuses: provider.interpretStatuses,
       api404Authoritative: provider.api404Authoritative !== false,
+      sessionCheck: provider.sessionCheck,
     };
   }
   return null;
@@ -530,18 +691,19 @@ export function isAtsPosting(url) {
   return resolveAtsApi(url) !== null;
 }
 
-// ATS ids whose public API returns the actual JD body (not just a liveness
-// signal). Greenhouse (`content`), Lever (`descriptionPlain`), Ashby
-// (`descriptionPlain` on the org board), Workday (`jobPostingInfo.jobDescription`
-// on the per-job CXS endpoint) and SmartRecruiters (`jobAd.sections`) all ship
-// full text for free in the same payload resolveAtsApi() already points at.
-// greenhouse-embedded (a company careers page carrying only `?gh_jid=`) reaches
-// the same per-job Greenhouse endpoint once its embed redirect names the board.
-// Microsoft and LinkedIn are on ATS_PROVIDERS
-// for liveness only — their public endpoints answer search/status, never body
-// text — so they are deliberately excluded here; see fetch-jd.mjs / the
-// fetch*Jd() family in browser-extract.mjs for the per-provider fetchers.
-export const JD_TEXT_API_ATS = new Set(['greenhouse', 'greenhouse-embedded', 'lever', 'ashby', 'workday', 'smartrecruiters']);
+// ATS ids whose JD body can be read without a browser. Greenhouse (`content`),
+// Lever (`descriptionPlain`), Ashby (`descriptionPlain` on the org board),
+// Workday (`jobPostingInfo.jobDescription` on the per-job CXS endpoint) and
+// SmartRecruiters (`jobAd.sections`) all ship full text for free in the same
+// payload resolveAtsApi() already points at. greenhouse-embedded (a company
+// careers page carrying only `?gh_jid=`) reaches the same per-job Greenhouse
+// endpoint once its embed redirect names the board. LinkedIn's text comes from
+// its session rung (checkLinkedInViaAside), not from the guest endpoint.
+// Microsoft is on ATS_PROVIDERS for liveness only — its public endpoint answers
+// search/status, never body text — so it is deliberately excluded here; see
+// fetch-jd.mjs / the fetch*Jd() family in browser-extract.mjs for the
+// per-provider fetchers.
+export const JD_TEXT_API_ATS = new Set(['greenhouse', 'greenhouse-embedded', 'lever', 'ashby', 'workday', 'smartrecruiters', 'linkedin']);
 
 /**
  * Zero-token liveness check via the posting's ATS API.
@@ -554,7 +716,15 @@ export const JD_TEXT_API_ATS = new Set(['greenhouse', 'greenhouse-embedded', 'le
 export async function checkLivenessViaApi(url) {
   const resolved = resolveAtsApi(url);
   if (!resolved) return null;
-  const { ats, apiUrl, parts, interpret, interpretStatuses, timeoutMs, throttleMs, accept, headers, followEmbed, api404Authoritative } = resolved;
+  const { ats, apiUrl, parts, interpret, interpretStatuses, timeoutMs, throttleMs, accept, headers, followEmbed, api404Authoritative, sessionCheck } = resolved;
+
+  // A session rung (LinkedIn through Aside) goes first. Only a conclusive
+  // verdict ends the check; an uncertain one leaves the public API below to
+  // answer exactly as it would without the session rung.
+  if (sessionCheck) {
+    const { result, code, reason } = await sessionCheck(parts);
+    if (result !== 'uncertain') return { result, code, reason };
+  }
 
   // Wait out any provider rate limit BEFORE arming the timeout, so the spacing
   // does not eat the budget the request itself needs.
