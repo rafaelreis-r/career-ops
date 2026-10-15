@@ -1083,14 +1083,13 @@ process_offer() {
   fi
 
 
-  # ATS API fallback (#4246). When the static fetch above left $jd_file empty
-  # (thin JS shell, curl failure, curl absent), ask the ATS's own public API
-  # through fetch-jd.mjs before the worker falls back to WebFetch, which hits
-  # the same unrendered shell on Ashby and embedded Greenhouse boards.
+  # Known-provider JD fallback (#4246). LinkedIn skips curl and reads the
+  # posting through Aside here; other providers reach this step when the static
+  # fetch left $jd_file empty (thin JS shell, curl failure, curl absent).
   # The call lives here and not in the worker prompt on purpose: the offer URL
   # is untrusted, and here it travels as one argv element ("$url"), never as
   # text inside a shell command the worker composes. fetch-jd.mjs only talks to
-  # the known ATS API hosts it resolves from the URL, so a private or unknown
+  # known provider endpoints it resolves from the URL, so a private or unknown
   # host is a miss (exit 1), not a request.
   local jd_api_words=0
   if [[ ! -s "$jd_file" && -f "$PROJECT_DIR/fetch-jd.mjs" ]]; then

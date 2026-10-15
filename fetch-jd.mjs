@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * fetch-jd.mjs — read a job description from its ATS's public API instead of
- * the rendered page (#2582).
+ * fetch-jd.mjs — read a job description from a known provider instead of the
+ * rendered page (#2582).
  *
  * A headless caller that wants a JD today has one option: fetch the posting
  * page and strip HTML. That is 10-30k tokens of nav and markup on a
@@ -13,7 +13,7 @@
  *
  *   node fetch-jd.mjs <url>
  *
- * JD text on stdout, exit 0, when a known ATS answers with real content.
+ * JD text on stdout, exit 0, when a known provider answers with real content.
  * Exit 1 with empty stdout and no stderr noise otherwise — a miss is the
  * expected "fall back to the browser path" case, not an error condition, and
  * a visible miss is the whole point: never a fabricated JD.
@@ -21,11 +21,12 @@
  * Coverage is JD_TEXT_API_ATS (liveness-api.mjs): Greenhouse (including
  * company careers pages that carry only `?gh_jid=`), Lever, Ashby, Workday,
  * SmartRecruiters, and LinkedIn, whose posting is read through the user's
- * logged-in Aside session (`aside repl` + `linkedin.getJob`) and misses when
- * Aside is absent, logged out or erroring. Every fetch runs through
+ * logged-in Aside session (`aside repl` + `linkedin.getJob`) only while LISTED
+ * with a description. It misses when Aside is absent, logged out or erroring.
+ * Every fetch runs through
  * fetchJdViaKnownApi() in browser-extract.mjs — the same dispatch its own `jd`
  * mode uses — so this script and the interactive extractor cannot drift on
- * which ATS is API-fetchable.
+ * which providers can supply a JD without reading the rendered page.
  */
 
 import { fetchJdViaKnownApi } from './browser-extract.mjs';

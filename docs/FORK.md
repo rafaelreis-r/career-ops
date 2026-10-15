@@ -386,12 +386,10 @@ Keep these across rebases; each exists for a reason.
   in `modes/_custom.template.md`; each track's own `modes/_custom.md` is the
   copy the agent reads.
 - **LinkedIn read through Aside.** `liveness-api.mjs` reads a LinkedIn posting
-  through Aside's built-in `linkedin.getJob` (the candidate's logged-in
-  session, via `aside repl`) before upstream's guest-endpoint rung, and the
-  same read gives `fetch-jd.mjs` and `browser-extract.mjs` the LinkedIn JD only
-  when `jobState` is `LISTED`. Other states produce no JD text.
-  Without Aside the upstream path runs unchanged. See
-  [SCRIPTS.md](SCRIPTS.md#liveness).
+  through Aside's built-in `linkedin.getJob` before upstream's guest-endpoint
+  rung. The same read supplies listed postings to `fetch-jd.mjs` and
+  `browser-extract.mjs`. See [SCRIPTS.md](SCRIPTS.md#liveness) for verdicts and
+  fallback behavior.
 - **`.gitignore`:** `.browser-profiles/` (logged-in sessions) is ignored, and
   `!batch/*.mjs` keeps per-round helper scripts visible under upstream's
   `batch/*` rule.
@@ -418,15 +416,6 @@ were dropped in the 2026-10 rebase.
 Upstream's `CHANGELOG.md` belongs to release-please, so a fork section there
 conflicted on every rebase. The fork records its own changes here instead,
 newest first. Upstream's changes are in `CHANGELOG.md` as shipped.
-
-### Since the rebase
-
-- **liveness / fetch-jd:** LinkedIn postings are read through the
-  candidate's Aside session (`linkedin.getJob`) for liveness and, only when
-  listed, JD text. On
-  2026-10-15, 14 of 17 LinkedIn postings in the daily evaluation ended "sem
-  confirmação" because the worker read the page text in a tab, where LinkedIn
-  leaves the description out.
 
 ### Rebase onto upstream `2f1a548b41` (1.36.0 + 155 commits), 2026-10-13
 
