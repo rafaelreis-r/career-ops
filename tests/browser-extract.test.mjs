@@ -474,7 +474,7 @@ try {
   // caller fall through to the browser path rather than hang on an unknown host.
   const notCovered = await Promise.all([
     fetchJdViaKnownApi('https://example.com/careers/1'),
-    fetchJdViaKnownApi('https://www.linkedin.com/jobs/view/4123456789'),
+    fetchJdViaKnownApi('https://www.linkedin.com/company/acme/jobs/'),
     fetchJdViaKnownApi('not a url'),
     fetchJdViaKnownApi(''),
   ]);
@@ -544,6 +544,7 @@ try {
     ['workday', 'https://acme.wd5.myworkdayjobs.com/External/job/Seattle-WA/Engineer_R1234'],
     ['greenhouse-embedded', 'https://www.acme.com/careers/job?gh_jid=12345'],
     ['smartrecruiters', 'https://jobs.smartrecruiters.com/acme/744000151772990-senior-engineer'],
+    ['linkedin', 'https://www.linkedin.com/jobs/view/4123456789'],
   ];
   const routed = ATS_URL_SHAPES.map(([ats, url]) => {
     const resolved = resolveAtsApi(url);

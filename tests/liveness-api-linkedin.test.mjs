@@ -166,7 +166,10 @@ const API = `https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${ID}`;
 
 // -- 6. end to end through checkLivenessViaApi --------------------------------
 // One call only: the rung throttles itself, so a second would sleep for seconds.
+// Aside is pointed at a missing binary, so its session rung (covered in
+// liveness-api-linkedin-aside.test.mjs) is inconclusive and this guest rung answers.
 {
+  process.env.ASIDE_BIN = join(ROOT, 'tests', 'fixtures', 'no-such-aside-binary');
   const realFetch = globalThis.fetch;
   let requested = null;
   let sentHeaders = null;

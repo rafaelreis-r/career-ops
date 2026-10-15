@@ -20,9 +20,12 @@
  *
  * Coverage is JD_TEXT_API_ATS (liveness-api.mjs): Greenhouse (including
  * company careers pages that carry only `?gh_jid=`), Lever, Ashby, Workday,
- * SmartRecruiters. Every fetch runs through fetchJdViaKnownApi() in browser-extract.mjs
- * — the same dispatch its own `jd` mode uses — so this script and the
- * interactive extractor cannot drift on which ATS is API-fetchable.
+ * SmartRecruiters, and LinkedIn, whose posting is read through the user's
+ * logged-in Aside session (`aside repl` + `linkedin.getJob`) and misses when
+ * Aside is absent, logged out or erroring. Every fetch runs through
+ * fetchJdViaKnownApi() in browser-extract.mjs — the same dispatch its own `jd`
+ * mode uses — so this script and the interactive extractor cannot drift on
+ * which ATS is API-fetchable.
  */
 
 import { fetchJdViaKnownApi } from './browser-extract.mjs';

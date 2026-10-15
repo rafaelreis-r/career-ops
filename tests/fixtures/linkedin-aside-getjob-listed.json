@@ -1,0 +1,46 @@
+{
+  "dashEntityUrn": "urn:li:fsd_jobPosting:4479715297",
+  "companyDetails": {
+    "com.linkedin.voyager.deco.jobs.web.shared.WebCompactJobPostingCompany": {
+      "companyResolutionResult": {
+        "entityUrn": "urn:li:fs_normalized_company:106659948",
+        "name": "Acme Brasil",
+        "$recipeType": "com.linkedin.voyager.deco.organization.shared.WebCompactCompany",
+        "universalName": "acme-brasil",
+        "url": "https://www.linkedin.com/company/acme-brasil"
+      },
+      "company": "urn:li:fs_normalized_company:106659948",
+      "$recipeType": "com.linkedin.voyager.deco.jobs.web.shared.WebCompactJobPostingCompany"
+    }
+  },
+  "jobState": "LISTED",
+  "description": {
+    "attributes": [
+      { "start": 0, "length": 21, "type": { "com.linkedin.pemberly.text.Bold": {} }, "attributeKindUnion": { "bold": {} } }
+    ],
+    "text": "Head de Operações\n\nJornada de trabalho: Modelo Híbrido - São Paulo\n\nResponsabilidades\nLiderar a operação de ponta a ponta e o time de 40 pessoas."
+  },
+  "title": "Head de Operações",
+  "entityUrn": "urn:li:fs_normalized_jobPosting:4479715297",
+  "workRemoteAllowed": false,
+  "applyMethod": {
+    "com.linkedin.voyager.jobs.OffsiteApply": {
+      "applyStartersPreferenceVoid": false,
+      "companyApplyUrl": "https://careers.acme.example/jobs/398630?source=linkedin",
+      "inPageOffsiteApply": false
+    }
+  },
+  "talentHubJob": false,
+  "formattedLocation": "São Paulo, São Paulo, Brazil",
+  "workplaceTypes": ["urn:li:fs_workplaceType:3"],
+  "listedAt": 1792014955000,
+  "jobPostingId": 4479715297,
+  "$recipeType": "com.linkedin.voyager.deco.jobs.web.shared.WebLightJobPosting",
+  "workplaceTypesResolutionResults": {
+    "urn:li:fs_workplaceType:3": {
+      "localizedName": "Hybrid",
+      "$recipeType": "com.linkedin.voyager.deco.jobs.shared.WebJobDetailsWorkplaceType",
+      "entityUrn": "urn:li:fs_workplaceType:3"
+    }
+  }
+}
